@@ -1,4 +1,4 @@
-# mykernel — bare-metal i386 Multiboot
+# mykernel — bare-metal i386 Multiboot + MKDX graphics
 
 BUILD   := build
 SRC     := src
@@ -26,23 +26,30 @@ ARCH_C   := $(SRC)/arch/x86/idt.c \
             $(SRC)/arch/x86/gdt.c
 
 KERNEL_C := $(SRC)/kernel/main.c \
+            $(SRC)/kernel/heap.c \
             $(SRC)/kernel/process.c \
             $(SRC)/kernel/scheduler.c \
             $(SRC)/kernel/syscall.c \
-            $(SRC)/kernel/vfs.c \
-            $(SRC)/kernel/shell.c
-
-USER_C   := $(SRC)/user/ping.c \
-            $(SRC)/user/pong.c
+            $(SRC)/kernel/vfs.c
 
 LIB_C    := $(SRC)/lib/string.c
 
 DRV_C    := $(SRC)/drivers/vga.c \
-            $(SRC)/drivers/keyboard.c \
-            $(SRC)/drivers/console.c
+            $(SRC)/drivers/fb.c \
+            $(SRC)/drivers/console.c \
+            $(SRC)/drivers/keyboard.c
+
+GFX_C    := $(SRC)/gfx/surface.c \
+            $(SRC)/gfx/draw.c \
+            $(SRC)/gfx/blur.c \
+            $(SRC)/gfx/font.c \
+            $(SRC)/gfx/device.c \
+            $(SRC)/gfx/compositor.c \
+            $(SRC)/gfx/window.c \
+            $(SRC)/gfx/demo.c
 
 ASM_SRCS := $(ARCH_ASM)
-C_SRCS   := $(ARCH_C) $(KERNEL_C) $(USER_C) $(LIB_C) $(DRV_C)
+C_SRCS   := $(ARCH_C) $(KERNEL_C) $(LIB_C) $(DRV_C) $(GFX_C)
 
 ASM_OBJS := $(patsubst $(SRC)/%.asm,$(BUILD)/%.o,$(ASM_SRCS))
 C_OBJS   := $(patsubst $(SRC)/%.c,$(BUILD)/%.o,$(C_SRCS))
@@ -65,7 +72,7 @@ $(BUILD)/%.o: $(SRC)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 run: $(TARGET)
-	$(QEMU) -kernel $< -serial stdio
+	$(QEMU) -kernel $< -m 128M
 
 clean:
 	rm -rf $(BUILD)
