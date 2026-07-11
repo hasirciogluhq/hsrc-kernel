@@ -72,7 +72,7 @@ $(BUILD)/%.o: $(SRC)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 run: $(TARGET)
-	$(QEMU) -kernel $< -m 128M
+	$(QEMU) -kernel $< -m 128M -vga std
 
 clean:
 	rm -rf $(BUILD)

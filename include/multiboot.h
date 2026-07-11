@@ -8,6 +8,7 @@
 #define MULTIBOOT_INFO_CMDLINE     (1u << 2)
 #define MULTIBOOT_INFO_MODS        (1u << 3)
 #define MULTIBOOT_INFO_MMAP        (1u << 6)
+#define MULTIBOOT_INFO_VBE         (1u << 11)
 #define MULTIBOOT_INFO_FRAMEBUFFER (1u << 12)
 
 #define MULTIBOOT_FRAMEBUFFER_TYPE_INDEXED  0

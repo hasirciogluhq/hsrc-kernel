@@ -1,19 +1,103 @@
 #include <drivers/fb.h>
+#include <arch/x86/io.h>
 #include <kernel/string.h>
+
+#define FB_DEFAULT_W   1024
+#define FB_DEFAULT_H   768
+#define FB_DEFAULT_BPP 32
+
+/* Bochs/QEMU Graphics Adapter (BGA) */
+#define VBE_DISPI_IOPORT_INDEX  0x01CE
+#define VBE_DISPI_IOPORT_DATA   0x01CF
+#define VBE_DISPI_INDEX_ID      0x0
+#define VBE_DISPI_INDEX_XRES    0x1
+#define VBE_DISPI_INDEX_YRES    0x2
+#define VBE_DISPI_INDEX_BPP     0x3
+#define VBE_DISPI_INDEX_ENABLE  0x4
+#define VBE_DISPI_DISABLED      0x00
+#define VBE_DISPI_ENABLED       0x01
+#define VBE_DISPI_LFB_ENABLED   0x40
+#define VBE_DISPI_ID_MAGIC      0xB0C0
+#define VBE_DISPI_ID_MASK       0xFFF0
+
+#define PCI_CONFIG_ADDR 0xCF8
+#define PCI_CONFIG_DATA 0xCFC
+#define PCI_VENDOR_BOCHS 0x1234
+#define PCI_DEVICE_BGA   0x1111
+
+/* Packed VBE 2.0 mode info (only fields we need) */
+typedef struct vbe_mode_info {
+    uint16_t attributes;
+    uint8_t  win_a, win_b;
+    uint16_t granularity;
+    uint16_t winsize;
+    uint16_t segment_a, segment_b;
+    uint32_t real_fct_ptr;
+    uint16_t pitch;
+    uint16_t x_res, y_res;
+    uint8_t  w_char, y_char, planes, bpp, banks;
+    uint8_t  memory_model, bank_size, image_pages, reserved0;
+    uint8_t  red_mask, red_pos, green_mask, green_pos;
+    uint8_t  blue_mask, blue_pos, rsv_mask, rsv_pos;
+    uint8_t  direct_color;
+    uint32_t physbase;
+} __attribute__((packed)) vbe_mode_info_t;
 
 static fb_info_t fb;
 
-int fb_init(multiboot_info_t *mbi)
+static void bga_write(uint16_t index, uint16_t value)
 {
-    memset(&fb, 0, sizeof(fb));
+    outw(VBE_DISPI_IOPORT_INDEX, index);
+    outw(VBE_DISPI_IOPORT_DATA, value);
+}
 
+static uint16_t bga_read(uint16_t index)
+{
+    outw(VBE_DISPI_IOPORT_INDEX, index);
+    return inw(VBE_DISPI_IOPORT_DATA);
+}
+
+static uint32_t pci_config_read(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset)
+{
+    uint32_t addr = (1u << 31) |
+                    ((uint32_t)bus << 16) |
+                    ((uint32_t)slot << 11) |
+                    ((uint32_t)func << 8) |
+                    (offset & 0xFCu);
+    outl(PCI_CONFIG_ADDR, addr);
+    return inl(PCI_CONFIG_DATA);
+}
+
+static uint32_t bga_find_lfb(void)
+{
+    for (int bus = 0; bus < 8; bus++) {
+        for (int slot = 0; slot < 32; slot++) {
+            uint32_t id = pci_config_read((uint8_t)bus, (uint8_t)slot, 0, 0);
+            uint16_t vendor = (uint16_t)(id & 0xFFFF);
+            uint16_t device = (uint16_t)(id >> 16);
+            if (vendor == 0xFFFF)
+                continue;
+            if (vendor == PCI_VENDOR_BOCHS && device == PCI_DEVICE_BGA) {
+                uint32_t bar0 = pci_config_read((uint8_t)bus, (uint8_t)slot, 0, 0x10);
+                if (bar0 & 1u)
+                    continue; /* I/O BAR */
+                return bar0 & ~0xFu;
+            }
+        }
+    }
+    /* QEMU/Bochs historical default */
+    return 0xE0000000u;
+}
+
+static int fb_try_multiboot_framebuffer(multiboot_info_t *mbi)
+{
     if (!mbi || !(mbi->flags & MULTIBOOT_INFO_FRAMEBUFFER))
         return -1;
-
     if (mbi->framebuffer_type != MULTIBOOT_FRAMEBUFFER_TYPE_RGB)
         return -1;
-
     if (mbi->framebuffer_bpp != 32 && mbi->framebuffer_bpp != 24)
+        return -1;
+    if (mbi->framebuffer_width == 0 || mbi->framebuffer_height == 0)
         return -1;
 
     fb.addr = (uint8_t *)(uintptr_t)mbi->framebuffer_addr;
@@ -24,6 +108,67 @@ int fb_init(multiboot_info_t *mbi)
     fb.bytes_per_pixel = fb.bpp / 8;
     fb.ready = 1;
     return 0;
+}
+
+static int fb_try_multiboot_vbe(multiboot_info_t *mbi)
+{
+    if (!mbi || !(mbi->flags & MULTIBOOT_INFO_VBE) || !mbi->vbe_mode_info)
+        return -1;
+
+    vbe_mode_info_t *mode = (vbe_mode_info_t *)(uintptr_t)mbi->vbe_mode_info;
+    if (!mode->physbase || mode->x_res == 0 || mode->y_res == 0)
+        return -1;
+    if (mode->bpp != 32 && mode->bpp != 24)
+        return -1;
+
+    fb.addr = (uint8_t *)(uintptr_t)mode->physbase;
+    fb.width = mode->x_res;
+    fb.height = mode->y_res;
+    fb.pitch = mode->pitch;
+    fb.bpp = mode->bpp;
+    fb.bytes_per_pixel = fb.bpp / 8;
+    fb.ready = 1;
+    return 0;
+}
+
+static int fb_try_bga(uint32_t width, uint32_t height, uint32_t bpp)
+{
+    uint16_t id = bga_read(VBE_DISPI_INDEX_ID);
+    if ((id & VBE_DISPI_ID_MASK) != VBE_DISPI_ID_MAGIC)
+        return -1;
+
+    bga_write(VBE_DISPI_INDEX_ENABLE, VBE_DISPI_DISABLED);
+    bga_write(VBE_DISPI_INDEX_XRES, (uint16_t)width);
+    bga_write(VBE_DISPI_INDEX_YRES, (uint16_t)height);
+    bga_write(VBE_DISPI_INDEX_BPP, (uint16_t)bpp);
+    bga_write(VBE_DISPI_INDEX_ENABLE, VBE_DISPI_ENABLED | VBE_DISPI_LFB_ENABLED);
+
+    uint32_t lfb = bga_find_lfb();
+    if (!lfb)
+        return -1;
+
+    fb.addr = (uint8_t *)(uintptr_t)lfb;
+    fb.width = width;
+    fb.height = height;
+    fb.bpp = bpp;
+    fb.bytes_per_pixel = bpp / 8;
+    fb.pitch = width * fb.bytes_per_pixel;
+    fb.ready = 1;
+    return 0;
+}
+
+int fb_init(multiboot_info_t *mbi)
+{
+    memset(&fb, 0, sizeof(fb));
+
+    if (fb_try_multiboot_framebuffer(mbi) == 0)
+        return 0;
+    if (fb_try_multiboot_vbe(mbi) == 0)
+        return 0;
+    if (fb_try_bga(FB_DEFAULT_W, FB_DEFAULT_H, FB_DEFAULT_BPP) == 0)
+        return 0;
+
+    return -1;
 }
 
 const fb_info_t *fb_get(void)

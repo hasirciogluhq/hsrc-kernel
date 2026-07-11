@@ -14,7 +14,7 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     /* text-mode fallback until FB is up */
     vga_init();
     vga_set_color(VGA_ATTR(VGA_COLOR_YELLOW, VGA_COLOR_BLACK));
-    vga_print("mykernel — MKDX boot\n");
+    vga_print("mykernel - MKDX boot\n");
     vga_set_color(VGA_ATTR(VGA_COLOR_LIGHT_GREY, VGA_COLOR_BLACK));
 
     if (magic != MULTIBOOT_MAGIC) {
@@ -27,7 +27,7 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     (void)_kernel_end;
 
     if (fb_init(mbi) < 0) {
-        vga_print("framebuffer unavailable (need multiboot video)\n");
+        vga_print("framebuffer unavailable\n");
         for (;;)
             __asm__ volatile("hlt");
     }
@@ -38,7 +38,7 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     vga_print_uint(fb_get()->height);
     vga_print(" @");
     vga_print_uint(fb_get()->bpp);
-    vga_print("bpp — starting MKDX\n");
+    vga_print("bpp - starting MKDX\n");
 
     mkdx_demo();
 
