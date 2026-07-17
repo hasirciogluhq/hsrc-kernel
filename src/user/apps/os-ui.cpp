@@ -1111,11 +1111,21 @@ extern "C" void mke_main(void)
                 dirty_dock = true;
             }
 
-            const int menu_hover = menubar_hit(in.mouse_x, in.mouse_y);
-            const int status_hover = status_hit(in.mouse_x, in.mouse_y);
+            /*
+             * Shell chrome only owns the pointer when hit-test says so.
+             * Otherwise app windows would click-through to dock/menubar.
+             */
+            const bool shell_hit =
+                in.hit_id == g_menubar.id() ||
+                in.hit_id == g_dock.id() ||
+                in.hit_id == g_desktop.id();
+
+            const int menu_hover = shell_hit ? menubar_hit(in.mouse_x, in.mouse_y) : -1;
+            const int status_hover = shell_hit ? status_hit(in.mouse_x, in.mouse_y) : -1;
 
             int lx = 0;
-            const bool in_tray = dock_tray_contains(in.mouse_x, in.mouse_y, &lx, nullptr);
+            const bool in_tray = shell_hit &&
+                                 dock_tray_contains(in.mouse_x, in.mouse_y, &lx, nullptr);
             const int mag_x = in_tray ? lx : -1;
             const int hover = in_tray ? dock_nearest_slot(lx) : -1;
 
@@ -1129,7 +1139,7 @@ extern "C" void mke_main(void)
             g_hover = hover;
 
             const uint8_t pressed = (uint8_t)(in.buttons & ~g_prev_buttons);
-            if (pressed & UGX_BTN_LEFT) {
+            if (shell_hit && (pressed & UGX_BTN_LEFT)) {
                 if (g_status_hover == 0) {
                     if (toggle_theme())
                         dirty_menu = true;

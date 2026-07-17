@@ -781,6 +781,7 @@ bool input(Input &out)
     out.buttons = st.buttons;
     out.mods = st.mods;
     out.focus_id = st.focus_id;
+    out.hit_id = st.hit_id;
     out.wheel = st.wheel;
     return true;
 }

@@ -1515,12 +1515,8 @@ extern "C" void mke_main(void)
             const uint8_t pressed = (uint8_t)(in.buttons & ~g_prev_input.buttons);
             if (pressed & UGX_BTN_LEFT) {
                 const bool interactive = !g_win_opts.minimized && g_win_opts.visible;
-                const int lx = in.mouse_x - g_win_opts.x;
-                const int ly = in.mouse_y - g_win_opts.y;
-                const bool over = interactive &&
-                                  lx >= 0 && ly >= 0 &&
-                                  lx < g_win_opts.w && ly < g_win_opts.h;
-                if (over || (interactive && in.focus_id == g_win.id()))
+                /* hit_id is z-order topmost — ignore clicks owned by another window. */
+                if (interactive && in.hit_id == g_win.id())
                     handle_click(in);
             }
             g_prev_input = in;

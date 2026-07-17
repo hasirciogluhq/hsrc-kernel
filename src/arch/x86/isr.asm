@@ -35,5 +35,8 @@ isr_syscall:
     mov fs, ax
     mov gs, ax
     pop eax
+    ; Force IF on the iret frame so sleepers can wake (see usermode.asm).
+    ; Stack: [esp]=EIP [esp+4]=CS [esp+8]=EFLAGS
+    or dword [esp + 8], 0x200
 .iret:
     iret

@@ -1184,10 +1184,11 @@ extern "C" void mke_main(void)
                     g_dirty = true;
             }
 
-            if (interactive) {
+            if (interactive && (in.hit_id == g_win.id() || g_drag_slider >= 0 || g_drag_scroll)) {
                 int lx = in.mouse_x - g_win_opts.x;
                 int ly = in.mouse_y - g_win_opts.y;
-                if (lx >= 0 && ly >= 0 && lx < g_win_opts.w && ly < g_win_opts.h)
+                if (in.hit_id == g_win.id() &&
+                    lx >= 0 && ly >= 0 && lx < g_win_opts.w && ly < g_win_opts.h)
                     update_hover(lx, ly);
 
                 if (g_drag_slider >= 0 && (in.buttons & UGX_BTN_LEFT))
@@ -1206,11 +1207,7 @@ extern "C" void mke_main(void)
             uint8_t released = (uint8_t)(g_prev_input.buttons & ~in.buttons);
 
             if (pressed & UGX_BTN_LEFT) {
-                int click_lx = in.mouse_x - g_win_opts.x;
-                int click_ly = in.mouse_y - g_win_opts.y;
-                bool over = interactive && click_lx >= 0 && click_ly >= 0 &&
-                            click_lx < g_win_opts.w && click_ly < g_win_opts.h;
-                if (over || (interactive && in.focus_id == g_win.id()))
+                if (interactive && in.hit_id == g_win.id())
                     handle_click(in);
             }
             if (released & UGX_BTN_LEFT) {

@@ -21,6 +21,7 @@ struct Input {
     uint8_t buttons = 0;   /* UGX_BTN_* */
     uint8_t mods    = 0;   /* KBD_MOD_* */
     int32_t focus_id = -1;
+    int32_t hit_id  = -1;  /* topmost window under cursor (z-order), or -1 */
     int32_t wheel   = 0;   /* notches since last input(); +up / -down (PS/2) */
 };
 

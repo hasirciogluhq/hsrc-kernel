@@ -19,7 +19,10 @@ enter_usermode:
     push ecx                ; ESP
     pushf
     pop eax
-    and eax, 0xFFFFFDFF     ; keep IF clear (polling keyboard, no IRQ handlers)
+    ; IF must stay set in ring 3. With IF=0 the PIT never fires while
+    ; yield(0) apps keep the CPU busy — sleepers (os-ui yield(N)) stay
+    ; BLOCKED forever and the desktop freezes behind open windows.
+    or eax, 0x200           ; IF=1
     push eax                ; EFLAGS
     push dword 0x1B         ; CS user code | RPL3
     push edx                ; EIP

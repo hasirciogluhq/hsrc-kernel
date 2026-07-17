@@ -522,19 +522,26 @@ int wm_hit_test(wm_t *wm, int32_t x, int32_t y)
 
     int best_id = -1;
     int best_z = -1;
+    int best_fg = 0; /* prefer normal windows over background at equal z */
 
     for (int i = 0; i < WM_MAX_WINDOWS; i++) {
         wm_window *w = &wm->windows[i];
+        int z;
+        int fg;
+        gx_layer *L;
+
         if (!w->used || !effective_visible(&w->opts))
             continue;
         if (x < w->frame.x || y < w->frame.y ||
             x >= w->frame.x + w->frame.w || y >= w->frame.y + w->frame.h)
             continue;
 
-        gx_layer *L = gx_compositor_layer(wm->comp, w->layer_id);
-        int z = L ? L->z : w->id;
-        if (z >= best_z) {
+        L = gx_compositor_layer(wm->comp, w->layer_id);
+        z = L ? L->z : w->id;
+        fg = (!w->opts.background && w->opts.accept_focus) ? 1 : 0;
+        if (z > best_z || (z == best_z && fg >= best_fg)) {
             best_z = z;
+            best_fg = fg;
             best_id = w->id;
         }
     }

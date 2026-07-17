@@ -90,6 +90,7 @@ typedef struct ugx_input_state {
     uint8_t buttons;   /* UGX_BTN_* incl. side buttons when present */
     uint8_t mods;      /* KBD_MOD_* from keyboard.h */
     int32_t focus_id;  /* -1 = none */
+    int32_t hit_id;    /* topmost window under cursor, or -1 */
     int32_t wheel;     /* accumulated notches since previous input read */
 } ugx_input_state;
 
