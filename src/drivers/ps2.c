@@ -74,9 +74,8 @@ void ps2_init(void)
     ps2_write_cmd(0xAE); /* enable kbd */
     ps2_write_cmd(0xA8); /* enable aux */
 
-    /* mask PIC — polling only */
-    outb(0x21, 0xFF);
-    outb(0xA1, 0xFF);
+    /* PIC masking is owned by arch/x86/irq_impl.c (timer unmasked for PIT).
+     * PS/2 bytes are drained via drivers_poll() on yield and timer IRQ. */
 }
 
 void ps2_poll(void)

@@ -51,6 +51,9 @@ Appearance appearance();
 ThemeMode theme_mode();
 const AppTheme &theme();
 
+/* Upsert one key=value in /etc/os-settings.ini (preserves other keys). */
+bool persist_key(const char *key, const char *value);
+
 /* Persist general.appearance and update in-process cache. */
 bool set_appearance(Appearance appearance);
 /* Toggle Light ↔ Dark (Auto becomes Dark). */

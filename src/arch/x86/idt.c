@@ -50,6 +50,11 @@ static void idt_set_gate(uint8_t num, uint32_t base, uint16_t sel, uint8_t flags
     idt[num].flags = flags;
 }
 
+void idt_set_irq_gate(uint8_t vector, uint32_t handler)
+{
+    idt_set_gate(vector, handler, GDT_KERNEL_CODE, 0x8E);
+}
+
 void idt_init(void)
 {
     int i;

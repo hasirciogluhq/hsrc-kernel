@@ -224,6 +224,12 @@ static int mke_spawn_header(const mke_header_t *hdr, uint32_t spawn_flags,
         }
     }
 
+    {
+        process_t *child = process_get(pid);
+        if (child)
+            child->image_bytes = hdr->image_size + hdr->bss_size;
+    }
+
     klog("[mke] spawned ");
     klog(hdr->name);
     klog(" pid=");

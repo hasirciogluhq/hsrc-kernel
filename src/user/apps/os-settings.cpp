@@ -25,8 +25,11 @@ using hsrc::sdk::kChromeTitleH;
 using hsrc::sdk::ui_panel_body_top;
 using hsrc::sdk::ui_panel_text_y;
 using hsrc::sdk::ui_text_inset_y;
-using hsrc::sdk::settings::theme;
+using hsrc::sdk::settings::Appearance;
+using hsrc::sdk::settings::persist_key;
 using hsrc::sdk::settings::refresh_theme;
+using hsrc::sdk::settings::set_appearance;
+using hsrc::sdk::settings::theme;
 
 constexpr int kWinW = 860;
 constexpr int kWinH = 520;
@@ -45,7 +48,6 @@ constexpr int kContentBot = kWinH - 12;
 constexpr int kViewH = kContentBot - kContentTop;
 constexpr int kThemePollEvery = 96;
 
-constexpr const char *kIniDir = "/etc";
 constexpr const char *kIniPath = "/etc/os-settings.ini";
 constexpr const char *kDeepLinkPath = "/run/settings.deeplink";
 constexpr size_t kDeepLinkBytes = 128;
@@ -157,7 +159,6 @@ int g_active_category = CAT_GENERAL;
 int g_hover_sidebar = -1;
 int g_hover_setting = -1;
 constexpr int kOptsPollEvery = 32;
-int g_deeplink_cooldown = 0;
 ClickTarget g_targets[48];
 int g_target_count = 0;
 bool g_was_minimized = false;
@@ -302,24 +303,45 @@ void apply_time_settings()
     }
 }
 
-void save_settings()
+void apply_setting_effects(int idx)
 {
-    (void)hsrc::sdk::mkdir(kIniDir, 0755);
-    int fd = (int)hsrc::sdk::open(kIniPath, O_WRONLY | O_CREAT | O_TRUNC);
-    if (fd < 0)
+    if (idx < 0 || idx >= kSettingCount)
         return;
+    const Setting &s = g_settings[idx];
 
-    for (int i = 0; i < kSettingCount; i++) {
-        char val[32];
-        format_setting_value(g_settings[i], val, sizeof(val));
-        (void)hsrc::sdk::write(fd, g_settings[i].key, strlen(g_settings[i].key));
-        (void)hsrc::sdk::write(fd, "=", 1);
-        (void)hsrc::sdk::write(fd, val, strlen(val));
-        (void)hsrc::sdk::write(fd, "\n", 1);
+    if (strcmp(s.key, "datetime.timezone") == 0) {
+        const char *value = s.choices ? s.choices[s.current] : "";
+        int off = 0;
+        if (hsrc::sdk::time::parse_timezone_label(value, &off))
+            (void)hsrc::sdk::time::set_timezone(off, value);
+    } else if (strcmp(s.key, "datetime.clock") == 0) {
+        const char *value = s.choices ? s.choices[s.current] : "";
+        (void)hsrc::sdk::time::set_hour12(strcmp(value, "12-hour") == 0);
+    } else if (strcmp(s.key, "mouse.natural-scroll") == 0 ||
+               strcmp(s.key, "mouse.wheel-lines") == 0) {
+        sync_mouse_prefs();
     }
-    (void)hsrc::sdk::close(fd);
-    apply_time_settings();
-    sync_mouse_prefs();
+}
+
+void persist_setting(int idx)
+{
+    if (idx < 0 || idx >= kSettingCount)
+        return;
+    const Setting &s = g_settings[idx];
+
+    if (strcmp(s.key, "general.appearance") == 0) {
+        int cur = s.current;
+        if (cur < 0)
+            cur = 0;
+        if (s.choice_count > 0 && cur >= s.choice_count)
+            cur = s.choice_count - 1;
+        (void)set_appearance(static_cast<Appearance>(cur));
+    } else {
+        char val[32];
+        format_setting_value(s, val, sizeof(val));
+        (void)persist_key(s.key, val);
+    }
+    apply_setting_effects(idx);
 }
 
 int parse_int(const char *s, int *ok)
@@ -414,28 +436,20 @@ int category_from_id(const char *id)
     return CAT_GENERAL;
 }
 
-void poll_deeplink()
+bool poll_deeplink()
 {
-    if (g_deeplink_cooldown > 0) {
-        g_deeplink_cooldown--;
-        return;
-    }
-
     int fd = (int)hsrc::sdk::open(kDeepLinkPath, O_RDONLY);
-    if (fd < 0) {
-        g_deeplink_cooldown = 8;
-        return;
-    }
+    if (fd < 0)
+        return false;
 
     char buf[kDeepLinkBytes];
     memset(buf, 0, sizeof(buf));
     long nread = hsrc::sdk::read(fd, buf, sizeof(buf) - 1);
     (void)hsrc::sdk::close(fd);
     unlink_deeplink();
-    g_deeplink_cooldown = 4;
 
     if (nread <= 0 || buf[0] == 0)
-        return;
+        return false;
 
     const char *id = buf;
     if (strncmp(buf, "settings://", 11) == 0)
@@ -455,6 +469,7 @@ void poll_deeplink()
     g_hover_setting = -1;
     g_scroll_y = 0;
     g_dirty = true;
+    return true;
 }
 
 int max_scroll()
@@ -525,8 +540,19 @@ void cycle_setting(int idx)
     s.current++;
     if (s.current >= s.choice_count)
         s.current = 0;
-    save_settings();
-    (void)refresh_theme();
+    persist_setting(idx);
+    g_dirty = true;
+}
+
+void toggle_setting(int idx)
+{
+    if (idx < 0 || idx >= kSettingCount)
+        return;
+    Setting &s = g_settings[idx];
+    if (s.kind != W_TOGGLE)
+        return;
+    s.current = (s.current == 0) ? 1 : 0;
+    persist_setting(idx);
     g_dirty = true;
 }
 
@@ -548,7 +574,7 @@ void set_slider_from_x(int idx, int lx)
     v = clampi(v, s.min_v, s.max_v);
     if (v != s.current) {
         s.current = v;
-        save_settings();
+        persist_setting(idx);
         g_dirty = true;
     }
 }
@@ -964,6 +990,10 @@ void handle_click(const Input &in)
                 set_slider_from_x(idx, lx);
                 return;
             }
+            if (g_settings[idx].kind == W_TOGGLE) {
+                toggle_setting(idx);
+                return;
+            }
             cycle_setting(idx);
             return;
         }
@@ -1017,7 +1047,8 @@ extern "C" void mke_main(void)
 
     g_win.show(true);
     g_win.focus();
-    poll_deeplink();
+    if (poll_deeplink())
+        (void)refresh_window_options();
     paint();
     (void)hsrc::sdk::present();
 
@@ -1027,7 +1058,9 @@ extern "C" void mke_main(void)
             hsrc::sdk::exit(0);
         }
 
-        poll_deeplink();
+        const bool deeplink_nav = poll_deeplink();
+        if (deeplink_nav)
+            (void)refresh_window_options();
 
         g_theme_poll++;
         if (g_theme_poll >= kThemePollEvery) {
@@ -1107,6 +1140,8 @@ extern "C" void mke_main(void)
                     handle_click(in);
             }
             if (released & UGX_BTN_LEFT) {
+                if (g_drag_slider >= 0)
+                    persist_setting(g_drag_slider);
                 g_drag_slider = -1;
                 g_drag_scroll = 0;
             }
@@ -1130,7 +1165,7 @@ extern "C" void mke_main(void)
             g_prev_input = in;
         }
 
-        if (g_dirty && !g_win_opts.minimized) {
+        if (g_dirty && (!g_win_opts.minimized || deeplink_nav)) {
             paint();
             (void)hsrc::sdk::present();
         }

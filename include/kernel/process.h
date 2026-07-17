@@ -39,12 +39,16 @@ typedef struct proc_stat {
     uint64_t start_ticks;
     uint64_t uptime_ticks;
     uint32_t mem_bytes;
+    uint32_t stack_bytes;
+    uint32_t image_bytes;
+    uint32_t vma_bytes;
     char     name[PROC_NAME_MAX];
 } proc_stat_t;
 
 typedef struct sys_info {
     uint64_t uptime_ticks;
     uint64_t total_cpu_ticks;
+    uint64_t idle_ticks;
     uint32_t total_ram_bytes;
     uint32_t used_ram_bytes;
     uint32_t free_ram_bytes;
@@ -57,6 +61,7 @@ typedef struct process {
     proc_state_t state;
     char         name[PROC_NAME_MAX];
     int          is_user;      /* 1 = ring-3 userspace */
+    int          is_idle;      /* 1 = kernel idle thread (HLT when scheduled) */
     uid_t        uid;          /* real uid — default 0 (root) */
     uid_t        euid;         /* effective uid — default 0 (root) */
     char         cwd[VFS_PATH_MAX];
@@ -71,6 +76,9 @@ typedef struct process {
     int          exit_code;
     uint64_t     cpu_ticks;
     uint64_t     start_ticks;
+    uint64_t     wake_tick;    /* scheduler tick when BLOCKED process wakes */
+    uint32_t     proc_wait_gen; /* non-zero: wait until snapshot generation changes */
+    uint32_t     image_bytes; /* .mke image+bss at load_addr (0 for kernel threads) */
     int          fds[VFS_MAX_FD];
     vma_t        vmas[VMA_MAX];
     proc_env_t   env;

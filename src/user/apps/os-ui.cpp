@@ -1164,7 +1164,10 @@ extern "C" void mke_main(void)
         if (dirty_dock)
             paint_dock();
 
-        (void)hsrc::sdk::present();
-        hsrc::sdk::yield();
+        const bool did_work = dirty_menu || dirty_dock;
+        if (did_work)
+            (void)hsrc::sdk::present();
+
+        hsrc::sdk::yield(did_work ? 0u : 4u);
     }
 }

@@ -19,7 +19,10 @@ typedef struct proc_page_entry {
     uint32_t is_user;
     uint64_t cpu_ticks;
     uint64_t uptime_ticks;
-    uint32_t mem_bytes;
+    uint32_t mem_bytes;    /* total: struct + stacks + image + vma */
+    uint32_t stack_bytes;  /* kstack (+ ustack for ring-3) */
+    uint32_t image_bytes;  /* loaded .mke image+bss (flat map) */
+    uint32_t vma_bytes;    /* mmap-backed pages */
     char     name[PROC_PAGE_NAME];
 } proc_page_entry_t;
 
@@ -31,6 +34,7 @@ typedef struct proc_page {
     uint32_t process_count;  /* live processes (may exceed PROC_PAGE_MAX) */
     uint64_t uptime_ticks;
     uint64_t total_cpu_ticks;
+    uint64_t idle_ticks;
     uint32_t total_ram_bytes;
     uint32_t used_ram_bytes;
     uint32_t free_ram_bytes;

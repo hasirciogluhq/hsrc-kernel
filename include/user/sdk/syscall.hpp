@@ -11,9 +11,9 @@ long syscall2(long n, long a1, long a2);
 long syscall3(long n, long a1, long a2, long a3);
 long syscall4(long n, long a1, long a2, long a3, long a4);
 
-inline void yield()
+inline void yield(uint32_t sleep_ticks = 0)
 {
-    (void)syscall1(SYS_YIELD, 0);
+    (void)syscall1(SYS_YIELD, (long)sleep_ticks);
 }
 
 [[noreturn]] inline void exit(int code)

@@ -16,6 +16,9 @@ void copy_page_entry(ProcListEntry *dst, const proc_page_entry_t *src)
     dst->cpu_ticks = src->cpu_ticks;
     dst->uptime_ticks = src->uptime_ticks;
     dst->mem_bytes = src->mem_bytes;
+    dst->stack_bytes = src->stack_bytes;
+    dst->image_bytes = src->image_bytes;
+    dst->vma_bytes = src->vma_bytes;
     memcpy(dst->name, src->name, sizeof(dst->name));
     dst->name[sizeof(dst->name) - 1] = 0;
 }
@@ -45,6 +48,7 @@ bool read_snapshot(ProcListEntry *entries, int max_entries, int *count_out, SysI
         SysInfo info{};
         info.uptime_ticks = g_page->uptime_ticks;
         info.total_cpu_ticks = g_page->total_cpu_ticks;
+        info.idle_ticks = g_page->idle_ticks;
         info.total_ram_bytes = g_page->total_ram_bytes;
         info.used_ram_bytes = g_page->used_ram_bytes;
         info.free_ram_bytes = g_page->free_ram_bytes;
@@ -147,6 +151,15 @@ bool refresh_snapshot()
     return true;
 }
 
+bool poll_snapshot_publish()
+{
+    /*
+     * Triggers process_snapshot_publish() without process_snapshot_mark_dirty().
+     * Kernel may no-op when the page is fresh (<16 ticks).
+     */
+    return hsrc::sdk::syscall2(SYS_PROC_LIST, 0L, 0L) >= 0;
+}
+
 bool snapshot(ProcListEntry *entries, int max_entries, int *count_out, SysInfo *info_out)
 {
     return read_snapshot(entries, max_entries, count_out, info_out);
@@ -199,6 +212,14 @@ uint32_t snapshot_generation()
     if (!map_proc_page() || !g_page)
         return 0;
     return g_page->generation;
+}
+
+uint32_t wait_snapshot(uint32_t last_generation, uint32_t timeout_ticks)
+{
+    long gen = hsrc::sdk::syscall2(SYS_PROC_WAIT, (long)last_generation, (long)timeout_ticks);
+    if (gen < 0)
+        return snapshot_generation();
+    return (uint32_t)gen;
 }
 
 long proc_list(ProcListEntry *entries, int max_entries)

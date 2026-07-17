@@ -86,6 +86,7 @@
 #define SYS_SYSINFO         259
 #define SYS_KILL            260
 #define SYS_PROC_MAP        276  /* → pointer to proc_page_t (identity) */
+#define SYS_PROC_WAIT       277  /* block until proc_page generation changes */
 #define SYS_SERVICE_LIST    261
 #define SYS_SERVICE_START   262
 #define SYS_SERVICE_STOP    263

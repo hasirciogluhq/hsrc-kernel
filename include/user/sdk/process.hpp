@@ -2,6 +2,7 @@
 
 #include <kernel/types.h>
 #include <kernel/proc_abi.h>
+#include <kernel/syscall.h>
 #include <user/sdk/syscall.hpp>
 
 namespace hsrc::sdk::process {
@@ -26,6 +27,9 @@ struct ProcListEntry {
     uint64_t cpu_ticks = 0;
     uint64_t uptime_ticks = 0;
     uint32_t mem_bytes = 0;
+    uint32_t stack_bytes = 0;
+    uint32_t image_bytes = 0;
+    uint32_t vma_bytes = 0;
     char     name[PROC_PAGE_NAME]{};
 };
 
@@ -38,12 +42,16 @@ struct ProcStat {
     uint64_t start_ticks = 0;
     uint64_t uptime_ticks = 0;
     uint32_t mem_bytes = 0;
+    uint32_t stack_bytes = 0;
+    uint32_t image_bytes = 0;
+    uint32_t vma_bytes = 0;
     char     name[PROC_PAGE_NAME]{};
 };
 
 struct SysInfo {
     uint64_t uptime_ticks = 0;
     uint64_t total_cpu_ticks = 0;
+    uint64_t idle_ticks = 0;
     uint32_t total_ram_bytes = 0;
     uint32_t used_ram_bytes = 0;
     uint32_t free_ram_bytes = 0;
@@ -69,6 +77,8 @@ long getppid();
 bool map_proc_page();
 /* Force kernel republish + remap pointer (use sparingly from app loops). */
 bool refresh_snapshot();
+/* Throttled publish via PROC_LIST — no force-dirty (hot loops). */
+bool poll_snapshot_publish();
 /* Hot path: seqlock-read snapshot — no syscall after map/refresh. */
 bool snapshot(ProcListEntry *entries, int max_entries, int *count_out, SysInfo *info_out);
 /* Stack-safe: read one row from the mapped page (no large caller buffer). */
@@ -77,6 +87,8 @@ bool snapshot_entry(int index, ProcListEntry *out);
 /* seq changes when kernel republishes; generation bumps on create/exit. */
 uint32_t snapshot_seq();
 uint32_t snapshot_generation();
+/* Block until proc_page generation changes or timeout_ticks (scheduler ticks). */
+uint32_t wait_snapshot(uint32_t last_generation, uint32_t timeout_ticks = 5u);
 
 /* Syscall fallbacks (also used when page unavailable). */
 long proc_list(ProcListEntry *entries, int max_entries);

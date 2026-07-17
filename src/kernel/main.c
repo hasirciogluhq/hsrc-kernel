@@ -19,6 +19,7 @@
 #include <kernel/service.h>
 #include <kernel/scheduler.h>
 #include <kernel/time.h>
+#include <arch/x86/irq.h>
 #include <kernel/mke.h>
 #include <kernel/boot_splash.h>
 #include <arch/x86/gdt.h>
@@ -63,6 +64,7 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     mm_init();
     gdt_init();
     idt_init();
+    irq_init();
     syscall_init();
     vfs_init();
     netif_init();
@@ -87,6 +89,8 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
         for (;;)
             __asm__ volatile("hlt");
     }
+    /* ps2_init used to mask the PIC; re-assert timer after driver load. */
+    irq_ensure_timer_unmasked();
     klog("[boot] builtin drivers loaded\n");
     klog_heap("[boot]");
 

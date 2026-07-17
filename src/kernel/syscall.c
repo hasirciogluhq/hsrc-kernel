@@ -392,20 +392,59 @@ static long do_getppid(void)
     return (long)process_getppid();
 }
 
-static long do_yield(void)
+static long do_yield(long sleep_ticks)
 {
     const mkdx_api_t *api = mkdx_api_get();
+    process_t *p = process_current();
 
     /* Cooperative scheduler: drain input every yield so PS/2 isn't starved. */
     drivers_poll();
     if (api && api->pump_input)
         api->pump_input();
 
-    /* Do NOT publish proc snapshot here — walking the table on every yield
-     * + activity-monitor full present = desktop freeze. */
+    if (p && sleep_ticks > 0) {
+        uint64_t now = scheduler_tick_count();
+        if (sleep_ticks > 1000)
+            sleep_ticks = 1000;
+        p->wake_tick = now + (uint64_t)sleep_ticks;
+        p->state = PROC_BLOCKED;
+    }
 
     schedule();
     return 0;
+}
+
+static long do_proc_wait(long last_gen, long timeout_ticks)
+{
+    process_t *p = process_current();
+    proc_page_t *page = process_page_get();
+    uint32_t lg = (uint32_t)last_gen;
+    uint64_t now;
+
+    process_snapshot_publish();
+    if (!page)
+        return 0;
+    if (page->generation != lg)
+        return (long)page->generation;
+
+    if (!p)
+        return (long)page->generation;
+
+    if (timeout_ticks < 0)
+        timeout_ticks = 0;
+    if (timeout_ticks > 1000)
+        timeout_ticks = 1000;
+
+    now = scheduler_tick_count();
+    p->proc_wait_gen = lg;
+    p->wake_tick = now + (uint64_t)timeout_ticks;
+    p->state = PROC_BLOCKED;
+    schedule();
+    p->proc_wait_gen = 0;
+
+    process_snapshot_publish();
+    page = process_page_get();
+    return page ? (long)page->generation : 0;
 }
 
 static long do_waitpid(long pid, long status_ptr, long options)
@@ -1596,6 +1635,8 @@ long syscall_dispatch(long n, long a1, long a2, long a3, long a4, long a5)
         process_snapshot_publish();
         return (long)(uintptr_t)pp;
     }
+    case SYS_PROC_WAIT:
+        return do_proc_wait(a1, a2);
     case SYS_TIME_GET: {
         time_snapshot_t snap;
         memset(&snap, 0, sizeof(snap));
@@ -1635,7 +1676,7 @@ long syscall_dispatch(long n, long a1, long a2, long a3, long a4, long a5)
         return time_set_flags((uint32_t)a1);
     case SYS_GETPID: return do_getpid();
     case SYS_GETPPID: return do_getppid();
-    case SYS_YIELD:  return do_yield();
+    case SYS_YIELD:  return do_yield(a1);
     case SYS_FORK:   return -1;
 
     case SYS_GX_INFO:          return do_gx_info(a1);

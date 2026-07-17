@@ -468,7 +468,9 @@ extern "C" void mke_main(void)
         if (g_dirty && !g_win_opts.minimized) {
             paint();
             (void)hsrc::sdk::present();
+            hsrc::sdk::yield(0);
+        } else {
+            hsrc::sdk::yield(12);
         }
-        hsrc::sdk::yield();
     }
 }

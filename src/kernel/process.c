@@ -95,6 +95,31 @@ static void process_clear_slot(process_t *p)
     process_snapshot_mark_dirty();
 }
 
+static uint32_t process_stack_bytes(const process_t *p)
+{
+    if (!p || p->state == PROC_UNUSED)
+        return 0;
+    uint32_t total = PROC_KSTACK_SIZE;
+    if (p->is_user)
+        total += PROC_USTACK_SIZE;
+    return total;
+}
+
+static uint32_t process_vma_bytes(const process_t *p)
+{
+    uint32_t total = 0;
+
+    if (!p || p->state == PROC_UNUSED)
+        return 0;
+
+    for (int i = 0; i < VMA_MAX; i++) {
+        if (!p->vmas[i].used)
+            continue;
+        total += (uint32_t)(p->vmas[i].npages * PAGE_SIZE);
+    }
+    return total;
+}
+
 static uint32_t process_mem_bytes(const process_t *p)
 {
     uint32_t total = 0;
@@ -102,17 +127,25 @@ static uint32_t process_mem_bytes(const process_t *p)
     if (!p || p->state == PROC_UNUSED)
         return 0;
 
-    total += PROC_KSTACK_SIZE;
-    if (p->is_user)
-        total += PROC_USTACK_SIZE;
-
-    for (int i = 0; i < VMA_MAX; i++) {
-        if (!p->vmas[i].used)
-            continue;
-        total += (uint32_t)(p->vmas[i].npages * PAGE_SIZE);
-    }
+    total += (uint32_t)sizeof(process_t);
+    total += process_stack_bytes(p);
+    total += p->image_bytes;
+    total += process_vma_bytes(p);
 
     return total;
+}
+
+static uint64_t process_sum_cpu_ticks(void)
+{
+    uint64_t sum = 0;
+
+    for (int i = 0; i < PROC_MAX; i++) {
+        process_t *p = g_procs[i];
+        if (!p || p->state == PROC_UNUSED)
+            continue;
+        sum += p->cpu_ticks;
+    }
+    return sum;
 }
 
 static uint64_t process_uptime_ticks(const process_t *p, uint64_t now_ticks)
@@ -162,6 +195,9 @@ static void process_trampoline(void (*entry)(void))
 static void user_trampoline(void (*entry)(void))
 {
     process_t *p = process_current();
+    /* Authoritative entry — stack arg can be stale after context_switch. */
+    if (p && p->user_entry)
+        entry = p->user_entry;
     klog("[user] enter name=");
     klog(p && p->name[0] ? p->name : "?");
     klog(" entry=");
@@ -265,8 +301,15 @@ static process_t *alloc_process(const char *name)
 static void setup_kstack(process_t *p, void (*trampoline)(void (*)(void)), void (*entry)(void))
 {
     uint32_t *sp = (uint32_t *)p->kstack_top;
+    /*
+     * context_switch pops ebx..ebp then ret → trampoline.
+     * cdecl trampoline(void (*entry)(void)) expects:
+     *   [esp]     = return address (unused dummy)
+     *   [esp+4]   = entry
+     * Low → high: ebx, esi, edi, ebp, trampoline, dummy_ret, entry
+     */
     *--sp = (uint32_t)entry;
-    *--sp = 0;
+    *--sp = 0; /* dummy return address for cdecl */
     *--sp = (uint32_t)trampoline;
     *--sp = 0;
     *--sp = 0;
@@ -315,6 +358,17 @@ void process_snapshot_mark_dirty(void)
     g_proc_page_dirty = 1;
 }
 
+static void process_wake_proc_waiters(uint32_t gen)
+{
+    for (int i = 0; i < PROC_MAX; i++) {
+        process_t *p = g_procs[i];
+        if (!p || p->state != PROC_BLOCKED || p->proc_wait_gen == 0)
+            continue;
+        if (gen != p->proc_wait_gen)
+            p->state = PROC_READY;
+    }
+}
+
 void process_snapshot_publish(void)
 {
     uint64_t now = scheduler_tick_count();
@@ -345,6 +399,8 @@ void process_snapshot_publish(void)
         /* Skip unreaped zombies — they clutter Activity Monitor as "Zombie". */
         if (p->state == PROC_ZOMBIE)
             continue;
+        if (p->is_idle)
+            continue;
         if (filled < PROC_PAGE_MAX) {
             proc_page_entry_t *dst = &g_proc_page.entries[filled++];
             memset(dst, 0, sizeof(*dst));
@@ -354,6 +410,9 @@ void process_snapshot_publish(void)
             dst->is_user = (uint32_t)p->is_user;
             dst->cpu_ticks = p->cpu_ticks;
             dst->uptime_ticks = process_uptime_ticks(p, now);
+            dst->stack_bytes = process_stack_bytes(p);
+            dst->image_bytes = p->image_bytes;
+            dst->vma_bytes = process_vma_bytes(p);
             dst->mem_bytes = process_mem_bytes(p);
             strncpy(dst->name, p->name, sizeof(dst->name) - 1);
         }
@@ -367,12 +426,15 @@ void process_snapshot_publish(void)
                (size_t)(PROC_PAGE_MAX - filled) * sizeof(g_proc_page.entries[0]));
     g_proc_page.process_count = count;
     g_proc_page.uptime_ticks = now;
-    g_proc_page.total_cpu_ticks = now;
+    g_proc_page.total_cpu_ticks = process_sum_cpu_ticks();
+    g_proc_page.idle_ticks = scheduler_idle_ticks();
     g_proc_page.used_ram_bytes = used_ram;
     g_proc_page.free_ram_bytes = free_ram;
     g_proc_page.total_ram_bytes = used_ram + free_ram;
-    if (was_dirty)
+    if (was_dirty) {
         g_proc_page.generation++;
+        process_wake_proc_waiters(g_proc_page.generation);
+    }
 
     __asm__ volatile("" ::: "memory");
     g_proc_page.seq++; /* even = stable */
@@ -523,7 +585,7 @@ int process_kill(pid_t pid)
 
 void process_account_tick(process_t *p)
 {
-    if (!p || p->state == PROC_UNUSED)
+    if (!p || p->state == PROC_UNUSED || p->is_idle)
         return;
     p->cpu_ticks++;
 }
@@ -539,6 +601,8 @@ int process_list_range(proc_list_entry_t *out, size_t max_entries, size_t skip)
 
         if (!p || p->state == PROC_UNUSED)
             continue;
+        if (p->is_idle)
+            continue;
 
         if (total >= skip && out && filled < max_entries) {
             proc_list_entry_t *dst = &out[filled++];
@@ -549,6 +613,9 @@ int process_list_range(proc_list_entry_t *out, size_t max_entries, size_t skip)
             dst->is_user = (uint32_t)p->is_user;
             dst->cpu_ticks = p->cpu_ticks;
             dst->uptime_ticks = process_uptime_ticks(p, now_ticks);
+            dst->stack_bytes = process_stack_bytes(p);
+            dst->image_bytes = p->image_bytes;
+            dst->vma_bytes = process_vma_bytes(p);
             dst->mem_bytes = process_mem_bytes(p);
             strncpy(dst->name, p->name, sizeof(dst->name) - 1);
         }
@@ -583,6 +650,9 @@ int process_stat(pid_t pid, proc_stat_t *out)
     out->cpu_ticks = p->cpu_ticks;
     out->start_ticks = p->start_ticks;
     out->uptime_ticks = process_uptime_ticks(p, now_ticks);
+    out->stack_bytes = process_stack_bytes(p);
+    out->image_bytes = p->image_bytes;
+    out->vma_bytes = process_vma_bytes(p);
     out->mem_bytes = process_mem_bytes(p);
     strncpy(out->name, p->name, sizeof(out->name) - 1);
     return 0;
@@ -595,13 +665,14 @@ int process_sysinfo(sys_info_t *out)
 
     memset(out, 0, sizeof(*out));
     out->uptime_ticks = scheduler_tick_count();
-    out->total_cpu_ticks = out->uptime_ticks;
+    out->total_cpu_ticks = process_sum_cpu_ticks();
+    out->idle_ticks = scheduler_idle_ticks();
     out->used_ram_bytes = (uint32_t)heap_used();
     out->free_ram_bytes = (uint32_t)heap_free();
     out->total_ram_bytes = out->used_ram_bytes + out->free_ram_bytes;
 
     for (int i = 0; i < PROC_MAX; i++) {
-        if (g_procs[i] && g_procs[i]->state != PROC_UNUSED)
+        if (g_procs[i] && g_procs[i]->state != PROC_UNUSED && !g_procs[i]->is_idle)
             out->process_count++;
     }
 

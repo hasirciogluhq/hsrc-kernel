@@ -460,6 +460,8 @@ void reveal_settings_window(long wid)
 
     (void)hsrc::sdk::syscall2(SYS_WM_SHOW, wid, 1);
     (void)hsrc::sdk::syscall1(SYS_WM_FOCUS, wid);
+    /* Wake the running instance so it polls /run/settings.deeplink promptly. */
+    (void)hsrc::sdk::syscall1(SYS_GX_DAMAGE, wid);
 }
 
 long find_settings_window()
@@ -556,6 +558,11 @@ bool refresh_theme()
     if (g_ini_present)
         g_absent_skip = 0;
     return prev_mode != g_theme_mode || prev_appearance != g_appearance;
+}
+
+bool persist_key(const char *key, const char *value)
+{
+    return upsert_ini_key(key, value);
 }
 
 bool set_appearance(Appearance appearance)

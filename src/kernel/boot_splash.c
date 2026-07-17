@@ -1,6 +1,7 @@
 #include <kernel/boot_splash.h>
 #include <kernel/heap.h>
 #include <kernel/types.h>
+#include <kernel/time.h>
 #include <drivers/display.h>
 #include <drivers/serial.h>
 
@@ -9,8 +10,9 @@
  * Rotation and fill are independent — the arc spins continuously while fill
  * ping-pongs MIN_FILL_PCT ↔ 100% with ease-in-out.
  *
- * Per-pixel distance-field coverage, smoothstep edge falloff, 2x2 subpixel
- * supersampling, and angular sector tests (no track, glow, or cap discs).
+ * Hard radial band (no inner/outer ring AA — avoids FOV-style outline), angular
+ * sector test with soft arc-end feather only. Animation is wall-clock driven;
+ * frames present as fast as the display path allows (no artificial FPS cap).
  */
 #define SPLASH_BG     0xFF000000u
 #define SPLASH_FILL   0xFFF5F5F7u
@@ -24,16 +26,13 @@
 #define ANGLE_FULL    65536
 #define ANGLE_QTR     (ANGLE_FULL / 4)
 #define AA_Q8         256
-#define AA_EDGE       2            /* ~2px radial soft edge */
 #define FEATHER_ANG   512          /* ~2.8 deg arc-end AA */
 #define MIN_ARC_ANG   (ANGLE_FULL / 200)
 #define MIN_FILL_PCT  10           /* arc never fully empties */
-#define SS_SAMPLES    4            /* 2x2 subpixel supersampling */
 
-#define SPLASH_FRAMES 90
-#define FILL_CYCLE    62          /* frames for one 0→100→0 leg */
-#define ROT_PER_FRAME 2           /* legacy step count per frame */
-#define ROT_SPEED     ((ROT_PER_FRAME * ANGLE_FULL) / 64)
+#define SPLASH_DURATION_MS  900    /* ~0.9 s total splash */
+#define FILL_CYCLE_MS       1860   /* full ping-pong period */
+#define ROT_ANG_PER_SEC     61440  /* ~0.94 rev/s — matches prior visual spin rate */
 
 static int clampi(int v, int lo, int hi)
 {
@@ -59,18 +58,18 @@ static int ease_in_out_q8(int t_q8)
     return (int)(num / (256LL * 256LL));
 }
 
-/* 0→256→0 over cycle_len frames */
-static int pingpong_q8(int frame, int cycle_len)
+/* 0→256→0 over cycle_ms milliseconds */
+static int pingpong_ms_q8(int elapsed_ms, int cycle_ms)
 {
     int half;
     int pos;
     int t;
 
-    if (cycle_len < 2)
+    if (cycle_ms < 2)
         return 0;
 
-    half = cycle_len / 2;
-    pos = frame % cycle_len;
+    half = cycle_ms / 2;
+    pos = elapsed_ms % cycle_ms;
     if (pos < half)
         t = (pos * 256) / half;
     else
@@ -169,49 +168,19 @@ static int angle_top_cw(int dx, int dy)
     return a_q & (ANGLE_FULL - 1);
 }
 
-static int coverage_ramp_q8(int v, int edge0, int edge1)
+/* Hard radial band — no inner/outer soft ring that reads as a FOV outline. */
+static int arc_radial_cov_q8(int dist)
 {
-    int lo;
-    int hi;
-    int span;
-    int t_q8;
-
-    if (edge0 <= edge1) {
-        lo = edge0;
-        hi = edge1;
-        if (v <= lo)
-            return 0;
-        if (v >= hi)
-            return AA_Q8;
-    } else {
-        lo = edge1;
-        hi = edge0;
-        if (v <= lo)
-            return AA_Q8;
-        if (v >= hi)
-            return 0;
-    }
-
-    span = hi - lo;
-    t_q8 = clampi(((v - lo) * AA_Q8 + span / 2) / span, 0, AA_Q8);
-    return ease_in_out_q8(t_q8);
+    if (dist < INNER_R || dist > OUTER_R)
+        return 0;
+    return AA_Q8;
 }
 
-static int ring_coverage_q8(int dist)
+static int dist_from_center_q8(int x, int y, int cx, int cy)
 {
-    int cov_in;
-    int cov_out;
-
-    cov_in = coverage_ramp_q8(dist, INNER_R - AA_EDGE, INNER_R + AA_EDGE);
-    cov_out = coverage_ramp_q8(dist, OUTER_R + AA_EDGE, OUTER_R - AA_EDGE);
-    return (cov_in * cov_out) / AA_Q8;
-}
-
-static int dist_from_center_q8(int x, int y, int cx, int cy, int off_x_q8, int off_y_q8)
-{
-    int dx_q8 = ((x - cx) << 8) + 128 + off_x_q8;
-    int dy_q8 = ((y - cy) << 8) + 128 + off_y_q8;
-    uint32_t dist_sq = (uint32_t)((dx_q8 * dx_q8 + dy_q8 * dy_q8 + (1 << 15)) >> 16);
+    int dx = x - cx;
+    int dy = y - cy;
+    uint32_t dist_sq = (uint32_t)(dx * dx + dy * dy);
 
     return isqrt_u32(dist_sq);
 }
@@ -281,30 +250,29 @@ static int fill_angular_cov_q8(int ang, int head_ang, int arc_ang)
 }
 
 static int sample_fill_cov_q8(int x, int y, int cx, int cy,
-                              int off_x_q8, int off_y_q8,
                               int head_ang, int arc_ang)
 {
-    int dx_q8 = ((x - cx) << 8) + 128 + off_x_q8;
-    int dy_q8 = ((y - cy) << 8) + 128 + off_y_q8;
-    int dist = dist_from_center_q8(x, y, cx, cy, off_x_q8, off_y_q8);
-    int ring_cov;
+    int dx = x - cx;
+    int dy = y - cy;
+    int dist;
     int ang;
+    int radial_cov;
+    int ang_cov;
 
-    ring_cov = ring_coverage_q8(dist);
-    if (ring_cov <= 0)
+    dist = dist_from_center_q8(x, y, cx, cy);
+    radial_cov = arc_radial_cov_q8(dist);
+    if (radial_cov <= 0)
         return 0;
 
-    ang = angle_top_cw(dx_q8 >> 8, dy_q8 >> 8);
-    return (ring_cov * fill_angular_cov_q8(ang, head_ang, arc_ang)) / AA_Q8;
+    ang = angle_top_cw(dx, dy);
+    ang_cov = fill_angular_cov_q8(ang, head_ang, arc_ang);
+    return (radial_cov * ang_cov) / AA_Q8;
 }
 
 static void draw_fill_arc(uint32_t *fb, uint32_t stride, uint32_t w, uint32_t h,
                           int cx, int cy, int pct, int rot_ang)
 {
-    static const int8_t ss_off_q8[SS_SAMPLES][2] = {
-        {-64, -64}, {64, -64}, {-64, 64}, {64, 64}
-    };
-    int pad = TIP_R + AA_EDGE + 2;
+    int pad = TIP_R + 2;
     int y0 = cy - RING_R - pad;
     int y1 = cy + RING_R + pad;
     int x0 = cx - RING_R - pad;
@@ -322,31 +290,14 @@ static void draw_fill_arc(uint32_t *fb, uint32_t stride, uint32_t w, uint32_t h,
 
     for (y = y0; y <= y1; y++) {
         for (x = x0; x <= x1; x++) {
-            int fill_cov_sum = 0;
-            int fill_cov;
-            int i;
+            int fill_cov = sample_fill_cov_q8(x, y, cx, cy, head_ang, arc_ang);
 
-            for (i = 0; i < SS_SAMPLES; i++) {
-                int off_x = (int)ss_off_q8[i][0];
-                int off_y = (int)ss_off_q8[i][1];
-
-                fill_cov_sum += sample_fill_cov_q8(
-                    x, y, cx, cy, off_x, off_y, head_ang, arc_ang);
-            }
-
-            fill_cov = fill_cov_sum / SS_SAMPLES;
-            if (fill_cov > 0)
+            if (fill_cov >= AA_Q8)
+                put_px(fb, stride, w, h, x, y, SPLASH_FILL);
+            else if (fill_cov > 0)
                 blend_px(fb, stride, w, h, x, y, SPLASH_FILL, fill_cov);
         }
     }
-}
-
-static void splash_delay(void)
-{
-    volatile uint32_t n = 208000u;
-
-    while (n--)
-        __asm__ volatile("pause");
 }
 
 void boot_splash_show(void)
@@ -357,8 +308,9 @@ void boot_splash_show(void)
     uint32_t pixels;
     uint32_t i;
     int cx, cy;
-    int frame;
     int clear_r;
+    uint64_t t0;
+    uint64_t last_draw_ms;
 
     if (!ops || !ops->get_mode || !ops->present)
         return;
@@ -381,12 +333,33 @@ void boot_splash_show(void)
     cy = (int)mode.height / 2;
     clear_r = RING_R + TIP_R + 4;
 
-    for (frame = 0; frame <= SPLASH_FRAMES; frame++) {
-        int t_raw = pingpong_q8(frame, FILL_CYCLE);
-        int t_eased = ease_in_out_q8(t_raw);
-        int pct = lerpi(MIN_FILL_PCT, 100, t_eased);
-        int rot_ang = (frame * ROT_SPEED) % ANGLE_FULL;
+    t0 = time_mono_nsec_now();
+    last_draw_ms = (uint64_t)-1;
+
+    for (;;) {
+        uint64_t now = time_mono_nsec_now();
+        uint64_t elapsed_ms = (now - t0) / 1000000ull;
+        int t_raw;
+        int t_eased;
+        int pct;
+        int rot_ang;
         int y, x;
+
+        if (elapsed_ms >= SPLASH_DURATION_MS)
+            break;
+
+        /* Skip duplicate work when monotonic time has not advanced yet. */
+        if (elapsed_ms == last_draw_ms) {
+            __asm__ volatile("pause");
+            continue;
+        }
+        last_draw_ms = elapsed_ms;
+
+        t_raw = pingpong_ms_q8((int)elapsed_ms, FILL_CYCLE_MS);
+        t_eased = ease_in_out_q8(t_raw);
+        pct = lerpi(MIN_FILL_PCT, 100, t_eased);
+        rot_ang = (int)(((elapsed_ms * (uint64_t)ROT_ANG_PER_SEC) / 1000ull) %
+                        (uint64_t)ANGLE_FULL);
 
         for (y = cy - clear_r; y <= cy + clear_r; y++) {
             for (x = cx - clear_r; x <= cx + clear_r; x++)
@@ -395,7 +368,6 @@ void boot_splash_show(void)
 
         draw_fill_arc(fb, mode.width, mode.width, mode.height, cx, cy, pct, rot_ang);
         (void)ops->present(fb, mode.width);
-        splash_delay();
     }
 
     kfree(fb);

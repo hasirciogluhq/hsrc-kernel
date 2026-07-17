@@ -4,12 +4,14 @@ ARCH_ASM := $(SRC)/arch/x86/boot.asm \
             $(SRC)/arch/x86/switch.asm \
             $(SRC)/arch/x86/isr.asm \
             $(SRC)/arch/x86/exc.asm \
+            $(SRC)/arch/x86/irq.asm \
             $(SRC)/arch/x86/gdt_flush.asm \
             $(SRC)/arch/x86/usermode.asm
 
 ARCH_C   := $(SRC)/arch/x86/idt.c \
             $(SRC)/arch/x86/gdt.c \
-            $(SRC)/arch/x86/exception.c
+            $(SRC)/arch/x86/exception.c \
+            $(SRC)/arch/x86/irq_impl.c
 
 KERNEL_C := $(SRC)/kernel/main.c \
             $(SRC)/kernel/heap.c \
