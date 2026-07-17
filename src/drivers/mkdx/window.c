@@ -480,11 +480,15 @@ void wm_on_mouse_button(wm_t *wm, uint8_t button, int pressed,
     wm_focus(wm, id);
 
     int can_drag = !(w->opts.no_drag || w->opts.no_title);
-    int in_title = (y - w->frame.y) < WM_TITLEBAR_H;
-    if (can_drag && in_title) {
+    int local_x = x - w->frame.x;
+    int local_y = y - w->frame.y;
+    int in_title = local_y >= 0 && local_y < WM_TITLEBAR_H;
+    int in_chrome_btns = in_title && local_x >= 0 && local_x < WM_CHROME_BTN_ZONE &&
+                         (w->opts.closable || w->opts.can_minimize || w->opts.can_maximize);
+    if (can_drag && in_title && !in_chrome_btns) {
         wm->drag_id = id;
-        wm->drag_off_x = x - w->frame.x;
-        wm->drag_off_y = y - w->frame.y;
+        wm->drag_off_x = local_x;
+        wm->drag_off_y = local_y;
     }
 }
 

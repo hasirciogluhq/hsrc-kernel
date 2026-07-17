@@ -10,6 +10,7 @@
 namespace {
 
 constexpr const char *kSettingsTitle = "System Settings";
+constexpr const char *kSettingsClass = "os-settings";
 constexpr const char *kSettingsPath = "/applications/os-settings.mke";
 constexpr const char *kRunDir = "/run";
 constexpr const char *kDeepLinkPath = "/run/settings.deeplink";
@@ -49,10 +50,15 @@ bool write_deeplink_file(const char *uri)
     char buf[kDeepLinkBytes];
     memset(buf, 0, sizeof(buf));
     copy_text(buf, sizeof(buf), uri && uri[0] ? uri : kDefaultDeepLink);
+    size_t len = strlen(buf);
+    if (len == 0) {
+        copy_text(buf, sizeof(buf), kDefaultDeepLink);
+        len = strlen(buf);
+    }
 
-    long wrote = hsrc::sdk::write(fd, buf, sizeof(buf));
+    long wrote = hsrc::sdk::write(fd, buf, len);
     (void)hsrc::sdk::close(fd);
-    return wrote == (long)sizeof(buf);
+    return wrote == (long)len;
 }
 
 void reveal_settings_window(long wid)
@@ -69,6 +75,23 @@ void reveal_settings_window(long wid)
 
     (void)hsrc::sdk::syscall2(SYS_WM_SHOW, wid, 1);
     (void)hsrc::sdk::syscall1(SYS_WM_FOCUS, wid);
+}
+
+long find_settings_window()
+{
+    long wid = hsrc::sdk::syscall1(SYS_WM_FIND, (long)kSettingsTitle);
+    if (wid >= 0)
+        return wid;
+
+    /* Fallback: scan by class_name if title was changed. */
+    for (int id = 1; id < 32; id++) {
+        hsrc::sdk::WindowOptions opts;
+        if (!hsrc::sdk::window_get(id, opts))
+            continue;
+        if (opts.class_name[0] && strcmp(opts.class_name, kSettingsClass) == 0)
+            return id;
+    }
+    return -1;
 }
 
 } // namespace
@@ -92,16 +115,17 @@ bool open_category(const char *id)
 bool open_deeplink(const char *uri)
 {
     const char *target = (uri && uri[0]) ? uri : kDefaultDeepLink;
-    bool wrote = write_deeplink_file(target);
+    if (!write_deeplink_file(target))
+        return false;
 
-    long wid = hsrc::sdk::syscall1(SYS_WM_FIND, (long)kSettingsTitle);
+    long wid = find_settings_window();
     if (wid >= 0) {
         reveal_settings_window(wid);
-        return wrote;
+        return true;
     }
 
     long pid = hsrc::sdk::process::spawn(kSettingsPath);
-    return wrote && pid > 0;
+    return pid > 0;
 }
 
 } // namespace hsrc::sdk::settings

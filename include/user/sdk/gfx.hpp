@@ -70,6 +70,20 @@ struct WindowOptions {
     void set_class_name(const char *s);
 };
 
+/* Client-drawn traffic-light chrome (matches WM_TITLEBAR_H). */
+constexpr int kChromeTitleH = 28;
+constexpr int kChromeBtn = 12;
+constexpr int kChromeBtnY = 8;
+constexpr int kChromeBtn0X = 10;
+constexpr int kChromeBtnGap = 8;
+
+enum class ChromeHit : int8_t {
+    None = 0,
+    Close = 1,
+    Minimize = 2,
+    Maximize = 3,
+};
+
 /* Mapped window pixel buffer (kernel-backed). */
 class Surface {
 public:
@@ -91,6 +105,10 @@ public:
     void rect(int x, int y, int w, int h, Color c, int thickness = 1);
     void text(int x, int y, const char *s, Color c, int scale = 1);
     void text_centered(int cx, int cy, const char *s, Color c, int scale = 1);
+    static int text_width(const char *s, int scale = 1);
+    static int text_height(int scale = 1);
+    void draw_window_chrome(int win_w, const char *title, const WindowOptions &opts,
+                            Color bar_bg, Color title_color, Color border);
 
 private:
     ugx_map m_{};
@@ -120,8 +138,14 @@ public:
     void show(bool visible);
     void hide();
     void focus();
+    bool minimize();
     bool maximize();
     bool restore();
+    bool toggle_maximize();
+    bool set_fullscreen(bool enabled);
+    bool toggle_fullscreen();
+    ChromeHit hit_chrome(int lx, int ly, const WindowOptions &opts) const;
+    bool handle_chrome_hit(ChromeHit hit);
     void damage();
 
 private:

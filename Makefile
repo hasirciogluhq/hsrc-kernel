@@ -1,4 +1,5 @@
 # mykernel — bare-metal i386 Multiboot + MKDX (.kmod) + usermode C++ (.mke)
+# Parallel by default (see JOBS in mk/config.mk). Serial: make JOBS=1
 
 include mk/config.mk
 include mk/toolchain.mk

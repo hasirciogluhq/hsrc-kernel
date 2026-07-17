@@ -9,6 +9,8 @@
 #define WM_TITLE_MAX       64
 #define WM_DEFAULT_RADIUS  12
 #define WM_TITLEBAR_H      28
+/* Left strip reserved for client-drawn close/min/max; WM skips drag there. */
+#define WM_CHROME_BTN_ZONE 78
 #define WM_KEYBUF_SIZE     64
 
 /* Client-drawn window: userspace owns all pixels (no kernel chrome). */

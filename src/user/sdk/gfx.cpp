@@ -34,11 +34,23 @@ bool point_in_round(int lx, int ly, int w, int h, int r)
     return dx * dx + dy * dy <= r * r;
 }
 
-const uint8_t *glyph(uint8_t ch)
+const ugx_glyph &glyph(uint8_t ch)
 {
     if (ch >= 32 && ch <= 126)
         return ugx_font[ch - 32];
     return ugx_font['?' - 32];
+}
+
+int chrome_btn_x(int index)
+{
+    return kChromeBtn0X + index * (kChromeBtn + kChromeBtnGap);
+}
+
+bool point_in_chrome_btn(int lx, int ly, int index)
+{
+    int bx = chrome_btn_x(index);
+    return lx >= bx && lx < bx + kChromeBtn &&
+           ly >= kChromeBtnY && ly < kChromeBtnY + kChromeBtn;
 }
 
 void copy_cstr(char *dst, size_t dst_size, const char *src)
@@ -201,30 +213,59 @@ void Surface::rect(int x, int y, int w, int h, Color c, int thickness)
     fill(x + w - thickness, y, thickness, h, c);
 }
 
+int Surface::text_width(const char *s, int scale)
+{
+    if (!s || scale < 1)
+        return 0;
+    int line = 0;
+    int max_w = 0;
+    while (*s) {
+        uint8_t ch = (uint8_t)*s++;
+        if (ch == '\n') {
+            if (line > max_w)
+                max_w = line;
+            line = 0;
+            continue;
+        }
+        line += (int)glyph(ch).advance * scale;
+    }
+    if (line > max_w)
+        max_w = line;
+    return max_w;
+}
+
+int Surface::text_height(int scale)
+{
+    if (scale < 1)
+        scale = 1;
+    return UGX_FONT_H * scale;
+}
+
 void Surface::text(int x, int y, const char *s, Color c, int scale)
 {
     if (!s || scale < 1)
         return;
     int cx = x;
+    int cy = y;
     while (*s) {
         uint8_t ch = (uint8_t)*s++;
         if (ch == '\n') {
             cx = x;
-            y += 10 * scale;
+            cy += UGX_FONT_H * scale;
             continue;
         }
-        const uint8_t *g = glyph(ch);
-        for (int row = 0; row < 8; row++) {
-            uint8_t bits = g[row];
-            for (int col = 0; col < 8; col++) {
+        const ugx_glyph &g = glyph(ch);
+        for (int row = 0; row < UGX_FONT_H; row++) {
+            uint16_t bits = g.bits[row];
+            for (int col = 0; col < 16; col++) {
                 if (!(bits & (1u << col)))
                     continue;
                 for (int sy = 0; sy < scale; sy++)
                     for (int sx = 0; sx < scale; sx++)
-                        set(cx + col * scale + sx, y + row * scale + sy, c);
+                        set(cx + col * scale + sx, cy + row * scale + sy, c);
             }
         }
-        cx += 8 * scale;
+        cx += (int)g.advance * scale;
     }
 }
 
@@ -232,12 +273,30 @@ void Surface::text_centered(int cx, int cy, const char *s, Color c, int scale)
 {
     if (!s || scale < 1)
         return;
-    int len = 0;
-    while (s[len])
-        len++;
-    int tw = len * 8 * scale;
-    int th = 8 * scale;
+    int tw = text_width(s, scale);
+    int th = text_height(scale);
     text(cx - tw / 2, cy - th / 2, s, c, scale);
+}
+
+void Surface::draw_window_chrome(int win_w, const char *title, const WindowOptions &opts,
+                                 Color bar_bg, Color title_color, Color border)
+{
+    fill(0, 0, win_w, kChromeTitleH, bar_bg);
+    fill(0, kChromeTitleH - 1, win_w, 1, border);
+
+    if (opts.closable)
+        fill_round(chrome_btn_x(0), kChromeBtnY, kChromeBtn, kChromeBtn, 6, rgb(255, 95, 87));
+    if (opts.can_minimize)
+        fill_round(chrome_btn_x(1), kChromeBtnY, kChromeBtn, kChromeBtn, 6, rgb(255, 189, 46));
+    if (opts.can_maximize)
+        fill_round(chrome_btn_x(2), kChromeBtnY, kChromeBtn, kChromeBtn, 6, rgb(40, 200, 64));
+
+    if (title && title[0]) {
+        int tx = chrome_btn_x(3) + 4;
+        if (tx < 78)
+            tx = 78;
+        text(tx, 8, title, title_color, 1);
+    }
 }
 
 bool Window::remap_surface()
@@ -352,12 +411,23 @@ void Window::focus()
     (void)syscall1(SYS_WM_FOCUS, id_);
 }
 
+bool Window::minimize()
+{
+    WindowOptions opts;
+    if (!get_options(opts))
+        return false;
+    opts.minimized = true;
+    opts.visible = true;
+    return set_options(opts);
+}
+
 bool Window::maximize()
 {
     WindowOptions opts;
     if (!get_options(opts))
         return false;
     opts.maximized = true;
+    opts.fullscreen = false;
     opts.minimized = false;
     opts.visible = true;
     return set_options(opts);
@@ -369,9 +439,68 @@ bool Window::restore()
     if (!get_options(opts))
         return false;
     opts.maximized = false;
+    opts.fullscreen = false;
     opts.minimized = false;
     opts.visible = true;
     return set_options(opts);
+}
+
+bool Window::toggle_maximize()
+{
+    WindowOptions opts;
+    if (!get_options(opts))
+        return false;
+    if (opts.maximized || opts.fullscreen)
+        return restore();
+    return maximize();
+}
+
+bool Window::set_fullscreen(bool enabled)
+{
+    WindowOptions opts;
+    if (!get_options(opts))
+        return false;
+    opts.fullscreen = enabled;
+    opts.maximized = enabled ? false : opts.maximized;
+    opts.minimized = false;
+    opts.visible = true;
+    return set_options(opts);
+}
+
+bool Window::toggle_fullscreen()
+{
+    WindowOptions opts;
+    if (!get_options(opts))
+        return false;
+    return set_fullscreen(!opts.fullscreen);
+}
+
+ChromeHit Window::hit_chrome(int lx, int ly, const WindowOptions &opts) const
+{
+    if (ly < 0 || ly >= kChromeTitleH)
+        return ChromeHit::None;
+    if (opts.closable && point_in_chrome_btn(lx, ly, 0))
+        return ChromeHit::Close;
+    if (opts.can_minimize && point_in_chrome_btn(lx, ly, 1))
+        return ChromeHit::Minimize;
+    if (opts.can_maximize && point_in_chrome_btn(lx, ly, 2))
+        return ChromeHit::Maximize;
+    return ChromeHit::None;
+}
+
+bool Window::handle_chrome_hit(ChromeHit hit)
+{
+    switch (hit) {
+    case ChromeHit::Close:
+        return close();
+    case ChromeHit::Minimize:
+        return minimize();
+    case ChromeHit::Maximize:
+        return toggle_maximize();
+    case ChromeHit::None:
+    default:
+        return false;
+    }
 }
 
 void Window::damage()

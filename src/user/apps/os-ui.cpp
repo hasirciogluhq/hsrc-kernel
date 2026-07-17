@@ -64,14 +64,11 @@ int g_menu_hover = -1;
 uint8_t g_prev_buttons = 0;
 
 constexpr int kMenuSettingsX = 92;
-constexpr int kMenuSystemInfoX = 188;
+constexpr int kMenuSystemInfoX = 160;
 
 int text_width(const char *s)
 {
-    int len = 0;
-    while (s && s[len])
-        len++;
-    return len * 8;
+    return Surface::text_width(s, 1);
 }
 
 int dock_width()
@@ -84,9 +81,9 @@ void paint_desktop()
     Surface &s = g_desktop.surface();
     s.clear(kTransparent);
     /* Small watermark window (not fullscreen) — wallpaper carries the desktop color. */
-    s.text_centered((int)s.width() / 2, (int)s.height() / 2 - 10, "HSRC OS", kWatermark, 5);
-    s.text_centered((int)s.width() / 2, (int)s.height() / 2 + 36, "desktop",
-                    rgba(255, 255, 255, 36), 2);
+    s.text_centered((int)s.width() / 2, (int)s.height() / 2 - 10, "HSRC OS", kWatermark, 2);
+    s.text_centered((int)s.width() / 2, (int)s.height() / 2 + 24, "desktop",
+                    rgba(255, 255, 255, 36), 1);
     g_desktop.damage();
 }
 
@@ -131,10 +128,8 @@ void paint_dock()
         s.fill_round(ix - (sz - kDockIcon) / 2, iy, sz, sz, kIconRad, kDockItems[i].color);
         s.fill_round(ix - (sz - kDockIcon) / 2 + 6, iy + 4, sz - 12, 12, 6,
                      rgba(255, 255, 255, 55));
-        int len = 0;
-        while (kDockItems[i].label[len])
-            len++;
-        s.text(ix + (kDockIcon - len * 8) / 2, iy + sz / 2 - 4,
+        const int tw = text_width(kDockItems[i].label);
+        s.text(ix + (kDockIcon - tw) / 2, iy + sz / 2 - 4,
                kDockItems[i].label, kDockFg, 1);
     }
 

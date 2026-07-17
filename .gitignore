@@ -2,3 +2,4 @@ build
 output
 outputs
 disk.img
+tools/bake_ugx_font

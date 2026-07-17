@@ -87,7 +87,7 @@ void append_text(char *dst, size_t dst_size, const char *src)
 
 int text_width(const char *s)
 {
-    return (int)strlen(s ? s : "") * 8;
+    return Surface::text_width(s, 1);
 }
 
 bool ends_with(const char *text, const char *suffix)
@@ -413,11 +413,16 @@ bool build_ui()
     opts.y = g_screen.height > (uint32_t)kWinH ? ((int)g_screen.height - kWinH) / 2 : 30;
     opts.w = kWinW;
     opts.h = kWinH;
-    opts.background = true;
+    opts.background = false;
     opts.rounded = true;
     opts.shadow = true;
     opts.radius = 10;
     opts.resizable = false;
+    opts.framed = true;
+    opts.closable = true;
+    opts.can_minimize = true;
+    opts.can_maximize = true;
+    opts.accept_focus = true;
     opts.set_title("Files");
     opts.set_class_name("os.files");
 

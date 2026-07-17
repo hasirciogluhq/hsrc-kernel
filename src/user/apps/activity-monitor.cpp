@@ -5,12 +5,14 @@
 
 namespace {
 
+using hsrc::sdk::ChromeHit;
 using hsrc::sdk::Color;
 using hsrc::sdk::Input;
 using hsrc::sdk::ScreenInfo;
 using hsrc::sdk::Surface;
 using hsrc::sdk::Window;
 using hsrc::sdk::WindowOptions;
+using hsrc::sdk::kChromeTitleH;
 using hsrc::sdk::process::ProcListEntry;
 using hsrc::sdk::process::ProcStat;
 using hsrc::sdk::process::SysInfo;
@@ -20,6 +22,7 @@ using hsrc::sdk::rgba;
 constexpr int kWinW = 900;
 constexpr int kWinH = 560;
 constexpr int kHeaderH = 60;
+constexpr Color kChromeBg = rgb(250, 250, 248);
 constexpr int kSummaryY = 84;
 constexpr int kSummaryH = 72;
 constexpr int kSummaryGap = 12;
@@ -73,6 +76,8 @@ int g_scroll = 0;
 int g_refresh_counter = 0;
 bool g_has_selected_stat = false;
 bool g_dirty = true;
+bool g_running = true;
+bool g_summary_open = true;
 pid_t g_selected_pid = -1;
 pid_t g_self_pid = -1;
 uint64_t g_prev_total_ticks = 0;
@@ -227,8 +232,8 @@ void draw_stat_card(Surface &s, int x, const char *title, const char *value, con
     s.fill_round(x, kSummaryY, kSummaryW, kSummaryH, 10, kCard);
     s.rect(x, kSummaryY, kSummaryW, kSummaryH, kBorder, 1);
     s.text(x + 16, kSummaryY + 14, title, kTextDim, 1);
-    s.text(x + 16, kSummaryY + 34, value, kText, 2);
-    s.text(x + 16, kSummaryY + 56, note, kTextSoft, 1);
+    s.text(x + 16, kSummaryY + 32, value, kText, 1);
+    s.text(x + 16, kSummaryY + 52, note, kTextSoft, 1);
 }
 
 void refresh_monitor(bool keep_status)
@@ -297,18 +302,22 @@ void refresh_monitor(bool keep_status)
 
 void paint()
 {
+    if (!g_win.ok())
+        return;
+
     Surface &s = g_win.surface();
     s.clear(kBg);
-    s.fill(0, kHeaderH - 1, kWinW, 1, kBorder);
-    s.text(20, 18, "Activity Monitor", kText, 2);
-    s.text(20, 40, "Bounded process view for Wave N", kTextDim, 1);
+    s.draw_window_chrome(kWinW, g_win_opts.title, g_win_opts, kChromeBg, kText, kBorder);
+    s.fill(0, kChromeTitleH + kHeaderH - 1, kWinW, 1, kBorder);
+    s.text(78, kChromeTitleH + 12, "Activity Monitor", kText, 1);
+    s.text(78, kChromeTitleH + 30, "Bounded process view for Wave N", kTextDim, 1);
 
     const bool can_kill = can_end_task();
     const Color task_bg = can_kill ? kDangerSoft : kCard;
     const Color task_fg = can_kill ? kDanger : kTextSoft;
-    s.fill_round(kWinW - 20 - kTaskBtnW, 18, kTaskBtnW, 28, 8, task_bg);
-    s.rect(kWinW - 20 - kTaskBtnW, 18, kTaskBtnW, 28, can_kill ? kDangerSoft : kBorder, 1);
-    s.text(kWinW - 20 - kTaskBtnW + 18, 28, "End Task", task_fg, 1);
+    s.fill_round(kWinW - 20 - kTaskBtnW, kChromeTitleH + 14, kTaskBtnW, 28, 8, task_bg);
+    s.rect(kWinW - 20 - kTaskBtnW, kChromeTitleH + 14, kTaskBtnW, 28, can_kill ? kDangerSoft : kBorder, 1);
+    s.text(kWinW - 20 - kTaskBtnW + 18, kChromeTitleH + 24, "End Task", task_fg, 1);
 
     char cpu_value[32];
     char ram_value[32];
@@ -325,9 +334,15 @@ void paint()
     uptime_value[0] = 0;
     append_uint(uptime_value, sizeof(uptime_value), narrow_u64(g_sysinfo.uptime_ticks));
 
-    draw_stat_card(s, 20, "CPU Sample", cpu_value, "sampled from cooperative scheduler ticks");
-    draw_stat_card(s, 20 + kSummaryW + kSummaryGap, "RAM", ram_value, "kernel heap used / total");
-    draw_stat_card(s, 20 + 2 * (kSummaryW + kSummaryGap), "Processes", proc_value, uptime_value);
+    const char *summary_mark = g_summary_open ? "v Summary" : "> Summary";
+    s.fill_round(20, kSummaryY - 22, 120, 20, 6, kHover);
+    s.text(28, kSummaryY - 16, summary_mark, kTextDim, 1);
+
+    if (g_summary_open) {
+        draw_stat_card(s, 20, "CPU Sample", cpu_value, "sampled from cooperative scheduler ticks");
+        draw_stat_card(s, 20 + kSummaryW + kSummaryGap, "RAM", ram_value, "kernel heap used / total");
+        draw_stat_card(s, 20 + 2 * (kSummaryW + kSummaryGap), "Processes", proc_value, uptime_value);
+    }
 
     s.text(kListX, kListY - 18, "Name", kTextDim, 1);
     s.text(kListX + 288, kListY - 18, "PID", kTextDim, 1);
@@ -437,7 +452,13 @@ int footer_hit(int lx, int ly)
 bool task_button_hit(int lx, int ly)
 {
     const int x = kWinW - 20 - kTaskBtnW;
-    return lx >= x && lx < x + kTaskBtnW && ly >= 18 && ly < 46;
+    const int y = kChromeTitleH + 14;
+    return lx >= x && lx < x + kTaskBtnW && ly >= y && ly < y + 28;
+}
+
+bool summary_toggle_hit(int lx, int ly)
+{
+    return lx >= 20 && lx < 140 && ly >= kSummaryY - 22 && ly < kSummaryY - 2;
 }
 
 void perform_end_task()
@@ -475,6 +496,36 @@ void handle_click(const Input &in)
     if (lx < 0 || ly < 0 || lx >= g_win_opts.w || ly >= g_win_opts.h)
         return;
 
+    ChromeHit chrome = g_win.hit_chrome(lx, ly, g_win_opts);
+    if (chrome != ChromeHit::None) {
+        if (chrome == ChromeHit::Close) {
+            g_win.handle_chrome_hit(chrome);
+            g_running = false;
+            return;
+        }
+        if (chrome == ChromeHit::Minimize) {
+            (void)g_win.minimize();
+            return;
+        }
+        if (chrome == ChromeHit::Maximize) {
+            if (g_win_opts.fullscreen)
+                (void)g_win.set_fullscreen(false);
+            else if (g_win_opts.maximized)
+                (void)g_win.set_fullscreen(true);
+            else
+                (void)g_win.maximize();
+            (void)refresh_window_options();
+            g_dirty = true;
+            return;
+        }
+    }
+
+    if (summary_toggle_hit(lx, ly)) {
+        g_summary_open = !g_summary_open;
+        g_dirty = true;
+        return;
+    }
+
     if (task_button_hit(lx, ly)) {
         perform_end_task();
         return;
@@ -511,11 +562,16 @@ bool build_ui()
     opts.y = g_screen.height > (uint32_t)kWinH ? ((int)g_screen.height - kWinH) / 2 : 24;
     opts.w = kWinW;
     opts.h = kWinH;
-    opts.background = true;
+    opts.background = false;
     opts.rounded = true;
     opts.shadow = true;
     opts.radius = 10;
     opts.resizable = false;
+    opts.framed = true;
+    opts.closable = true;
+    opts.can_minimize = true;
+    opts.can_maximize = true;
+    opts.accept_focus = true;
     opts.set_title("Activity Monitor");
     opts.set_class_name("os.activity-monitor");
 
@@ -541,16 +597,28 @@ extern "C" void mke_main(void)
             hsrc::sdk::yield();
     }
 
+    g_win.show(true);
+    g_win.focus();
     refresh_monitor(false);
     paint();
     (void)hsrc::sdk::present();
 
     for (;;) {
+        if (!g_running || !g_win.ok())
+            return;
+
         Input in{};
         if (hsrc::sdk::input(in)) {
             const uint8_t pressed = (uint8_t)(in.buttons & ~g_prev_input.buttons);
-            if ((pressed & UGX_BTN_LEFT) && in.focus_id == g_win.id())
-                handle_click(in);
+            if (pressed & UGX_BTN_LEFT) {
+                const int lx = in.mouse_x - g_win_opts.x;
+                const int ly = in.mouse_y - g_win_opts.y;
+                const bool over = refresh_window_options() &&
+                                  lx >= 0 && ly >= 0 &&
+                                  lx < g_win_opts.w && ly < g_win_opts.h;
+                if (over || in.focus_id == g_win.id())
+                    handle_click(in);
+            }
             g_prev_input = in;
         }
 
