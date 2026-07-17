@@ -52,6 +52,7 @@ static const uint8_t keymap_altgr[128] = {
     [0x1E] = 0xE6, /* æ */
     [0x1F] = 0xDF, /* ß */
     [0x2B] = '`',
+    [0x35] = '>',  /* . → > (shell redirect; TR Shift+. is :) */
     [0x56] = '|',
 };
 

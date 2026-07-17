@@ -157,6 +157,7 @@ void cmd_help()
 {
     line_push("builtins: help clear pwd cd ls mkdir cat touch echo write whoami id uname", kDim);
     line_push("write:  echo hi > f.txt   |  echo hi >> f.txt   |  write f.txt hi", kDim);
+    line_push("tip:  >  =  AltGr+.  (or Shift+<> key)   |  no >: use write", kDim);
 }
 
 void cmd_ls(const char *arg)
