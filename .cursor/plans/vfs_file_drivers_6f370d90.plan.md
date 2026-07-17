@@ -1,6 +1,6 @@
 ---
 name: VFS File Drivers
-overview: "Production-ready, Linux tarzı VFS (inode/dentry/super_block/file) tamamen external kmod. Block + partition + her FS ayrı driver; format switch-case yok — register ile eklenir. Windows/Linux VFS özellik yüzeyi eksiksiz API olarak vfs.kmod içinde; desteklenmeyen ops hard ENOTSUP. Kernel core sadece loader + syscall jump."
+overview: Production-ready, Linux tarzı VFS (inode/dentry/super_block/file) tamamen external kmod. Block + partition + her FS ayrı driver; format switch-case yok — register ile eklenir. Windows/Linux VFS özellik yüzeyi eksiksiz API olarak vfs.kmod içinde; desteklenmeyen ops hard ENOTSUP. Kernel core sadece loader + syscall jump.
 todos:
   - id: vfs-kmod-abi
     content: vfs.kmod — inode/dentry/file/super_block/mount ABI + syscall export tablosu
@@ -21,7 +21,7 @@ todos:
     content: fat32, exfat, ext2/3/4, iso9660, udf, ntfs — ayrı kmod register_filesystem
     status: pending
   - id: vfs-features
-    content: "page cache, dcache, xattr, ioctl, mmap, flock, symlink, poll, notify"
+    content: page cache, dcache, xattr, ioctl, mmap, flock, symlink, poll, notify
     status: pending
   - id: module-from-vfs
     content: module_load_path ile disk/initrd uzerinden kmod
