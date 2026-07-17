@@ -5,17 +5,15 @@
 #include <drivers/serial.h>
 
 /*
- * Dashboard gauge loader: dark track + bright fill arc with rounded caps.
- * Rotation and fill are independent — the ring spins continuously while fill
- * ping-pongs 0% ↔ 100% with ease-in-out.
+ * Minimal boot loader: white progress arc on solid black.
+ * Rotation and fill are independent — the arc spins continuously while fill
+ * ping-pongs MIN_FILL_PCT ↔ 100% with ease-in-out.
  *
- * Ring geometry is rasterized per-pixel with distance-field coverage and
- * angular sector tests (no stamped disc LUT).
+ * Per-pixel distance-field coverage, smoothstep edge falloff, 2x2 subpixel
+ * supersampling, and angular sector tests (no track, glow, or cap discs).
  */
 #define SPLASH_BG     0xFF000000u
-#define SPLASH_TRACK  0xFF2C2C2Eu
 #define SPLASH_FILL   0xFFF5F5F7u
-#define SPLASH_GLOW   0xFFD1D1D6u
 
 #define RING_R        34
 #define RING_THICK    10
@@ -26,8 +24,11 @@
 #define ANGLE_FULL    65536
 #define ANGLE_QTR     (ANGLE_FULL / 4)
 #define AA_Q8         256
-#define FEATHER_ANG   384          /* ~2.1 deg arc-end AA */
+#define AA_EDGE       2            /* ~2px radial soft edge */
+#define FEATHER_ANG   512          /* ~2.8 deg arc-end AA */
 #define MIN_ARC_ANG   (ANGLE_FULL / 200)
+#define MIN_FILL_PCT  10           /* arc never fully empties */
+#define SS_SAMPLES    4            /* 2x2 subpixel supersampling */
 
 #define SPLASH_FRAMES 90
 #define FILL_CYCLE    62          /* frames for one 0→100→0 leg */
@@ -168,51 +169,32 @@ static int angle_top_cw(int dx, int dy)
     return a_q & (ANGLE_FULL - 1);
 }
 
-/*
- * sin/cos for angle CW from top (Q16 angle, Q15 trig).
- * x = sin(a)*r, y = -cos(a)*r.
- */
-static const int16_t sin_q15[257] = {
-    0, 402, 804, 1206, 1608, 2009, 2410, 2811, 3212, 3612, 4011, 4410, 4808, 5205, 5602, 5998,
-    6393, 6786, 7179, 7571, 7962, 8351, 8739, 9126, 9512, 9896, 10278, 10659, 11039, 11417, 11793, 12167,
-    12539, 12910, 13279, 13645, 14010, 14372, 14732, 15090, 15446, 15800, 16151, 16499, 16846, 17189, 17530, 17869,
-    18204, 18537, 18868, 19195, 19519, 19841, 20159, 20475, 20787, 21096, 21403, 21706, 22005, 22301, 22594, 22884,
-    23170, 23452, 23731, 24007, 24279, 24547, 24811, 25072, 25329, 25582, 25832, 26077, 26319, 26556, 26790, 27019,
-    27245, 27466, 27683, 27896, 28105, 28310, 28510, 28706, 28898, 29085, 29268, 29447, 29621, 29791, 29956, 30117,
-    30273, 30424, 30571, 30714, 30852, 30985, 31113, 31237, 31356, 31470, 31580, 31685, 31785, 31880, 31971, 32057,
-    32137, 32213, 32285, 32351, 32412, 32469, 32521, 32567, 32609, 32646, 32678, 32705, 32728, 32745, 32757, 32765,
-    32767
-};
-
-static void ang_to_ring_xy(int ang, int *ox, int *oy)
+static int coverage_ramp_q8(int v, int edge0, int edge1)
 {
-    int a = ang & (ANGLE_FULL - 1);
-    int quad = a / ANGLE_QTR;
-    int rem = a % ANGLE_QTR;
-    int mirror = ANGLE_QTR - rem;
-    int sx;
-    int sy;
+    int lo;
+    int hi;
+    int span;
+    int t_q8;
 
-    switch (quad) {
-    case 0:
-        sx = sin_q15[rem >> 8];
-        sy = sin_q15[mirror >> 8];
-        break;
-    case 1:
-        sx = sin_q15[mirror >> 8];
-        sy = -sin_q15[rem >> 8];
-        break;
-    case 2:
-        sx = -sin_q15[rem >> 8];
-        sy = -sin_q15[mirror >> 8];
-        break;
-    default:
-        sx = -sin_q15[mirror >> 8];
-        sy = sin_q15[rem >> 8];
-        break;
+    if (edge0 <= edge1) {
+        lo = edge0;
+        hi = edge1;
+        if (v <= lo)
+            return 0;
+        if (v >= hi)
+            return AA_Q8;
+    } else {
+        lo = edge1;
+        hi = edge0;
+        if (v <= lo)
+            return AA_Q8;
+        if (v >= hi)
+            return 0;
     }
-    *ox = (sx * RING_R) >> 15;
-    *oy = (sy * RING_R) >> 15;
+
+    span = hi - lo;
+    t_q8 = clampi(((v - lo) * AA_Q8 + span / 2) / span, 0, AA_Q8);
+    return ease_in_out_q8(t_q8);
 }
 
 static int ring_coverage_q8(int dist)
@@ -220,14 +202,18 @@ static int ring_coverage_q8(int dist)
     int cov_in;
     int cov_out;
 
-    cov_in = clampi(((dist - INNER_R + 1) * AA_Q8 + 1) / 2, 0, AA_Q8);
-    cov_out = clampi(((OUTER_R - dist + 1) * AA_Q8 + 1) / 2, 0, AA_Q8);
+    cov_in = coverage_ramp_q8(dist, INNER_R - AA_EDGE, INNER_R + AA_EDGE);
+    cov_out = coverage_ramp_q8(dist, OUTER_R + AA_EDGE, OUTER_R - AA_EDGE);
     return (cov_in * cov_out) / AA_Q8;
 }
 
-static int disc_coverage_q8(int dist, int r)
+static int dist_from_center_q8(int x, int y, int cx, int cy, int off_x_q8, int off_y_q8)
 {
-    return clampi((r + 1 - dist) * 128, 0, AA_Q8);
+    int dx_q8 = ((x - cx) << 8) + 128 + off_x_q8;
+    int dy_q8 = ((y - cy) << 8) + 128 + off_y_q8;
+    uint32_t dist_sq = (uint32_t)((dx_q8 * dx_q8 + dy_q8 * dy_q8 + (1 << 15)) >> 16);
+
+    return isqrt_u32(dist_sq);
 }
 
 static void blend_px(uint32_t *fb, uint32_t stride, uint32_t w, uint32_t h,
@@ -274,6 +260,7 @@ static int fill_angular_cov_q8(int ang, int head_ang, int arc_ang)
     int d_tail;
     int tail_ang;
     int cov;
+    int t_q8;
 
     if (arc_ang <= 0)
         return 0;
@@ -286,82 +273,70 @@ static int fill_angular_cov_q8(int ang, int head_ang, int arc_ang)
     d_tail = (ang - tail_ang) & (ANGLE_FULL - 1);
 
     cov = AA_Q8;
-    if (d_tail < FEATHER_ANG && arc_ang > FEATHER_ANG)
-        cov = (d_tail * AA_Q8) / FEATHER_ANG;
+    if (d_tail < FEATHER_ANG && arc_ang > FEATHER_ANG) {
+        t_q8 = clampi((d_tail * AA_Q8) / FEATHER_ANG, 0, AA_Q8);
+        cov = ease_in_out_q8(t_q8);
+    }
     return clampi(cov, 0, AA_Q8);
 }
 
-static void draw_ring(uint32_t *fb, uint32_t stride, uint32_t w, uint32_t h,
-                      int cx, int cy, int pct, int rot_ang)
+static int sample_fill_cov_q8(int x, int y, int cx, int cy,
+                              int off_x_q8, int off_y_q8,
+                              int head_ang, int arc_ang)
 {
-    int pad = TIP_R + 2;
+    int dx_q8 = ((x - cx) << 8) + 128 + off_x_q8;
+    int dy_q8 = ((y - cy) << 8) + 128 + off_y_q8;
+    int dist = dist_from_center_q8(x, y, cx, cy, off_x_q8, off_y_q8);
+    int ring_cov;
+    int ang;
+
+    ring_cov = ring_coverage_q8(dist);
+    if (ring_cov <= 0)
+        return 0;
+
+    ang = angle_top_cw(dx_q8 >> 8, dy_q8 >> 8);
+    return (ring_cov * fill_angular_cov_q8(ang, head_ang, arc_ang)) / AA_Q8;
+}
+
+static void draw_fill_arc(uint32_t *fb, uint32_t stride, uint32_t w, uint32_t h,
+                          int cx, int cy, int pct, int rot_ang)
+{
+    static const int8_t ss_off_q8[SS_SAMPLES][2] = {
+        {-64, -64}, {64, -64}, {-64, 64}, {64, 64}
+    };
+    int pad = TIP_R + AA_EDGE + 2;
     int y0 = cy - RING_R - pad;
     int y1 = cy + RING_R + pad;
     int x0 = cx - RING_R - pad;
     int x1 = cx + RING_R + pad;
     int arc_ang;
     int head_ang;
-    int head_x;
-    int head_y;
-    int tail_x;
-    int tail_y;
     int y;
     int x;
 
-    pct = clampi(pct, 0, 100);
+    pct = clampi(pct, MIN_FILL_PCT, 100);
     head_ang = rot_ang & (ANGLE_FULL - 1);
     arc_ang = (pct * ANGLE_FULL) / 100;
-    if (pct > 0 && arc_ang < MIN_ARC_ANG)
+    if (arc_ang < MIN_ARC_ANG)
         arc_ang = MIN_ARC_ANG;
-
-    ang_to_ring_xy(head_ang, &head_x, &head_y);
-    head_x += cx;
-    head_y += cy;
-    ang_to_ring_xy((head_ang - arc_ang) & (ANGLE_FULL - 1), &tail_x, &tail_y);
-    tail_x += cx;
-    tail_y += cy;
 
     for (y = y0; y <= y1; y++) {
         for (x = x0; x <= x1; x++) {
-            int dx = x - cx;
-            int dy = y - cy;
-            int dist_sq = dx * dx + dy * dy;
-            int dist = isqrt_u32((uint32_t)dist_sq);
-            int ring_cov;
+            int fill_cov_sum = 0;
             int fill_cov;
-            int ang;
-            int cap_head;
-            int cap_tail;
-            int glow_cov;
+            int i;
 
-            ring_cov = ring_coverage_q8(dist);
-            if (ring_cov <= 0)
-                continue;
+            for (i = 0; i < SS_SAMPLES; i++) {
+                int off_x = (int)ss_off_q8[i][0];
+                int off_y = (int)ss_off_q8[i][1];
 
-            blend_px(fb, stride, w, h, x, y, SPLASH_TRACK, ring_cov);
+                fill_cov_sum += sample_fill_cov_q8(
+                    x, y, cx, cy, off_x, off_y, head_ang, arc_ang);
+            }
 
-            if (pct <= 0)
-                continue;
-
-            ang = angle_top_cw(dx, dy);
-            fill_cov = (ring_cov * fill_angular_cov_q8(ang, head_ang, arc_ang)) / AA_Q8;
-
-            cap_head = disc_coverage_q8(isqrt_u32((uint32_t)((x - head_x) * (x - head_x) +
-                                                             (y - head_y) * (y - head_y))), TIP_R);
-            cap_tail = disc_coverage_q8(isqrt_u32((uint32_t)((x - tail_x) * (x - tail_x) +
-                                                             (y - tail_y) * (y - tail_y))), TIP_R);
-            if (cap_head > fill_cov)
-                fill_cov = cap_head;
-            if (cap_tail > fill_cov)
-                fill_cov = cap_tail;
-
+            fill_cov = fill_cov_sum / SS_SAMPLES;
             if (fill_cov > 0)
                 blend_px(fb, stride, w, h, x, y, SPLASH_FILL, fill_cov);
-
-            glow_cov = disc_coverage_q8(isqrt_u32((uint32_t)((x - head_x) * (x - head_x) +
-                                                             (y - head_y) * (y - head_y))), TIP_R - 1);
-            if (glow_cov > 0)
-                blend_px(fb, stride, w, h, x, y, SPLASH_GLOW, glow_cov / 3);
         }
     }
 }
@@ -409,7 +384,7 @@ void boot_splash_show(void)
     for (frame = 0; frame <= SPLASH_FRAMES; frame++) {
         int t_raw = pingpong_q8(frame, FILL_CYCLE);
         int t_eased = ease_in_out_q8(t_raw);
-        int pct = lerpi(0, 100, t_eased);
+        int pct = lerpi(MIN_FILL_PCT, 100, t_eased);
         int rot_ang = (frame * ROT_SPEED) % ANGLE_FULL;
         int y, x;
 
@@ -418,7 +393,7 @@ void boot_splash_show(void)
                 put_px(fb, mode.width, mode.width, mode.height, x, y, SPLASH_BG);
         }
 
-        draw_ring(fb, mode.width, mode.width, mode.height, cx, cy, pct, rot_ang);
+        draw_fill_arc(fb, mode.width, mode.width, mode.height, cx, cy, pct, rot_ang);
         (void)ops->present(fb, mode.width);
         splash_delay();
     }
