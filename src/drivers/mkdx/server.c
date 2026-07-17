@@ -309,45 +309,50 @@ void gx_server_mark_drag_move(gx_rect old_r, gx_rect new_r)
 
 static void flush_cursor_at(gx_server *s, int32_t mx, int32_t my)
 {
-    display_ops_t *ops;
-    int32_t rx, ry;
+    int32_t ox, oy;
+    gx_rect uni;
+    int32_t uni_area;
 
     if (!s || !s->device.backbuffer)
         return;
     if (mx == s->cursor_x && my == s->cursor_y)
         return;
-
-    ops = display_active();
-    if (!ops)
+    if (!display_active())
         return;
 
-    /* Drag: save/restore bb pixels — compose would erase dock/siblings. */
-    if (s->wm.drag_id >= 0) {
-        if (g_cursor_under_valid) {
-            rx = g_cursor_under_x;
-            ry = g_cursor_under_y;
-            cursor_under_restore(s);
-            present_rect(s, rx, ry, CURSOR_W, CURSOR_H);
-        }
-        cursor_paint_at(s, mx, my);
+    ox = s->cursor_x;
+    oy = s->cursor_y;
+
+    /*
+     * Software cursor (C21–C23): update backbuffer fully, then scanout.
+     * Never present the erase before the new glyph — that flashes a hole
+     * on fast moves (erase→present→draw→present).
+     */
+    if (g_cursor_under_valid) {
+        cursor_under_restore(s);
+    } else if (ox >= 0 && oy >= 0 && s->wm.drag_id < 0) {
+        /* No save-under (post-compose): rebuild the footprint from the scene. */
+        compose_rect_to_bb(s, ox, oy, CURSOR_W, CURSOR_H);
+    }
+
+    cursor_paint_at(s, mx, my);
+
+    if (ox < 0 || oy < 0) {
         present_rect(s, mx, my, CURSOR_W, CURSOR_H);
         return;
     }
 
-    g_cursor_under_valid = 0;
-
-    /* Erase old cursor by recomposing under it, then paint at the new spot. */
-    if (s->cursor_x >= 0 && s->cursor_y >= 0) {
-        compose_rect_to_bb(s, s->cursor_x, s->cursor_y, CURSOR_W, CURSOR_H);
-        present_rect(s, s->cursor_x, s->cursor_y, CURSOR_W, CURSOR_H);
+    uni = gx_rect_union(gx_rect_make(ox, oy, CURSOR_W, CURSOR_H),
+                        gx_rect_make(mx, my, CURSOR_W, CURSOR_H));
+    uni_area = gx_rect_area(uni);
+    /* Short hop: one present of the union (atomic, no ghost/hole). */
+    if (uni_area <= (CURSOR_W * CURSOR_H) * 4) {
+        present_rect(s, uni.x, uni.y, uni.w, uni.h);
+    } else {
+        /* Far jump: show new first, then clear old — cursor never blanks. */
+        present_rect(s, mx, my, CURSOR_W, CURSOR_H);
+        present_rect(s, ox, oy, CURSOR_W, CURSOR_H);
     }
-
-    compose_rect_to_bb(s, mx, my, CURSOR_W, CURSOR_H);
-    draw_cursor_on_bb(s, mx, my);
-    present_rect(s, mx, my, CURSOR_W, CURSOR_H);
-
-    s->cursor_x = mx;
-    s->cursor_y = my;
 }
 
 static void apply_wm_move(gx_server *s, int32_t x, int32_t y)
@@ -794,25 +799,30 @@ int gx_server_frame_tick(void)
             s_present_log++;
         }
 
-        /* Damage already in bb; restore under old cursor then overlay. */
-        if (s->cursor_x >= 0 && s->cursor_y >= 0 &&
-            (s->cursor_x != mx || s->cursor_y != my))
-            compose_rect_to_bb(s, s->cursor_x, s->cursor_y, CURSOR_W, CURSOR_H);
-        draw_cursor_on_bb(s, mx, my);
+        /*
+         * Compose left a cursor-free scene inside damage; any save-under is
+         * stale. Rebuild the old footprint if it still sits outside damage,
+         * then paint + save-under so the next mouse hop skips recompose.
+         */
+        {
+            int32_t ox = s->cursor_x;
+            int32_t oy = s->cursor_y;
 
-        if (full) {
-            present_full_frame(s, ops, bb, &mx, &my);
-        } else {
-            gx_rect pr = damage;
-            if (s->cursor_x >= 0 && s->cursor_y >= 0)
-                pr = gx_rect_union(pr, gx_rect_make(s->cursor_x, s->cursor_y,
-                                                    CURSOR_W, CURSOR_H));
-            pr = gx_rect_union(pr, gx_rect_make(mx, my, CURSOR_W, CURSOR_H));
-            present_rect(s, pr.x, pr.y, pr.w, pr.h);
+            g_cursor_under_valid = 0;
+            if (ox >= 0 && oy >= 0)
+                compose_rect_to_bb(s, ox, oy, CURSOR_W, CURSOR_H);
+            cursor_paint_at(s, mx, my);
+
+            if (full) {
+                present_full_frame(s, ops, bb, &mx, &my);
+            } else {
+                gx_rect pr = damage;
+                if (ox >= 0 && oy >= 0)
+                    pr = gx_rect_union(pr, gx_rect_make(ox, oy, CURSOR_W, CURSOR_H));
+                pr = gx_rect_union(pr, gx_rect_make(mx, my, CURSOR_W, CURSOR_H));
+                present_rect(s, pr.x, pr.y, pr.w, pr.h);
+            }
         }
-
-        s->cursor_x = mx;
-        s->cursor_y = my;
         s->frame_seq++;
     }
 

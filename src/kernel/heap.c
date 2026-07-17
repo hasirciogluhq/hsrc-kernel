@@ -2,12 +2,16 @@
 #include <kernel/spinlock.h>
 
 /*
- * First-fit freelist heap with address-ordered coalesce.
+ * Freelist + wilderness (bump) heap.
+ *
+ * Do NOT park the entire arena in one free-list node at init: a single
+ * metadata smash after the first allocation would lose hundreds of MiB.
+ * Fresh memory comes from the wilderness; the freelist only holds blocks
+ * returned by kfree (address-ordered, coalesced).
  *
  * Normal allocations: header immediately before the returned pointer.
- * Stronger alignment: allocate size+align+sizeof(void*), align the user
- * pointer, and stash the real payload pointer at user[-1] with a tagged
- * header so kfree can recover the underlying block.
+ * Stronger alignment: over-allocate, align the user pointer, tag header
+ * with a stash of the real payload so kfree can recover it.
  */
 
 typedef struct heap_block {
@@ -24,6 +28,7 @@ typedef struct heap_block {
 
 static uint8_t *heap_base;
 static uint8_t *heap_end;
+static uint8_t *wilderness; /* next unused byte; grows toward heap_end */
 static heap_block_t *free_list;
 static size_t g_used;
 static spinlock_t g_heap_lock;
@@ -39,11 +44,39 @@ static int block_in_heap(const heap_block_t *b)
     return p >= heap_base && (uint8_t *)b + HEAP_HDR_SIZE <= heap_end;
 }
 
+static int size_add_ok(size_t a, size_t b, size_t *out)
+{
+    if (a > (size_t)-1 - b)
+        return 0;
+    *out = a + b;
+    return 1;
+}
+
+/* Merge b into wilderness if it sits immediately below the bump pointer. */
+static int try_return_wilderness(heap_block_t *b)
+{
+    uint8_t *end;
+
+    if (!b || b->size < HEAP_HDR_SIZE)
+        return 0;
+    end = (uint8_t *)b + b->size;
+    if (end != wilderness)
+        return 0;
+    if ((uint8_t *)b < heap_base)
+        return 0;
+    wilderness = (uint8_t *)b;
+    return 1;
+}
+
 static void freelist_insert(heap_block_t *b)
 {
     heap_block_t **pp;
     heap_block_t *prev;
     heap_block_t *n;
+    size_t sum;
+
+    if (try_return_wilderness(b))
+        return;
 
     b->magic = HEAP_MAGIC_FREE;
     b->next = NULL;
@@ -57,16 +90,43 @@ static void freelist_insert(heap_block_t *b)
 
     if (b->next && (uint8_t *)b + b->size == (uint8_t *)b->next) {
         n = b->next;
-        b->size += n->size;
-        b->next = n->next;
+        if (size_add_ok(b->size, n->size, &sum)) {
+            b->size = sum;
+            b->next = n->next;
+        }
+    }
+
+    if (try_return_wilderness(b)) {
+        /* Detach from freelist — now part of wilderness. */
+        pp = &free_list;
+        while (*pp) {
+            if (*pp == b) {
+                *pp = b->next;
+                break;
+            }
+            pp = &(*pp)->next;
+        }
+        return;
     }
 
     prev = NULL;
     for (n = free_list; n && n != b; n = n->next)
         prev = n;
     if (prev && (uint8_t *)prev + prev->size == (uint8_t *)b) {
-        prev->size += b->size;
-        prev->next = b->next;
+        if (size_add_ok(prev->size, b->size, &sum)) {
+            prev->size = sum;
+            prev->next = b->next;
+            if (try_return_wilderness(prev)) {
+                pp = &free_list;
+                while (*pp) {
+                    if (*pp == prev) {
+                        *pp = prev->next;
+                        break;
+                    }
+                    pp = &(*pp)->next;
+                }
+            }
+        }
     }
 }
 
@@ -101,6 +161,26 @@ static void split_tail(heap_block_t *b, size_t keep)
     freelist_insert(tail);
 }
 
+static void *bump_locked(size_t need)
+{
+    heap_block_t *b;
+    uint8_t *next;
+
+    need = align_up_sz(need, 16u);
+    if (wilderness + need < wilderness || wilderness + need > heap_end)
+        return NULL;
+
+    b = (heap_block_t *)wilderness;
+    next = wilderness + need;
+    wilderness = next;
+
+    b->size = need;
+    b->magic = HEAP_MAGIC_USED;
+    b->next = NULL;
+    g_used += need;
+    return (uint8_t *)b + HEAP_HDR_SIZE;
+}
+
 /* Allocate `size` payload bytes. Blocks stay 16-aligned so payloads are too. */
 static void *alloc_raw_locked(size_t size)
 {
@@ -117,8 +197,10 @@ static void *alloc_raw_locked(size_t size)
             continue;
         if (b->size < need)
             continue;
-        /* Keep 16-byte geometry after splits (heap base is 16-aligned). */
         if (((uintptr_t)b) & 15u)
+            continue;
+        if ((uint8_t *)b + b->size > heap_end ||
+            (uint8_t *)b + b->size < (uint8_t *)b)
             continue;
 
         freelist_remove(b);
@@ -129,7 +211,8 @@ static void *alloc_raw_locked(size_t size)
         data = (uint8_t *)b + HEAP_HDR_SIZE;
         return data;
     }
-    return NULL;
+
+    return bump_locked(need);
 }
 
 static void free_raw_locked(void *ptr)
@@ -142,7 +225,8 @@ static void free_raw_locked(void *ptr)
     blk = (heap_block_t *)((uint8_t *)ptr - HEAP_HDR_SIZE);
     if (!block_in_heap(blk) || blk->magic != HEAP_MAGIC_USED ||
         blk->size < HEAP_HDR_SIZE ||
-        (uint8_t *)blk + blk->size > heap_end)
+        (uint8_t *)blk + blk->size > heap_end ||
+        (uint8_t *)blk + blk->size < (uint8_t *)blk)
         return;
 
     if (g_used >= blk->size)
@@ -155,22 +239,17 @@ static void free_raw_locked(void *ptr)
 
 void heap_init(void *start, size_t size)
 {
-    heap_block_t *b;
-
     heap_base = (uint8_t *)start;
     heap_end = heap_base + size;
+    wilderness = heap_base;
     free_list = NULL;
     g_used = 0;
     spin_init(&g_heap_lock);
 
-    if (size < HEAP_MIN_BLOCK)
-        return;
-
-    b = (heap_block_t *)heap_base;
-    b->size = size;
-    b->magic = HEAP_MAGIC_FREE;
-    b->next = NULL;
-    free_list = b;
+    if (size < HEAP_MIN_BLOCK || heap_end < heap_base) {
+        heap_end = heap_base;
+        wilderness = heap_base;
+    }
 }
 
 void *kmalloc(size_t size)
@@ -269,6 +348,8 @@ size_t heap_free(void)
 
     spin_lock(&g_heap_lock);
     n = 0;
+    if (heap_end > wilderness)
+        n += (size_t)(heap_end - wilderness);
     for (b = free_list; b; b = b->next) {
         if (b->magic == HEAP_MAGIC_FREE && b->size > HEAP_HDR_SIZE)
             n += b->size - HEAP_HDR_SIZE;

@@ -160,25 +160,51 @@ int modules_load_blob(const char *name, const void *data, size_t size)
     shstr = (const char *)data + shdrs[eh->e_shstrndx].sh_offset;
     memset(sec_base, 0, sizeof(sec_base));
 
-    /* Size allocable image */
+    /* Size allocable image (reject overflow / absurd aligns). */
     for (i = 0; i < eh->e_shnum; i++) {
+        size_t aligned;
+        size_t next;
+
         if (!(shdrs[i].sh_flags & SHF_ALLOC))
             continue;
-        image_size = (size_t)align_up((uintptr_t)image_size, shdrs[i].sh_addralign);
-        image_size += shdrs[i].sh_size;
+        if (shdrs[i].sh_addralign > 0x10000u) {
+            vga_print("kmod: bad sh_addralign\n");
+            return -1;
+        }
+        aligned = (size_t)align_up((uintptr_t)image_size, shdrs[i].sh_addralign);
+        if (aligned < image_size ||
+            aligned > (size_t)-1 - shdrs[i].sh_size) {
+            vga_print("kmod: image size overflow\n");
+            return -1;
+        }
+        next = aligned + shdrs[i].sh_size;
+        image_size = next;
     }
 
     image = (uint8_t *)kmalloc_aligned(image_size ? image_size : 1, 16);
-    if (!image)
+    if (!image) {
+        vga_print("kmod: out of memory\n");
         return -1;
+    }
     memset(image, 0, image_size);
 
     cursor = (uintptr_t)image;
     for (i = 0; i < eh->e_shnum; i++) {
+        uintptr_t sec_end;
+
         if (!(shdrs[i].sh_flags & SHF_ALLOC))
             continue;
         cursor = align_up(cursor, shdrs[i].sh_addralign);
+        if (cursor < (uintptr_t)image ||
+            cursor > (uintptr_t)image + image_size ||
+            shdrs[i].sh_size > image_size ||
+            cursor > (uintptr_t)image + image_size - shdrs[i].sh_size) {
+            vga_print("kmod: section exceeds image\n");
+            kfree(image);
+            return -1;
+        }
         sec_base[i] = (uint8_t *)cursor;
+        sec_end = cursor + shdrs[i].sh_size;
         if (shdrs[i].sh_type != 8 /* SHT_NOBITS */) {
             if (shdrs[i].sh_offset + shdrs[i].sh_size > size) {
                 kfree(image);
@@ -187,7 +213,7 @@ int modules_load_blob(const char *name, const void *data, size_t size)
             memcpy(sec_base[i], (const uint8_t *)data + shdrs[i].sh_offset,
                    shdrs[i].sh_size);
         }
-        cursor += shdrs[i].sh_size;
+        cursor = sec_end;
     }
 
     /* Find symtab */
@@ -247,6 +273,14 @@ int modules_load_blob(const char *name, const void *data, size_t size)
                     kfree(image);
                     return -1;
                 }
+            }
+
+            if ((uintptr_t)loc < (uintptr_t)image ||
+                (uintptr_t)loc + sizeof(uint32_t) >
+                    (uintptr_t)image + image_size) {
+                vga_print("kmod: reloc out of image\n");
+                kfree(image);
+                return -1;
             }
 
             A = *loc;
