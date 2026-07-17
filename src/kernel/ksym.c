@@ -13,6 +13,7 @@
 #include <drivers/pci.h>
 #include <drivers/display.h>
 #include <drivers/vga.h>
+#include <drivers/serial.h>
 #include <drivers/mouse.h>
 #include <drivers/keyboard.h>
 #include <drivers/ps2.h>
@@ -94,6 +95,14 @@ static const ksym_t g_ksyms[] = {
 
     { "vga_print",          (void *)vga_print },
     { "vga_putc",           (void *)vga_putc },
+    { "vga_print_uint",     (void *)vga_print_uint },
+    { "serial_print",       (void *)serial_print },
+    { "serial_putc",        (void *)serial_putc },
+    { "serial_print_uint",  (void *)serial_print_uint },
+    { "serial_print_hex",   (void *)serial_print_hex },
+    { "klog",               (void *)klog },
+    { "klog_uint",          (void *)klog_uint },
+    { "klog_hex",           (void *)klog_hex },
 
     { "mouse_get",          (void *)mouse_get },
     { "mouse_pop_event",    (void *)mouse_pop_event },

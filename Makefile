@@ -41,11 +41,13 @@ USERLDFLAGS := -m elf_i386 -nostdlib -T user.ld
 ARCH_ASM := $(SRC)/arch/x86/boot.asm \
             $(SRC)/arch/x86/switch.asm \
             $(SRC)/arch/x86/isr.asm \
+            $(SRC)/arch/x86/exc.asm \
             $(SRC)/arch/x86/gdt_flush.asm \
             $(SRC)/arch/x86/usermode.asm
 
 ARCH_C   := $(SRC)/arch/x86/idt.c \
-            $(SRC)/arch/x86/gdt.c
+            $(SRC)/arch/x86/gdt.c \
+            $(SRC)/arch/x86/exception.c
 
 KERNEL_C := $(SRC)/kernel/main.c \
             $(SRC)/kernel/heap.c \
@@ -71,6 +73,7 @@ LIB_C    := $(SRC)/lib/string.c
 DRV_C    := $(SRC)/drivers/driver.c \
             $(SRC)/drivers/internal.c \
             $(SRC)/drivers/vga.c \
+            $(SRC)/drivers/serial.c \
             $(SRC)/drivers/console.c \
             $(SRC)/drivers/keyboard.c \
             $(SRC)/drivers/ps2.c \
@@ -329,6 +332,7 @@ $(BUILD)/%.o: $(SRC)/%.c
 
 run: $(TARGET) $(INITRD) $(DISKIMG)
 	$(QEMU) -kernel $(TARGET) -initrd $(INITRD) -m 256M -vga std \
+		-serial stdio \
 		-drive if=none,id=vd0,file=$(DISKIMG),format=raw \
 		-device virtio-blk-pci,drive=vd0,disable-legacy=on \
 		-netdev user,id=n0 -device virtio-net-pci,netdev=n0,disable-legacy=on

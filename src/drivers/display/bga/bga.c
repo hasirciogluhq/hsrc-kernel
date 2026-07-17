@@ -2,6 +2,7 @@
 #include <drivers/display.h>
 #include <drivers/driver.h>
 #include <drivers/pci.h>
+#include <drivers/serial.h>
 #include <arch/x86/io.h>
 #include <kernel/string.h>
 
@@ -76,9 +77,17 @@ static int bga_set_mode(uint32_t width, uint32_t height, uint32_t bpp)
     g_mode.pitch = width * g_mode.bytes_per_pixel;
     g_ready = 1;
 
+    klog("[bga] mode ");
+    serial_print_uint(width);
+    klog("x");
+    serial_print_uint(height);
+    klog(" lfb=");
+    serial_print_hex(lfb);
+    klog("\n");
+
     /* Avoid pure black after leaving VGA text — proves LFB is alive. */
     if (g_mode.bytes_per_pixel == 4) {
-        uint32_t *px = (uint32_t *)g_mode.addr;
+        volatile uint32_t *px = (volatile uint32_t *)g_mode.addr;
         uint32_t n = width * height;
         uint32_t i;
         for (i = 0; i < n; i++)
@@ -97,30 +106,32 @@ static int bga_get_mode(display_mode_t *out)
 
 static int bga_present(const uint32_t *src, uint32_t src_stride_px)
 {
-    uint32_t y;
+    uint32_t y, x;
     if (!g_ready || !src)
         return -1;
 
-    if (g_mode.bytes_per_pixel == 4 && g_mode.pitch == g_mode.width * 4 &&
-        src_stride_px == g_mode.width) {
-        memcpy(g_mode.addr, src, (size_t)g_mode.width * g_mode.height * 4);
+    /* Volatile dword stores — memcpy to MMIO LFB is unreliable on some QEMU builds. */
+    if (g_mode.bytes_per_pixel == 4) {
+        volatile uint32_t *dst = (volatile uint32_t *)g_mode.addr;
+        uint32_t dst_stride = g_mode.pitch / 4u;
+        for (y = 0; y < g_mode.height; y++) {
+            const uint32_t *srow = src + y * src_stride_px;
+            volatile uint32_t *drow = dst + y * dst_stride;
+            for (x = 0; x < g_mode.width; x++)
+                drow[x] = srow[x];
+        }
         return 0;
     }
 
     for (y = 0; y < g_mode.height; y++) {
         const uint32_t *srow = src + y * src_stride_px;
         uint8_t *drow = g_mode.addr + y * g_mode.pitch;
-        if (g_mode.bytes_per_pixel == 4)
-            memcpy(drow, srow, g_mode.width * 4);
-        else {
-            uint32_t x;
-            for (x = 0; x < g_mode.width; x++) {
-                uint32_t c = srow[x];
-                uint8_t *p = drow + x * 3;
-                p[0] = (uint8_t)(c & 0xFF);
-                p[1] = (uint8_t)((c >> 8) & 0xFF);
-                p[2] = (uint8_t)((c >> 16) & 0xFF);
-            }
+        for (x = 0; x < g_mode.width; x++) {
+            uint32_t c = srow[x];
+            uint8_t *p = drow + x * 3;
+            p[0] = (uint8_t)(c & 0xFF);
+            p[1] = (uint8_t)((c >> 8) & 0xFF);
+            p[2] = (uint8_t)((c >> 16) & 0xFF);
         }
     }
     return 0;
@@ -141,11 +152,15 @@ static int bga_present_rect(const uint32_t *src, uint32_t src_stride_px,
 
     for (row = 0; row < h; row++) {
         const uint32_t *srow = src + (y + row) * src_stride_px + x;
-        uint8_t *drow = g_mode.addr + (y + row) * g_mode.pitch +
-                        x * g_mode.bytes_per_pixel;
-        if (g_mode.bytes_per_pixel == 4)
-            memcpy(drow, srow, w * 4);
-        else {
+        if (g_mode.bytes_per_pixel == 4) {
+            volatile uint32_t *drow =
+                (volatile uint32_t *)(g_mode.addr + (y + row) * g_mode.pitch + x * 4);
+            uint32_t col;
+            for (col = 0; col < w; col++)
+                drow[col] = srow[col];
+        } else {
+            uint8_t *drow = g_mode.addr + (y + row) * g_mode.pitch +
+                            x * g_mode.bytes_per_pixel;
             uint32_t col;
             for (col = 0; col < w; col++) {
                 uint32_t c = srow[col];

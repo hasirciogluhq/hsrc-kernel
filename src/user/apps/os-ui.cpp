@@ -27,10 +27,10 @@ constexpr int kDockRad  = 18;
 constexpr int kIconRad  = 12;
 
 constexpr Color kDesktop   = rgb(48, 92, 140);
-constexpr Color kMenubarBg = rgba(246, 246, 248, 230);
+constexpr Color kMenubarBg = rgb(246, 246, 248); /* fully opaque — blit fast-path */
 constexpr Color kMenubarFg = rgb(28, 28, 30);
 constexpr Color kMenubarDim = rgb(90, 90, 95);
-constexpr Color kDockBg    = rgba(40, 40, 45, 220);
+constexpr Color kDockBg    = rgb(40, 40, 45);
 constexpr Color kWatermark = rgba(255, 255, 255, 48);
 
 struct DockItem {

@@ -3,6 +3,7 @@
 #include <kernel/scheduler.h>
 #include <kernel/syscall.h>
 #include <kernel/vfs.h>
+#include <drivers/serial.h>
 #include <arch/x86/gdt.h>
 
 static process_t processes[PROC_MAX];
@@ -20,8 +21,23 @@ static void process_trampoline(void (*entry)(void))
 static void user_trampoline(void (*entry)(void))
 {
     process_t *p = process_current();
+    klog("[user] enter name=");
+    klog(p && p->name[0] ? p->name : "?");
+    klog(" entry=");
+    serial_print_hex((uint32_t)(uintptr_t)entry);
+    klog(" ustack=");
+    serial_print_hex(p ? p->ustack_top : 0);
+    klog("\n");
+    if (!p || !entry) {
+        klog("[user] FATAL: bad trampoline state\n");
+        for (;;)
+            __asm__ volatile("hlt");
+    }
     gdt_set_kernel_stack(p->kstack_top);
     enter_usermode((uint32_t)entry, p->ustack_top);
+    klog("[user] FATAL: enter_usermode returned\n");
+    for (;;)
+        __asm__ volatile("hlt");
 }
 
 static process_t *alloc_process(const char *name)

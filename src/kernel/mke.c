@@ -3,6 +3,7 @@
 #include <kernel/string.h>
 #include <kernel/initrd.h>
 #include <drivers/vga.h>
+#include <drivers/serial.h>
 #include <multiboot.h>
 
 static int name_ends_with_mke(const char *name)
@@ -25,27 +26,57 @@ int mke_spawn(const void *blob, size_t size)
     void (*entry)(void);
     pid_t pid;
 
-    if (!blob || size < sizeof(mke_header_t))
+    if (!blob || size < sizeof(mke_header_t)) {
+        klog("[mke] spawn: bad blob\n");
         return -1;
+    }
 
     hdr = (const mke_header_t *)blob;
-    if (hdr->magic != MKE_MAGIC || hdr->version != MKE_VERSION)
+    if (hdr->magic != MKE_MAGIC || hdr->version != MKE_VERSION) {
+        klog("[mke] spawn: bad magic/version\n");
         return -1;
-    if (hdr->header_size != sizeof(mke_header_t))
+    }
+    if (hdr->header_size != sizeof(mke_header_t)) {
+        klog("[mke] spawn: bad header_size\n");
         return -1;
-    if (hdr->load_addr < MKE_LOAD_MIN || hdr->load_addr > MKE_LOAD_MAX)
+    }
+    if (hdr->load_addr < MKE_LOAD_MIN || hdr->load_addr > MKE_LOAD_MAX) {
+        klog("[mke] spawn: load_addr out of range ");
+        serial_print_hex(hdr->load_addr);
+        klog("\n");
         return -1;
-    if (hdr->image_size == 0)
+    }
+    if (hdr->image_size == 0) {
+        klog("[mke] spawn: empty image\n");
         return -1;
-    if ((size_t)hdr->header_size + (size_t)hdr->image_size > size)
+    }
+    if ((size_t)hdr->header_size + (size_t)hdr->image_size > size) {
+        klog("[mke] spawn: image exceeds blob\n");
         return -1;
-    if (hdr->entry_off >= hdr->image_size + hdr->bss_size)
+    }
+    if (hdr->entry_off >= hdr->image_size + hdr->bss_size) {
+        klog("[mke] spawn: bad entry_off\n");
         return -1;
+    }
     /* Avoid wrap of load region */
-    if (hdr->load_addr + hdr->image_size + hdr->bss_size < hdr->load_addr)
+    if (hdr->load_addr + hdr->image_size + hdr->bss_size < hdr->load_addr) {
+        klog("[mke] spawn: load region wrap\n");
         return -1;
-    if (hdr->load_addr + hdr->image_size + hdr->bss_size > MKE_LOAD_MAX + 0x00800000u)
+    }
+    if (hdr->load_addr + hdr->image_size + hdr->bss_size > MKE_LOAD_MAX + 0x00800000u) {
+        klog("[mke] spawn: load region too large\n");
         return -1;
+    }
+
+    klog("[mke] loading ");
+    klog(hdr->name[0] ? hdr->name : "?");
+    klog(" @ ");
+    serial_print_hex(hdr->load_addr);
+    klog(" img=");
+    serial_print_uint(hdr->image_size);
+    klog(" bss=");
+    serial_print_uint(hdr->bss_size);
+    klog("\n");
 
     img = (const uint8_t *)blob + hdr->header_size;
     dst = (uint8_t *)(uintptr_t)hdr->load_addr;
@@ -58,14 +89,18 @@ int mke_spawn(const void *blob, size_t size)
     entry = (void (*)(void))(uintptr_t)(hdr->load_addr + hdr->entry_off);
     pid = process_create_user(hdr->name[0] ? hdr->name : "mke", entry);
     if (pid < 0) {
+        klog("[mke] process_create_user FAILED\n");
         vga_print("mke: process_create_user failed\n");
         return -1;
     }
 
-    vga_print("mke spawn ");
-    vga_print(hdr->name);
-    vga_print("\n");
-    (void)pid;
+    klog("[mke] spawned ");
+    klog(hdr->name);
+    klog(" pid=");
+    serial_print_uint((uint32_t)pid);
+    klog(" entry=");
+    serial_print_hex((uint32_t)(uintptr_t)entry);
+    klog("\n");
     return 0;
 }
 
@@ -101,11 +136,22 @@ int mke_spawn_from_initrd(const void *data, size_t size)
         mh = (const mke_header_t *)blob;
         if (mh->magic != MKE_MAGIC && !name_ends_with_mke(f->name))
             continue;
-        if (mke_spawn(blob, f->size) < 0)
-            return -1;
+        klog("[mke] initrd file ");
+        klog(f->name);
+        klog(" size=");
+        serial_print_uint(f->size);
+        klog("\n");
+        /* Soft-fail one app so others (and the scheduler) can still start. */
+        if (mke_spawn(blob, f->size) < 0) {
+            klog("[mke] spawn failed, skipping ");
+            klog(f->name);
+            klog("\n");
+            continue;
+        }
         spawned++;
     }
 
+    klog_uint("[mke] initrd spawned count=", (uint32_t)spawned);
     return spawned > 0 ? 0 : -1;
 }
 

@@ -3,7 +3,9 @@
 #include <drivers/display.h>
 #include <drivers/keyboard.h>
 #include <drivers/mouse.h>
+#include <drivers/serial.h>
 #include "accel.h"
+#include "compositor.h"
 #include <kernel/string.h>
 
 #define CURSOR_W 12
@@ -224,7 +226,47 @@ void gx_server_present(void)
     scene = s->scene;
 
     if (s->dirty) {
+        static int s_present_log;
+        int li, nvis = 0;
+
         gx_compositor_compose(&s->comp);
+
+        if (s_present_log < 3) {
+            for (li = 0; li < GX_MAX_LAYERS; li++) {
+                gx_layer *L = gx_compositor_layer(&s->comp, li);
+                if (!L || !L->used || !L->visible)
+                    continue;
+                nvis++;
+                klog("[gx] layer ");
+                serial_print_uint((uint32_t)li);
+                klog(" z=");
+                serial_print_uint((uint32_t)L->z);
+                klog(" ");
+                serial_print_uint((uint32_t)L->bounds.w);
+                klog("x");
+                serial_print_uint((uint32_t)L->bounds.h);
+                klog(" @");
+                serial_print_uint((uint32_t)L->bounds.x);
+                klog(",");
+                serial_print_uint((uint32_t)L->bounds.y);
+                klog(" px0=");
+                if (L->surface && L->surface->pixels)
+                    serial_print_hex(L->surface->pixels[0]);
+                else
+                    klog("null");
+                klog("\n");
+            }
+            klog("[gx] present nvis=");
+            serial_print_uint((uint32_t)nvis);
+            klog(" bb0=");
+            serial_print_hex(bb->pixels[0]);
+            klog(" bb_menubar=");
+            if (bb->height > 2 && bb->width > 2)
+                serial_print_hex(bb->pixels[2 * bb->stride + 2]);
+            klog("\n");
+            s_present_log++;
+        }
+
         memcpy(scene->pixels, bb->pixels,
                (size_t)scene->stride * scene->height * sizeof(gx_color));
 

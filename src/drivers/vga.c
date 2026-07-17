@@ -1,4 +1,5 @@
 #include <drivers/vga.h>
+#include <drivers/serial.h>
 
 static volatile uint16_t *const VGA = (volatile uint16_t *)0xB8000;
 static unsigned cursor_row;
@@ -47,6 +48,9 @@ void vga_set_color(uint8_t attr)
 
 void vga_putc(char c)
 {
+    /* Mirror to QEMU serial console (-serial stdio). */
+    serial_putc(c);
+
     if (c == '\n') {
         cursor_col = 0;
         cursor_row++;

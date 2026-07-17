@@ -10,6 +10,7 @@
 #include <kernel/socket.h>
 #include <kernel/uaccess.h>
 #include <kernel/string.h>
+#include <drivers/serial.h>
 #include <drivers/vfs_fs.h>
 #include <user/gx.h>
 
@@ -21,13 +22,39 @@ typedef struct {
 
 void syscall_isr_handler(regs_t *r)
 {
+    static int s_log_left = 48;
+    long n = (long)r->eax;
+
+    if (s_log_left > 0 &&
+        (n == SYS_GX_INFO || n == SYS_GX_PRESENT || n == SYS_WM_CREATE ||
+         n == SYS_WM_MAP || n == SYS_GX_SET_WALLPAPER || n == SYS_YIELD ||
+         n == SYS_GX_DAMAGE || n == SYS_INPUT_STATE)) {
+        process_t *p = process_current();
+        klog("[sys] ");
+        klog(p && p->name[0] ? p->name : "?");
+        klog(" nr=");
+        serial_print_uint((uint32_t)n);
+        klog(" a1=");
+        serial_print_hex((uint32_t)r->ebx);
+        klog("\n");
+        s_log_left--;
+    }
+
     r->eax = (uint32_t)syscall_dispatch(
-        (long)r->eax,
+        n,
         (long)r->ebx,
         (long)r->ecx,
         (long)r->edx,
         (long)r->esi,
         (long)r->edi);
+
+    if (s_log_left > 0 &&
+        (n == SYS_GX_INFO || n == SYS_GX_PRESENT || n == SYS_WM_CREATE ||
+         n == SYS_WM_MAP || n == SYS_GX_SET_WALLPAPER)) {
+        klog("[sys] -> ret=");
+        serial_print_hex(r->eax);
+        klog("\n");
+    }
 }
 
 /* Collapse ".", "..", and duplicate slashes into an absolute path. */

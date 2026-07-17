@@ -6,6 +6,7 @@
 #include <drivers/driver.h>
 #include <drivers/mouse.h>
 #include <drivers/keyboard.h>
+#include <drivers/serial.h>
 
 static mkdx_gpu g_gpu;
 
@@ -274,11 +275,17 @@ static int mkdx_drv_init(driver_t *drv, void *ctx)
 {
     (void)drv;
     (void)ctx;
-    if (gx_server_init() < 0)
+    klog("[mkdx] init\n");
+    if (gx_server_init() < 0) {
+        klog("[mkdx] gx_server_init FAILED\n");
         return -1;
-    if (mkdx_gpu_init(&g_gpu) < 0)
+    }
+    if (mkdx_gpu_init(&g_gpu) < 0) {
+        klog("[mkdx] mkdx_gpu_init FAILED\n");
         return -1;
+    }
     mkdx_api_register(&g_api);
+    klog("[mkdx] ready\n");
     return 0;
 }
 

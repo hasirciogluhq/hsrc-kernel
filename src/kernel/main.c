@@ -1,5 +1,6 @@
 #include <multiboot.h>
 #include <drivers/vga.h>
+#include <drivers/serial.h>
 #include <drivers/driver.h>
 #include <drivers/pci.h>
 #include <drivers/display.h>
@@ -28,17 +29,32 @@
 /* Grow toward .mke load base (0x02000000); leave 64KiB guard. */
 #define HEAP_SIZE (0x02000000u - HEAP_PHYS - 0x10000u)
 
+static void klog_heap(const char *tag)
+{
+    klog(tag);
+    klog(" heap_used=");
+    serial_print_uint((uint32_t)heap_used());
+    klog(" heap_free=");
+    serial_print_uint((uint32_t)heap_free());
+    klog("\n");
+}
+
 void kernel_main(uint32_t magic, multiboot_info_t *mbi)
 {
+    serial_init();
     vga_init();
+    klog("[boot] kernel_main\n");
 
     if (magic != MULTIBOOT_MAGIC) {
+        klog("[boot] bad multiboot magic\n");
         vga_print("bad multiboot magic\n");
         for (;;)
             __asm__ volatile("hlt");
     }
 
     heap_init((void *)(uintptr_t)HEAP_PHYS, HEAP_SIZE);
+    klog_hex("[boot] heap_phys=", HEAP_PHYS);
+    klog_uint("[boot] heap_size=", HEAP_SIZE);
     mm_init();
     gdt_init();
     idt_init();
@@ -49,6 +65,7 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     ksym_init();
     process_init();
     scheduler_init();
+    klog("[boot] core init done\n");
 
     driver_framework_init();
     display_framework_init();
@@ -57,36 +74,69 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     driver_attach("vga");
 
     if (drivers_load_all(NULL) < 0) {
+        klog("[boot] drivers_load_all FAILED\n");
         vga_print("drivers_load_all failed\n");
         for (;;)
             __asm__ volatile("hlt");
     }
+    klog("[boot] builtin drivers loaded\n");
+    klog_heap("[boot]");
 
-    /* display_*.kmod then mkdx.kmod from Multiboot module / initrd */
+    klog("[boot] loading initrd modules...\n");
     if (modules_load_from_mbi(mbi) < 0) {
+        klog("[boot] modules_load_from_mbi FAILED\n");
         vga_print("modules_load_from_mbi failed\n");
         for (;;)
             __asm__ volatile("hlt");
     }
+    klog("[boot] modules loaded\n");
+    klog_heap("[boot]");
 
     if (!display_active()) {
+        klog("[boot] no active display\n");
         vga_print("no active display\n");
         for (;;)
             __asm__ volatile("hlt");
     }
+    klog("[boot] display active\n");
 
     if (!mkdx_api_get()) {
+        klog("[boot] mkdx NOT loaded — UI cannot start\n");
         vga_print("mkdx not loaded\n");
         for (;;)
             __asm__ volatile("hlt");
     }
+    klog("[boot] mkdx ready\n");
+    klog_heap("[boot]");
 
-    /* Spawn ring-3 .mke apps from initrd (os-ui, terminal, notepad). */
+    klog("[boot] spawning .mke apps...\n");
     if (mke_spawn_from_mbi(mbi) < 0) {
+        klog("[boot] mke_spawn_from_mbi FAILED (no apps)\n");
         vga_print("mke_spawn_from_mbi failed\n");
         for (;;)
             __asm__ volatile("hlt");
     }
+    klog("[boot] mke spawn done\n");
+    klog_heap("[boot]");
 
+    {
+        process_t *table = process_table();
+        int i, n = 0;
+        for (i = 0; i < PROC_MAX; i++) {
+            if (table[i].state != PROC_UNUSED) {
+                n++;
+                klog("[boot] proc name=");
+                klog(table[i].name);
+                klog(" pid=");
+                serial_print_uint((uint32_t)table[i].pid);
+                klog(" user=");
+                serial_print_uint((uint32_t)table[i].is_user);
+                klog("\n");
+            }
+        }
+        klog_uint("[boot] ready processes=", (uint32_t)n);
+    }
+
+    klog("[boot] scheduler_start\n");
     scheduler_start();
 }
