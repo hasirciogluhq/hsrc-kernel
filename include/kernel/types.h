@@ -19,8 +19,10 @@ typedef uint32_t uintptr_t;
 
 #define NULL ((void *)0)
 
+#ifndef __cplusplus
 #define true  1
 #define false 0
 typedef int bool;
+#endif
 
 #endif

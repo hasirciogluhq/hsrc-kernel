@@ -1,4 +1,4 @@
-# mykernel — bare-metal i386 Multiboot + MKDX (.kmod) + usermode (.mke)
+# mykernel — bare-metal i386 Multiboot + MKDX (.kmod) + usermode C++ (.mke)
 
 BUILD   := build
 SRC     := src
@@ -12,6 +12,7 @@ PACK_MKE := $(BUILD)/pack_mke
 
 AS      := nasm
 CC      := i686-elf-gcc
+CXX     := i686-elf-g++
 LD      := i686-elf-ld
 OBJCOPY := i686-elf-objcopy
 NM      := i686-elf-nm
@@ -22,6 +23,10 @@ ASFLAGS := -f elf32
 CFLAGS  := -std=c11 -ffreestanding -m32 -Wall -Wextra -Werror \
            -O2 -fno-stack-protector -fno-pic -fno-builtin -nostdlib \
            -fno-common -I$(INC)
+CXXFLAGS := -std=c++17 -ffreestanding -m32 -Wall -Wextra -Werror \
+            -O2 -fno-stack-protector -fno-pic -fno-builtin -nostdlib \
+            -fno-exceptions -fno-rtti -fno-use-cxa-atexit -fno-threadsafe-statics \
+            -I$(INC) -DUSERMODE
 MODCFLAGS := $(CFLAGS) -I$(SRC)/drivers/mkdx \
              -I$(SRC)/drivers/display/bga \
              -I$(SRC)/drivers/display/virtio_gpu
@@ -96,18 +101,17 @@ KMOD_VIRTIO := $(DRIVERS)/display_virtio.kmod
 KMOD_MKDX   := $(DRIVERS)/mkdx.kmod
 KMODS       := $(KMOD_BGA) $(KMOD_VIRTIO) $(KMOD_MKDX)
 
-# ---- usermode .mke apps ----
-USER_LIB_SRCS := $(SRC)/user/libgx.c $(SRC)/user/string.c
-USER_LIB_OBJS := $(patsubst $(SRC)/%.c,$(BUILD)/%.o,$(USER_LIB_SRCS))
+# ---- usermode C++ SDK + apps (.mke) ----
+SDK_SRCS := $(SRC)/user/sdk/syscall.cpp \
+            $(SRC)/user/sdk/gfx.cpp \
+            $(SRC)/user/string.c
+SDK_OBJS := $(BUILD)/user/sdk/syscall.o \
+            $(BUILD)/user/sdk/gfx.o \
+            $(BUILD)/user/string.o
 
-MKE_OSUI     := $(USEROUT)/os-ui.mke
-MKE_TERMINAL := $(USEROUT)/terminal.mke
-MKE_NOTEPAD  := $(USEROUT)/notepad.mke
-MKES         := $(MKE_OSUI) $(MKE_TERMINAL) $(MKE_NOTEPAD)
-
-LOAD_OSUI     := 0x02000000
-LOAD_TERMINAL := 0x02800000
-LOAD_NOTEPAD  := 0x03000000
+MKE_OSUI := $(USEROUT)/os-ui.mke
+MKES     := $(MKE_OSUI)
+LOAD_OSUI := 0x02000000
 
 .PHONY: all drivers userapps run clean
 
@@ -141,7 +145,6 @@ $(PACK_MKE): tools/pack_mke.c
 	@mkdir -p $(dir $@)
 	$(HOSTCC) -O2 -Wall -Wextra -o $@ $<
 
-# Pack flat image + MKE1 header. Args: elf bin out load name
 define pack_mke_from_elf
 	@mkdir -p $(dir $(3))
 	$(OBJCOPY) -O binary $(1) $(2)
@@ -154,29 +157,13 @@ define pack_mke_from_elf
 	$(PACK_MKE) $(3) $(2) $(4) $$ENTRY_OFF $$IMG $$BSS $(5)
 endef
 
-$(USEROUT)/os-ui.elf: $(BUILD)/user/os-ui.o $(USER_LIB_OBJS) user.ld
+$(USEROUT)/os-ui.elf: $(BUILD)/user/apps/os-ui.o $(SDK_OBJS) user.ld
 	@mkdir -p $(dir $@)
 	$(LD) $(USERLDFLAGS) --defsym=LOAD_ADDR=$(LOAD_OSUI) -o $@ \
-		$(BUILD)/user/os-ui.o $(USER_LIB_OBJS)
-
-$(USEROUT)/terminal.elf: $(BUILD)/user/terminal.o $(USER_LIB_OBJS) user.ld
-	@mkdir -p $(dir $@)
-	$(LD) $(USERLDFLAGS) --defsym=LOAD_ADDR=$(LOAD_TERMINAL) -o $@ \
-		$(BUILD)/user/terminal.o $(USER_LIB_OBJS)
-
-$(USEROUT)/notepad.elf: $(BUILD)/user/notepad.o $(USER_LIB_OBJS) user.ld
-	@mkdir -p $(dir $@)
-	$(LD) $(USERLDFLAGS) --defsym=LOAD_ADDR=$(LOAD_NOTEPAD) -o $@ \
-		$(BUILD)/user/notepad.o $(USER_LIB_OBJS)
+		$(BUILD)/user/apps/os-ui.o $(SDK_OBJS)
 
 $(MKE_OSUI): $(USEROUT)/os-ui.elf $(PACK_MKE)
 	$(call pack_mke_from_elf,$<,$(USEROUT)/os-ui.bin,$@,$(LOAD_OSUI),os-ui)
-
-$(MKE_TERMINAL): $(USEROUT)/terminal.elf $(PACK_MKE)
-	$(call pack_mke_from_elf,$<,$(USEROUT)/terminal.bin,$@,$(LOAD_TERMINAL),terminal)
-
-$(MKE_NOTEPAD): $(USEROUT)/notepad.elf $(PACK_MKE)
-	$(call pack_mke_from_elf,$<,$(USEROUT)/notepad.bin,$@,$(LOAD_NOTEPAD),notepad)
 
 $(INITRD): $(PACKER) $(KMODS) $(MKES)
 	$(PACKER) $@ $(KMOD_BGA) $(KMOD_VIRTIO) $(KMOD_MKDX) $(MKES)
@@ -185,10 +172,13 @@ $(BUILD)/%.o: $(SRC)/%.asm
 	@mkdir -p $(dir $@)
 	$(AS) $(ASFLAGS) $< -o $@
 
-# User objects before generic C rule (must use USERCFLAGS)
 $(BUILD)/user/%.o: $(SRC)/user/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(USERCFLAGS) -c $< -o $@
+
+$(BUILD)/user/%.o: $(SRC)/user/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 $(BUILD)/%.o: $(SRC)/%.c
 	@mkdir -p $(dir $@)

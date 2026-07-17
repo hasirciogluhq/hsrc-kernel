@@ -1,5 +1,9 @@
 #include "accel.h"
 
+/*
+ * Pixel-perfect rounded rect. Mirror into TL quadrant so all four corners
+ * share one circle test — no asymmetric gaps from w-r-1 centers.
+ */
 int gx_point_in_round_rect(int32_t lx, int32_t ly, int32_t w, int32_t h, int32_t r)
 {
     if (lx < 0 || ly < 0 || lx >= w || ly >= h)
@@ -10,30 +14,21 @@ int gx_point_in_round_rect(int32_t lx, int32_t ly, int32_t w, int32_t h, int32_t
         r = w / 2;
     if (r * 2 > h)
         r = h / 2;
-
-    /* center band */
-    if (lx >= r && lx < w - r)
-        return 1;
-    if (ly >= r && ly < h - r)
+    if (r <= 0)
         return 1;
 
-    int32_t cx, cy;
-    if (lx < r && ly < r) {
-        cx = r;
-        cy = r;
-    } else if (lx >= w - r && ly < r) {
-        cx = w - r - 1;
-        cy = r;
-    } else if (lx < r && ly >= h - r) {
-        cx = r;
-        cy = h - r - 1;
-    } else {
-        cx = w - r - 1;
-        cy = h - r - 1;
-    }
+    int32_t x = lx;
+    int32_t y = ly;
+    if (x >= w - r)
+        x = w - 1 - x;
+    if (y >= h - r)
+        y = h - 1 - y;
 
-    int32_t dx = lx - cx;
-    int32_t dy = ly - cy;
+    if (x >= r || y >= r)
+        return 1;
+
+    int32_t dx = r - x;
+    int32_t dy = r - y;
     return dx * dx + dy * dy <= r * r;
 }
 

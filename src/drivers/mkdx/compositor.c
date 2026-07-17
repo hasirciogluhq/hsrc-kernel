@@ -31,11 +31,11 @@ static void sort_ids_by_z(gx_compositor *c, int *ids, int *n)
     }
 }
 
-/* Horizontal span inside rounded rect for row y (local). */
+/* Horizontal span inside rounded rect for row y (local). Matches gx_point_in_round_rect. */
 static void round_span(int32_t y, int32_t w, int32_t h, int32_t r,
                        int32_t *x0, int32_t *x1)
 {
-    if (r <= 0 || (y >= r && y < h - r)) {
+    if (r <= 0) {
         *x0 = 0;
         *x1 = w;
         return;
@@ -44,12 +44,27 @@ static void round_span(int32_t y, int32_t w, int32_t h, int32_t r,
         r = w / 2;
     if (r * 2 > h)
         r = h / 2;
+    if (r <= 0) {
+        *x0 = 0;
+        *x1 = w;
+        return;
+    }
 
-    int32_t cy = (y < r) ? r : (h - 1 - r);
-    int32_t dy = y - cy;
-    int32_t r2 = r * r;
+    int32_t ly = y;
+    if (ly >= h - r)
+        ly = h - 1 - ly;
+
+    if (ly >= r) {
+        *x0 = 0;
+        *x1 = w;
+        return;
+    }
+
+    /* (r - x)^2 + (r - ly)^2 <= r^2  =>  (r - x)^2 <= r^2 - (r - ly)^2 */
+    int32_t t = r - ly;
+    int32_t max_d2 = r * r - t * t;
     int32_t dx = 0;
-    while ((dx + 1) * (dx + 1) + dy * dy <= r2)
+    while ((dx + 1) * (dx + 1) <= max_d2)
         dx++;
 
     *x0 = r - dx;
@@ -193,7 +208,7 @@ static void blit_layer(gx_surface *bb, gx_layer *L, uint8_t opacity)
 
     gx_rect r = L->bounds;
     int32_t rad = L->corner_radius;
-    int fast_opaque = (opacity == 255 && rad <= 0);
+    int fast_opaque = (L->style == GX_LAYER_OPAQUE && opacity == 255 && rad <= 0);
 
     for (int32_t y = 0; y < r.h; y++) {
         int32_t sy = r.y + y;

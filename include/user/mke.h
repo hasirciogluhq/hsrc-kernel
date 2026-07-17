@@ -19,7 +19,15 @@ typedef struct mke_header {
     char     name[MKE_NAME_MAX];
 } __attribute__((packed)) mke_header_t;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Every .mke exports this as the ring-3 entry (CRT-less). */
 void mke_main(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
