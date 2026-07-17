@@ -10,6 +10,12 @@
 #define PROC_USTACK_SIZE 8192
 #define PROC_NAME_MAX    32
 
+/* fds[]: VFS fd (>=0) or socket id tagged with PROC_FD_SOCK. */
+#define PROC_FD_SOCK     0x40000000
+#define PROC_FD_IS_SOCK(x) (((x) >= 0) && (((unsigned)(x) & PROC_FD_SOCK) != 0))
+#define PROC_FD_SOCK_ID(x) ((int)((unsigned)(x) & 0xFF))
+#define PROC_FD_MAKE_SOCK(id) ((int)(PROC_FD_SOCK | ((unsigned)(id) & 0xFF)))
+
 typedef enum {
     PROC_UNUSED = 0,
     PROC_READY,
@@ -48,6 +54,7 @@ void  process_exit(int code);
 int   process_kill(pid_t pid);
 
 int  process_alloc_fd(process_t *p, int vfs_fd);
+int  process_alloc_sock_fd(process_t *p, int sock_id);
 int  process_lookup_fd(process_t *p, int user_fd);
 void process_free_fd(process_t *p, int user_fd);
 

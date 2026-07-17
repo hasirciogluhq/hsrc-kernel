@@ -9,6 +9,9 @@ USEROUT := $(BUILD)/user
 INITRD  := $(DRIVERS)/initrd.img
 PACKER  := $(BUILD)/pack_initrd
 PACK_MKE := $(BUILD)/pack_mke
+MKFATIMG := $(BUILD)/mkfatimg
+DISKIMG := disk.img
+DISK_MB := 64
 
 AS      := nasm
 CC      := i686-elf-gcc
@@ -53,6 +56,9 @@ KERNEL_C := $(SRC)/kernel/main.c \
             $(SRC)/kernel/vfs.c \
             $(SRC)/kernel/vfs_api.c \
             $(SRC)/kernel/block_api.c \
+            $(SRC)/kernel/netif.c \
+            $(SRC)/kernel/netstack.c \
+            $(SRC)/kernel/socket.c \
             $(SRC)/kernel/ksym.c \
             $(SRC)/kernel/module.c \
             $(SRC)/kernel/mkdx_api.c \
@@ -107,6 +113,7 @@ UDF_SRCS := $(SRC)/drivers/fs/udf/udf.c
 NTFS_SRCS := $(SRC)/drivers/fs/ntfs/ntfs.c
 AHCI_SRCS := $(SRC)/drivers/block/ahci/ahci.c
 NVME_SRCS := $(SRC)/drivers/block/nvme/nvme.c
+VIRTIO_NET_SRCS := $(SRC)/drivers/net/virtio_net/virtio_net.c
 
 BGA_SRCS := $(SRC)/drivers/display/bga/bga.c
 VIRTIO_SRCS := $(SRC)/drivers/display/virtio_gpu/virtio_gpu.c \
@@ -149,6 +156,7 @@ UDF_OBJS := $(call kmod_objs,UDF_SRCS)
 NTFS_OBJS := $(call kmod_objs,NTFS_SRCS)
 AHCI_OBJS := $(call kmod_objs,AHCI_SRCS)
 NVME_OBJS := $(call kmod_objs,NVME_SRCS)
+VIRTIO_NET_OBJS := $(call kmod_objs,VIRTIO_NET_SRCS)
 BGA_OBJS    := $(patsubst $(SRC)/%.c,$(BUILD)/%.o,$(BGA_SRCS))
 VIRTIO_OBJS := $(patsubst $(SRC)/%.c,$(BUILD)/%.o,$(VIRTIO_SRCS))
 MKDX_OBJS   := $(patsubst $(SRC)/%.c,$(BUILD)/%.o,$(MKDX_SRCS))
@@ -174,11 +182,12 @@ KMOD_UDF := $(DRIVERS)/udf.kmod
 KMOD_NTFS := $(DRIVERS)/ntfs.kmod
 KMOD_AHCI := $(DRIVERS)/ahci.kmod
 KMOD_NVME := $(DRIVERS)/nvme.kmod
+KMOD_VIRTIO_NET := $(DRIVERS)/virtio_net.kmod
 KMOD_BGA    := $(DRIVERS)/display_bga.kmod
 KMOD_VIRTIO := $(DRIVERS)/display_virtio.kmod
 KMOD_MKDX   := $(DRIVERS)/mkdx.kmod
 
-# Load order matters: block → vfs → part → pseudo FS → disks → disk FS → gfx
+# Load order: FS/block first, then display/MKDX (before net — keeps heap for FB), then net
 KMODS := \
 	$(KMOD_BLOCK) $(KMOD_VFS) \
 	$(KMOD_PART_GPT) $(KMOD_PART_MBR) \
@@ -188,7 +197,8 @@ KMODS := \
 	$(KMOD_TMPFS) $(KMOD_PROCFS) $(KMOD_SYSFS) $(KMOD_INITRDFS) \
 	$(KMOD_EXFAT) $(KMOD_EXT) $(KMOD_ISO9660) $(KMOD_UDF) $(KMOD_NTFS) \
 	$(KMOD_AHCI) $(KMOD_NVME) \
-	$(KMOD_BGA) $(KMOD_VIRTIO) $(KMOD_MKDX)
+	$(KMOD_BGA) $(KMOD_VIRTIO) $(KMOD_MKDX) \
+	$(KMOD_VIRTIO_NET)
 
 # ---- usermode C++ SDK + apps (.mke) ----
 SDK_SRCS := $(SRC)/user/sdk/syscall.cpp \
@@ -204,9 +214,9 @@ MKES     := $(MKE_OSUI) $(MKE_TERM)
 LOAD_OSUI := 0x02000000
 LOAD_TERM := 0x02200000
 
-.PHONY: all drivers userapps run clean
+.PHONY: all drivers userapps run clean disk disk-reset
 
-all: $(TARGET) $(INITRD)
+all: $(TARGET) $(INITRD) $(DISKIMG)
 
 drivers: $(KMODS)
 
@@ -243,6 +253,7 @@ $(eval $(call link_kmod,$(KMOD_UDF),$(UDF_OBJS)))
 $(eval $(call link_kmod,$(KMOD_NTFS),$(NTFS_OBJS)))
 $(eval $(call link_kmod,$(KMOD_AHCI),$(AHCI_OBJS)))
 $(eval $(call link_kmod,$(KMOD_NVME),$(NVME_OBJS)))
+$(eval $(call link_kmod,$(KMOD_VIRTIO_NET),$(VIRTIO_NET_OBJS)))
 $(eval $(call link_kmod,$(KMOD_BGA),$(BGA_OBJS)))
 $(eval $(call link_kmod,$(KMOD_VIRTIO),$(VIRTIO_OBJS)))
 $(eval $(call link_kmod,$(KMOD_MKDX),$(MKDX_OBJS)))
@@ -254,6 +265,20 @@ $(PACKER): tools/pack_initrd.c
 $(PACK_MKE): tools/pack_mke.c
 	@mkdir -p $(dir $@)
 	$(HOSTCC) -O2 -Wall -Wextra -o $@ $<
+
+$(MKFATIMG): tools/mkfatimg.c
+	@mkdir -p $(dir $@)
+	$(HOSTCC) -O2 -Wall -Wextra -o $@ $<
+
+# Persistent virtio disk (kept outside build/ so `make clean` does not wipe data).
+$(DISKIMG): $(MKFATIMG)
+	$(MKFATIMG) $@ $(DISK_MB)
+
+disk: $(DISKIMG)
+
+disk-reset:
+	rm -f $(DISKIMG)
+	$(MAKE) $(DISKIMG)
 
 define pack_mke_from_elf
 	@mkdir -p $(dir $(3))
@@ -302,8 +327,11 @@ $(BUILD)/%.o: $(SRC)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(MODCFLAGS) -c $< -o $@
 
-run: $(TARGET) $(INITRD)
-	$(QEMU) -kernel $(TARGET) -initrd $(INITRD) -m 128M -vga std
+run: $(TARGET) $(INITRD) $(DISKIMG)
+	$(QEMU) -kernel $(TARGET) -initrd $(INITRD) -m 256M -vga std \
+		-drive if=none,id=vd0,file=$(DISKIMG),format=raw \
+		-device virtio-blk-pci,drive=vd0,disable-legacy=on \
+		-netdev user,id=n0 -device virtio-net-pci,netdev=n0,disable-legacy=on
 
 clean:
 	rm -rf $(BUILD)

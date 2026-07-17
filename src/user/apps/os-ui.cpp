@@ -69,9 +69,10 @@ void paint_desktop()
 {
     Surface &s = g_desktop.surface();
     s.clear(kTransparent);
-    /* Soft vignette-ish solid; watermark is the main signal. */
-    s.text_centered(g_sw / 2, g_sh / 2 - 10, "HSRC OS", kWatermark, 5);
-    s.text_centered(g_sw / 2, g_sh / 2 + 36, "desktop", rgba(255, 255, 255, 36), 2);
+    /* Small watermark window (not fullscreen) — wallpaper carries the desktop color. */
+    s.text_centered((int)s.width() / 2, (int)s.height() / 2 - 10, "HSRC OS", kWatermark, 5);
+    s.text_centered((int)s.width() / 2, (int)s.height() / 2 + 36, "desktop",
+                    rgba(255, 255, 255, 36), 2);
     g_desktop.damage();
 }
 
@@ -147,7 +148,10 @@ bool build_ui()
     if (!hsrc::sdk::set_wallpaper_color(kDesktop))
         return false;
 
-    if (!g_desktop.create(0, 0, g_sw, g_sh,
+    /* Avoid a fullscreen surface (~2MB); wallpaper already fills the screen. */
+    constexpr int kMarkW = 360;
+    constexpr int kMarkH = 100;
+    if (!g_desktop.create((g_sw - kMarkW) / 2, (g_sh - kMarkH) / 2 - 20, kMarkW, kMarkH,
                           UGX_STYLE_BACKGROUND | UGX_STYLE_NO_DRAG | UGX_STYLE_NO_TITLE |
                               UGX_STYLE_ALPHA,
                           0, "desktop"))

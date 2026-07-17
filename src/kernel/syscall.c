@@ -7,6 +7,7 @@
 #include <kernel/mm.h>
 #include <kernel/module.h>
 #include <kernel/mkdx_api.h>
+#include <kernel/socket.h>
 #include <kernel/uaccess.h>
 #include <kernel/string.h>
 #include <drivers/vfs_fs.h>
@@ -132,20 +133,34 @@ static long do_read(long fd, long buf, long count)
     process_t *p = process_current();
     char tmp[256];
     long total = 0;
-    int vfd;
+    int enc;
 
     if (!p || count < 0)
         return -1;
-    vfd = process_lookup_fd(p, (int)fd);
-    if (vfd < 0)
+    enc = process_lookup_fd(p, (int)fd);
+    if (enc < 0)
         return -1;
+
+    if (PROC_FD_IS_SOCK(enc)) {
+        char kbuf[1472];
+        ssize_t n;
+        size_t want = (size_t)count;
+        if (want > sizeof(kbuf))
+            want = sizeof(kbuf);
+        n = sock_recvfrom(PROC_FD_SOCK_ID(enc), kbuf, want, 0, NULL);
+        if (n < 0)
+            return n;
+        if (copy_to_user((void *)buf, kbuf, (size_t)n) < 0)
+            return -EFAULT;
+        return n;
+    }
 
     while (total < count) {
         size_t chunk = (size_t)(count - total);
         ssize_t n;
         if (chunk > sizeof(tmp))
             chunk = sizeof(tmp);
-        n = vfs_read(vfd, tmp, chunk);
+        n = vfs_read(enc, tmp, chunk);
         if (n < 0)
             return total > 0 ? total : -1;
         if (n == 0)
@@ -164,13 +179,25 @@ static long do_write(long fd, long buf, long count)
     process_t *p = process_current();
     char tmp[256];
     long total = 0;
-    int vfd;
+    int enc;
 
     if (!p || count < 0)
         return -1;
-    vfd = process_lookup_fd(p, (int)fd);
-    if (vfd < 0)
+    enc = process_lookup_fd(p, (int)fd);
+    if (enc < 0)
         return -1;
+
+    if (PROC_FD_IS_SOCK(enc)) {
+        char kbuf[1472];
+        ssize_t n;
+        size_t want = (size_t)count;
+        if (want > sizeof(kbuf))
+            want = sizeof(kbuf);
+        if (copy_from_user(kbuf, (const void *)buf, want) < 0)
+            return -EFAULT;
+        n = sock_sendto(PROC_FD_SOCK_ID(enc), kbuf, want, 0, NULL);
+        return n;
+    }
 
     while (total < count) {
         size_t chunk = (size_t)(count - total);
@@ -179,7 +206,7 @@ static long do_write(long fd, long buf, long count)
             chunk = sizeof(tmp);
         if (copy_from_user(tmp, (const void *)(buf + total), chunk) < 0)
             return -1;
-        n = vfs_write(vfd, tmp, chunk);
+        n = vfs_write(enc, tmp, chunk);
         if (n < 0)
             return total > 0 ? total : -1;
         total += n;
@@ -223,15 +250,19 @@ static long do_open(long path, long flags)
 static long do_close(long fd)
 {
     process_t *p = process_current();
+    int enc;
     if (!p)
         return -1;
 
-    int vfd = process_lookup_fd(p, (int)fd);
-    if (vfd < 0)
+    enc = process_lookup_fd(p, (int)fd);
+    if (enc < 0)
         return -1;
 
-    if ((int)fd > STDERR_FILENO)
-        vfs_close(vfd);
+    if (PROC_FD_IS_SOCK(enc)) {
+        (void)sock_close(PROC_FD_SOCK_ID(enc));
+    } else if ((int)fd > STDERR_FILENO) {
+        vfs_close(enc);
+    }
 
     process_free_fd(p, (int)fd);
     return 0;
@@ -252,13 +283,15 @@ static long do_yield(void)
 static long do_lseek(long fd, long off, long whence)
 {
     process_t *p = process_current();
-    int vfd;
+    int enc;
     if (!p)
         return -EBADF;
-    vfd = process_lookup_fd(p, (int)fd);
-    if (vfd < 0)
+    enc = process_lookup_fd(p, (int)fd);
+    if (enc < 0)
         return -EBADF;
-    return (long)vfs_lseek(vfd, (off_t)off, (int)whence);
+    if (PROC_FD_IS_SOCK(enc))
+        return -ESPIPE;
+    return (long)vfs_lseek(enc, (off_t)off, (int)whence);
 }
 
 static long do_mkdir(long path, long mode)
@@ -329,6 +362,8 @@ static long do_getdents(long fd, long buf, long count)
     vfd = process_lookup_fd(p, (int)fd);
     if (vfd < 0)
         return -EBADF;
+    if (PROC_FD_IS_SOCK(vfd))
+        return -ENOTDIR;
     max = (size_t)count;
     if (max > sizeof(ents) / sizeof(ents[0]))
         max = sizeof(ents) / sizeof(ents[0]);
@@ -800,6 +835,96 @@ long syscall_dispatch(long n, long a1, long a2, long a3, long a4, long a5)
         if (lp < 0 || copy_from_user(path, (const void *)a1, (size_t)lp + 1) < 0)
             return -EFAULT;
         return module_load_path(path);
+    }
+    case SYS_SOCKET: {
+        process_t *p = process_current();
+        int sid, ufd;
+        if (!p)
+            return -ESRCH;
+        sid = sock_create((int)a1, (int)a2, (int)a3);
+        if (sid < 0)
+            return sid;
+        ufd = process_alloc_sock_fd(p, sid);
+        if (ufd < 0) {
+            sock_close(sid);
+            return -EMFILE;
+        }
+        return ufd;
+    }
+    case SYS_BIND: {
+        process_t *p = process_current();
+        sockaddr_in_t addr;
+        int enc;
+        if (!p)
+            return -ESRCH;
+        enc = process_lookup_fd(p, (int)a1);
+        if (enc < 0 || !PROC_FD_IS_SOCK(enc))
+            return -ENOTSOCK;
+        if (copy_from_user(&addr, (const void *)a2, sizeof(addr)) < 0)
+            return -EFAULT;
+        return sock_bind(PROC_FD_SOCK_ID(enc), &addr);
+    }
+    case SYS_CONNECT: {
+        process_t *p = process_current();
+        sockaddr_in_t addr;
+        int enc;
+        if (!p)
+            return -ESRCH;
+        enc = process_lookup_fd(p, (int)a1);
+        if (enc < 0 || !PROC_FD_IS_SOCK(enc))
+            return -ENOTSOCK;
+        if (copy_from_user(&addr, (const void *)a2, sizeof(addr)) < 0)
+            return -EFAULT;
+        return sock_connect(PROC_FD_SOCK_ID(enc), &addr);
+    }
+    case SYS_SENDTO: {
+        process_t *p = process_current();
+        char kbuf[1472];
+        sockaddr_in_t addr, *dstp = NULL;
+        int enc;
+        size_t len;
+        ssize_t n;
+        if (!p)
+            return -ESRCH;
+        enc = process_lookup_fd(p, (int)a1);
+        if (enc < 0 || !PROC_FD_IS_SOCK(enc))
+            return -ENOTSOCK;
+        len = (size_t)a3;
+        if (len > sizeof(kbuf))
+            return -EMSGSIZE;
+        if (len && copy_from_user(kbuf, (const void *)a2, len) < 0)
+            return -EFAULT;
+        if (a4) {
+            if (copy_from_user(&addr, (const void *)a4, sizeof(addr)) < 0)
+                return -EFAULT;
+            dstp = &addr;
+        }
+        n = sock_sendto(PROC_FD_SOCK_ID(enc), kbuf, len, 0, dstp);
+        return n;
+    }
+    case SYS_RECVFROM: {
+        process_t *p = process_current();
+        char kbuf[1472];
+        sockaddr_in_t addr;
+        int enc;
+        size_t len;
+        ssize_t n;
+        if (!p)
+            return -ESRCH;
+        enc = process_lookup_fd(p, (int)a1);
+        if (enc < 0 || !PROC_FD_IS_SOCK(enc))
+            return -ENOTSOCK;
+        len = (size_t)a3;
+        if (len > sizeof(kbuf))
+            len = sizeof(kbuf);
+        n = sock_recvfrom(PROC_FD_SOCK_ID(enc), kbuf, len, 0, a4 ? &addr : NULL);
+        if (n < 0)
+            return n;
+        if (n && copy_to_user((void *)a2, kbuf, (size_t)n) < 0)
+            return -EFAULT;
+        if (a4 && copy_to_user((void *)a4, &addr, sizeof(addr)) < 0)
+            return -EFAULT;
+        return n;
     }
     case SYS_GETPID: return do_getpid();
     case SYS_YIELD:  return do_yield();

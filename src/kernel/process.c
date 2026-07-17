@@ -160,6 +160,17 @@ int process_alloc_fd(process_t *p, int vfs_fd)
     return -1;
 }
 
+int process_alloc_sock_fd(process_t *p, int sock_id)
+{
+    for (int i = 0; i < VFS_MAX_FD; i++) {
+        if (p->fds[i] < 0) {
+            p->fds[i] = PROC_FD_MAKE_SOCK(sock_id);
+            return i;
+        }
+    }
+    return -1;
+}
+
 int process_lookup_fd(process_t *p, int user_fd)
 {
     if (!p || user_fd < 0 || user_fd >= VFS_MAX_FD)

@@ -28,13 +28,23 @@
 #define EROFS       30
 #define EMLINK      31
 #define EPIPE       32
+#define ESPIPE      29
 #define ERANGE      34
 #define ENAMETOOLONG 36
 #define ENOSYS      38
 #define ENOTEMPTY   39
 #define ELOOP       40
 #define EOVERFLOW   75
+#define EDESTADDRREQ 89
+#define EMSGSIZE    90
+#define EPROTONOSUPPORT 93
 #define ENOTSUP     95
 #define EOPNOTSUPP  ENOTSUP
+#define EAFNOSUPPORT 97
+#define EADDRINUSE  98
+#define ENETDOWN    100
+#define ENOTSOCK    88
+#define ETIMEDOUT   110
+#define EHOSTUNREACH 113
 
 #endif

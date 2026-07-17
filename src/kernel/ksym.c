@@ -5,6 +5,8 @@
 #include <kernel/mkdx_api.h>
 #include <kernel/vfs_api.h>
 #include <kernel/block_api.h>
+#include <kernel/netif.h>
+#include <kernel/socket.h>
 #include <kernel/initrd_store.h>
 #include <kernel/process.h>
 #include <drivers/driver.h>
@@ -66,6 +68,19 @@ static const ksym_t g_ksyms[] = {
     { "vfs_api_get",        (void *)vfs_api_get },
     { "block_api_register", (void *)block_api_register },
     { "block_api_get",      (void *)block_api_get },
+    { "netif_register",     (void *)netif_register },
+    { "netif_default",      (void *)netif_default },
+    { "netif_by_name",      (void *)netif_by_name },
+    { "netif_set_addr",     (void *)netif_set_addr },
+    { "netif_input",        (void *)netif_input },
+    { "netif_output",       (void *)netif_output },
+    { "net_poll",           (void *)net_poll },
+    { "sock_create",        (void *)sock_create },
+    { "sock_bind",          (void *)sock_bind },
+    { "sock_connect",       (void *)sock_connect },
+    { "sock_sendto",        (void *)sock_sendto },
+    { "sock_recvfrom",      (void *)sock_recvfrom },
+    { "sock_close",         (void *)sock_close },
     { "initrd_store_get",   (void *)initrd_store_get },
     { "initrd_store_set",   (void *)initrd_store_set },
     { "process_current",    (void *)process_current },

@@ -37,6 +37,11 @@
 #define SYS_FSNOTIFY_RM  231
 #define SYS_FSNOTIFY_READ 232
 #define SYS_MODULE_LOAD  233
+#define SYS_SOCKET       241
+#define SYS_BIND         242
+#define SYS_CONNECT      243
+#define SYS_SENDTO       244
+#define SYS_RECVFROM     245
 #define SYS_UNLINK       10
 #define SYS_RMDIR        40
 #define SYS_RENAME       38

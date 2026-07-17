@@ -1,13 +1,17 @@
 #include <user/mke.h>
 #include <user/sdk/gfx.hpp>
 #include <user/sdk/fs.hpp>
+#include <user/sdk/net.hpp>
 #include <user/sdk/syscall.hpp>
 #include <user/string.h>
 #include <kernel/vfs.h>
+#include <kernel/socket.h>
+#include <kernel/errno.h>
 
 /*
  * HSRC Terminal — ring-3 shell window (root by default).
- * Builtins: help, clear, pwd, cd, ls, mkdir, cat, touch, echo, write, whoami, id, uname
+ * Builtins: help, clear, pwd, cd, ls, mkdir, cat, touch, echo, write,
+ *           whoami, id, uname, ping
  * Write:  echo hello > file   |  echo more >> file  |  write path text...
  */
 
@@ -155,9 +159,114 @@ const char *cmd_args(const char *s, const char *name)
 
 void cmd_help()
 {
-    line_push("builtins: help clear pwd cd ls mkdir cat touch echo write whoami id uname", kDim);
+    line_push("builtins: help clear pwd cd ls mkdir cat touch echo write whoami id uname ping", kDim);
     line_push("write:  echo hi > f.txt   |  echo hi >> f.txt   |  write f.txt hi", kDim);
+    line_push("ping:   ping 10.0.2.2", kDim);
     line_push("tip:  >  =  AltGr+.  (or Shift+<> key)   |  no >: use write", kDim);
+}
+
+static uint16_t icmp_checksum(const uint8_t *b, size_t len)
+{
+    uint32_t sum = 0;
+    size_t i;
+    for (i = 0; i + 1 < len; i += 2)
+        sum += (uint32_t)b[i] << 8 | b[i + 1];
+    if (i < len)
+        sum += (uint32_t)b[i] << 8;
+    while (sum >> 16)
+        sum = (sum & 0xFFFFu) + (sum >> 16);
+    return (uint16_t)~sum;
+}
+
+void cmd_ping(const char *arg)
+{
+    char host[64];
+    uint32_t dip = 0;
+    int j = 0;
+    int sent = 0, recv = 0;
+    long s;
+    const char *p = skip_ws(arg);
+    char msg[kCols + 1];
+
+    if (!*p) {
+        line_push("ping: usage: ping <ipv4>", kErr);
+        return;
+    }
+    while (p[j] && p[j] != ' ' && p[j] != '\t' && j < (int)sizeof(host) - 1) {
+        host[j] = p[j];
+        j++;
+    }
+    host[j] = 0;
+    if (hsrc::sdk::inet_aton(host, &dip) < 0) {
+        line_push("ping: bad address", kErr);
+        return;
+    }
+
+    s = hsrc::sdk::socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+    if (s < 0) {
+        line_push("ping: socket failed", kErr);
+        return;
+    }
+
+    line_push("PING (SOCK_RAW/ICMP) ...", kDim);
+    for (int i = 0; i < 4; i++) {
+        uint8_t icmp[16];
+        sockaddr_in_t dst, src;
+        uint16_t id = (uint16_t)(0xBEE0 + i);
+        uint16_t seq = (uint16_t)(i + 1);
+        uint16_t csum, v;
+        long n;
+
+        memset(icmp, 0, sizeof(icmp));
+        icmp[0] = 8; /* echo */
+        v = htons(id);
+        memcpy(icmp + 4, &v, 2);
+        v = htons(seq);
+        memcpy(icmp + 6, &v, 2);
+        memcpy(icmp + 8, "pinghsrc", 8);
+        csum = icmp_checksum(icmp, sizeof(icmp));
+        icmp[2] = (uint8_t)(csum >> 8);
+        icmp[3] = (uint8_t)(csum & 0xFF);
+
+        memset(&dst, 0, sizeof(dst));
+        dst.sin_family = AF_INET;
+        dst.sin_addr = htonl(dip);
+
+        if (hsrc::sdk::sendto((int)s, icmp, sizeof(icmp), &dst) < 0)
+            continue;
+        sent++;
+
+        n = hsrc::sdk::recvfrom((int)s, icmp, sizeof(icmp), &src);
+        if (n >= 8 && icmp[0] == 0) {
+            uint16_t rid, rseq;
+            memcpy(&rid, icmp + 4, 2);
+            memcpy(&rseq, icmp + 6, 2);
+            if (ntohs(rid) == id && ntohs(rseq) == seq)
+                recv++;
+        }
+    }
+    hsrc::sdk::close((int)s);
+
+    j = 0;
+    {
+        const char *hp = host;
+        const char *mid = ": sent=";
+        while (*hp && j < kCols)
+            msg[j++] = *hp++;
+        while (*mid && j < kCols)
+            msg[j++] = *mid++;
+        if (sent < 10 && j < kCols)
+            msg[j++] = (char)('0' + sent);
+        mid = " recv=";
+        while (*mid && j < kCols)
+            msg[j++] = *mid++;
+        if (recv < 10 && j < kCols)
+            msg[j++] = (char)('0' + recv);
+        msg[j] = 0;
+    }
+    line_push(msg, recv > 0 ? kAccent : kErr);
+    if (recv == 0)
+        line_push("ping: timeout / unreachable", kErr);
 }
 
 void cmd_ls(const char *arg)
@@ -425,6 +534,10 @@ void run_line(const char *line)
         path[pi] = 0;
         rest = skip_ws(rest);
         cmd_write_file(path, rest, 0);
+        return;
+    }
+    if (cmd_is(s, "ping")) {
+        cmd_ping(cmd_args(s, "ping"));
         return;
     }
 

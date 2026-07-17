@@ -7,6 +7,8 @@
 #include <kernel/mm.h>
 #include <kernel/syscall.h>
 #include <kernel/vfs.h>
+#include <kernel/netif.h>
+#include <kernel/socket.h>
 #include <kernel/ksym.h>
 #include <kernel/module.h>
 #include <kernel/mkdx_api.h>
@@ -23,8 +25,8 @@
  * (below .mke load addresses at 0x02000000+).
  */
 #define HEAP_PHYS 0x01000000u
-/* Leave headroom below .mke load base at 0x02000000. */
-#define HEAP_SIZE (14u * 1024u * 1024u)
+/* Grow toward .mke load base (0x02000000); leave 64KiB guard. */
+#define HEAP_SIZE (0x02000000u - HEAP_PHYS - 0x10000u)
 
 void kernel_main(uint32_t magic, multiboot_info_t *mbi)
 {
@@ -42,6 +44,8 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     idt_init();
     syscall_init();
     vfs_init();
+    netif_init();
+    socket_init();
     ksym_init();
     process_init();
     scheduler_init();

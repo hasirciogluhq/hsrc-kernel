@@ -19,8 +19,8 @@
  * entries are recognized and skipped — we always report the short
  * name in that case).
  *
- * Not implemented: mkdir/rmdir/rename/unlink (only files can be
- * grown / rewritten in place).
+ * File create is supported (8.3 short names). Not implemented:
+ * mkdir/rmdir/rename/unlink.
  */
 
 #include <kernel/vfs_api.h>
@@ -220,6 +220,62 @@ static void fat83_to_name(const uint8_t *e, char *out)
         if (out[i] >= 'A' && out[i] <= 'Z')
             out[i] = (char)(out[i] - 'A' + 'a');
     }
+}
+
+static int fat_name_char_ok(char c)
+{
+    if (c >= 'a' && c <= 'z')
+        return 1;
+    if (c >= 'A' && c <= 'Z')
+        return 1;
+    if (c >= '0' && c <= '9')
+        return 1;
+    return c == '_' || c == '-' || c == '~' || c == '!';
+}
+
+static char fat_toupper(char c)
+{
+    if (c >= 'a' && c <= 'z')
+        return (char)(c - 'a' + 'A');
+    return c;
+}
+
+/* Convert a VFS name to an 8.3 directory entry. Returns 0 on success. */
+static int name_to_fat83(const char *name, uint8_t out[11])
+{
+    const char *dot;
+    size_t i, nlen, blen, elen;
+
+    if (!name || !name[0] || name[0] == '.')
+        return -EINVAL;
+    nlen = strlen(name);
+    if (nlen >= 13)
+        return -ENAMETOOLONG;
+    memset(out, ' ', 11);
+    dot = NULL;
+    for (i = 0; name[i]; i++) {
+        if (name[i] == '.') {
+            if (dot)
+                return -EINVAL;
+            dot = name + i;
+        } else if (!fat_name_char_ok(name[i])) {
+            return -EINVAL;
+        }
+    }
+    if (dot) {
+        blen = (size_t)(dot - name);
+        elen = strlen(dot + 1);
+    } else {
+        blen = nlen;
+        elen = 0;
+    }
+    if (blen == 0 || blen > 8 || elen > 3)
+        return -ENAMETOOLONG;
+    for (i = 0; i < blen; i++)
+        out[i] = (uint8_t)fat_toupper(name[i]);
+    for (i = 0; i < elen; i++)
+        out[8 + i] = (uint8_t)fat_toupper(dot[1 + i]);
+    return 0;
 }
 
 static int name_eq(const char *a, const char *b)
@@ -617,6 +673,112 @@ static dentry_t *fat_lookup(inode_t *dir, dentry_t *dentry)
     return out;
 }
 
+typedef struct {
+    int      found;
+    uint32_t ent_lba;
+    uint32_t ent_off;
+    uint32_t ent_clust;
+} fat_free_ctx_t;
+
+static int fat_find_free_slot(fat_fs_t *fs, uint32_t dir_clust,
+                              fat_free_ctx_t *out)
+{
+    uint8_t *sec;
+    uint32_t i, e;
+
+    memset(out, 0, sizeof(*out));
+    sec = (uint8_t *)kmalloc(512);
+    if (!sec)
+        return -ENOMEM;
+
+    if (fs->fat_bits != 32 && dir_clust == 0) {
+        uint32_t root_secs =
+            (fs->root_ents * 32 + fs->bytes_per_sec - 1) / fs->bytes_per_sec;
+        uint32_t root_lba = fs->reserved + fs->fats * fs->fat_sectors;
+        for (i = 0; i < root_secs; i++) {
+            if (fat_read_sector(fs, root_lba + i, sec) < 0)
+                return -EIO;
+            for (e = 0; e < 512; e += 32) {
+                if (sec[e] == 0x00 || sec[e] == 0xE5) {
+                    out->found = 1;
+                    out->ent_lba = root_lba + i;
+                    out->ent_off = e;
+                    out->ent_clust = 0;
+                    return 0;
+                }
+            }
+        }
+        return -ENOSPC;
+    }
+
+    if (dir_clust == 0)
+        dir_clust = fs->root_clust;
+    {
+        uint32_t cl = dir_clust;
+        while (cl >= 2 && cl < 0x0FFFFFF8u) {
+            uint32_t s;
+            for (s = 0; s < fs->sec_per_clust; s++) {
+                uint32_t lba = clust_to_lba(fs, cl) + s;
+                if (fat_read_sector(fs, lba, sec) < 0)
+                    return -EIO;
+                for (e = 0; e < 512; e += 32) {
+                    if (sec[e] == 0x00 || sec[e] == 0xE5) {
+                        out->found = 1;
+                        out->ent_lba = lba;
+                        out->ent_off = e;
+                        out->ent_clust = cl;
+                        return 0;
+                    }
+                }
+            }
+            cl = fat_next(fs, cl);
+        }
+    }
+    return -ENOSPC;
+}
+
+static int fat_create(inode_t *dir, dentry_t *dentry, int mode)
+{
+    fat_node_t *dn;
+    fat_lookup_ctx_t lc;
+    fat_free_ctx_t free_slot;
+    uint8_t name83[11];
+    uint8_t *sec;
+    int rc;
+
+    (void)mode;
+    if (!dir || !dentry)
+        return -EINVAL;
+    dn = (fat_node_t *)dir->i_private;
+    if (!dn || !dn->is_dir)
+        return -ENOTDIR;
+    if (name_to_fat83(dentry->d_name, name83) < 0)
+        return -EINVAL;
+
+    memset(&lc, 0, sizeof(lc));
+    lc.want = dentry->d_name;
+    if (fat_scan_dir(dn->fs, dn->first_clust, fat_lookup_cb, &lc) < 0)
+        return -EIO;
+    if (lc.found)
+        return -EEXIST;
+
+    rc = fat_find_free_slot(dn->fs, dn->first_clust, &free_slot);
+    if (rc < 0)
+        return rc;
+
+    sec = (uint8_t *)kmalloc(512);
+    if (!sec)
+        return -ENOMEM;
+    if (fat_read_sector(dn->fs, free_slot.ent_lba, sec) < 0)
+        return -EIO;
+    memset(sec + free_slot.ent_off, 0, 32);
+    memcpy(sec + free_slot.ent_off, name83, 11);
+    sec[free_slot.ent_off + 11] = 0x20; /* archive, regular file */
+    if (fat_write_sector(dn->fs, free_slot.ent_lba, sec) < 0)
+        return -EIO;
+    return 0;
+}
+
 static const file_operations_t fat_fops = {
     .read    = fat_f_read,
     .write   = fat_f_write,
@@ -625,6 +787,7 @@ static const file_operations_t fat_fops = {
 
 static const inode_operations_t fat_iops = {
     .lookup = fat_lookup,
+    .create = fat_create,
 };
 
 /* ---------------- Mount ---------------- */
@@ -753,6 +916,17 @@ static int fat_init(driver_t *drv, void *ctx)
         return -1;
     (void)api->register_filesystem(&g_vfat);
     vga_print("fat: registered\n");
+
+    /* Persist /root on virtio disk when present (raw FAT on vda). */
+    if (api->mount && api->mkdir) {
+        (void)api->mkdir("/root", 0755);
+        if (api->mount("vda", "/root", "fat", 0, NULL) == 0)
+            vga_print("fat: mounted vda -> /root\n");
+        else if (api->mount("vda", "/root", "vfat", 0, NULL) == 0)
+            vga_print("fat: mounted vda -> /root (vfat)\n");
+        else
+            vga_print("fat: vda not mounted (no disk?)\n");
+    }
     return 0;
 }
 

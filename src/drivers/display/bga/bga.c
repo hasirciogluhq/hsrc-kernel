@@ -75,6 +75,15 @@ static int bga_set_mode(uint32_t width, uint32_t height, uint32_t bpp)
     g_mode.bytes_per_pixel = bpp / 8;
     g_mode.pitch = width * g_mode.bytes_per_pixel;
     g_ready = 1;
+
+    /* Avoid pure black after leaving VGA text — proves LFB is alive. */
+    if (g_mode.bytes_per_pixel == 4) {
+        uint32_t *px = (uint32_t *)g_mode.addr;
+        uint32_t n = width * height;
+        uint32_t i;
+        for (i = 0; i < n; i++)
+            px[i] = 0xFF305C8Cu; /* desktop-ish blue */
+    }
     return 0;
 }
 

@@ -9,6 +9,7 @@ long syscall0(long n);
 long syscall1(long n, long a1);
 long syscall2(long n, long a1, long a2);
 long syscall3(long n, long a1, long a2, long a3);
+long syscall4(long n, long a1, long a2, long a3, long a4);
 
 inline void yield()
 {
