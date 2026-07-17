@@ -1,6 +1,6 @@
 ---
 name: God-level window API
-overview: ABI kırılabilir first-version — god-level WM/GX + syscalls + networking + System Settings + input discovery + image/wallpaper (4K default) + frosted menubar/dock. Wave A–J + Phase H1–H13. Plan kısaltılmaz.
+overview: "ABI kırılır, first-version mükemmeliyetçi. God-level OS — WM/GX/Settings/net/wallpaper (A–J) + shell/Explorer/services/monitor/console/env (K–Q). Split workstreams. Plan kısaltılmaz."
 todos:
   - id: wave-a-gfx-abi
     content: "Wave A1: boolean WindowOptions create/set/get + tam WM syscall katalogu (asagidaki A0/A1); bitflag sil"
@@ -58,6 +58,20 @@ todos:
     content: "Phase H10: usermode process terminal.cpp tam migrasyon + net builtins"
   - id: phase-h-makefile-boot
     content: "Phase H11: Makefile kmod list/order initrd mke spawn boot dogrulama"
+  - id: wave-k-shell
+    content: "Wave K: os-ui profesyonel shell — tiklanir topbar, window yonetimi, terminal ac/kapa"
+  - id: wave-l-files
+    content: "Wave L: File Explorer + terminal run/./ exec + /applications"
+  - id: wave-m-services
+    content: "Wave M: usermode system services; kernel registry; os-ui respawn"
+  - id: wave-n-monitor
+    content: "Wave N: Activity Monitor app + SYS_PROC_STAT cpu/ram"
+  - id: wave-o-console
+    content: "Wave O: her process konsol; GUI hide; ./ vs double-click kurallari"
+  - id: wave-p-env
+    content: "Wave P: global + process env; PATH; tool register"
+  - id: wave-q-term-path
+    content: "Wave Q: terminal PATH/run zenginlestirme; my-tool --help"
 isProject: false
 ---
 
@@ -75,7 +89,26 @@ isProject: false
 - **Menubar + deep-link** — Hiçbir app focus’ta değilken üst bar sahte File/Edit menüsü göstermez; OS ikonu + **Settings** / **System Information** (ve benzeri) sistem öğeleri durur. Tıklanınca Settings usermode app **deep-link** ile açılır (örn. About / system info sayfası). Deep-link mekanizması plana dahil **zorunlu implementasyon** (opsiyonel değil).
 - **Image + wallpaper** — Image decode **geniş format**: PNG, WebP, JPEG, BMP, TGA, GIF (statik), vs. (aşağıda Wave J katalog); os-ui wallpaper cover-scale; 4K default asset; menubar/dock ~%70 frosted blur; ikon/metin opak siyah veya beyaz.
 - **Input cihaz keşfi** — mevcut PS/2 (`keyboard.c`/`mouse.c`/`ps2.c`) kullanılır; ayrıca PCI’den `virtio-input` (keyboard/tablet) algılanırsa o path aktif olur. Cihaz yoksa net log; varsa o driver üzerinden çalışır.
-- Uygulama **dalga dalga**; her dalga kendi başına boot edilebilir olmalı.
+- **Profesyonel shell** — os-ui tıklanabilir topbar + window yönetimi (aç/kapa/focus); önceki Settings/deep-link/dock/frosted maddeleriyle **birleşik** (çakışma yok, üzerine eklenir).
+- **Apps & launch** — usermode binary’ler VFS `/applications`; File Explorer; terminal `run` / `./` exec.
+- **System services** — usermode servisler Linux-like; kernel registry + boot scan + os-ui öldürülürse respawn.
+- **Activity Monitor** — Windows benzeri process/CPU/RAM UI + kernel syscalls.
+- **Per-process console** — her process’in konsolu var; GUI gizleyebilir; `./` vs Explorer double-click kuralları.
+- **Env + PATH** — global ve process-level env; PATH ile tool register (`my-text-app --help`).
+- Uygulama **dalga dalga / split workstream**; her dalga kendi başına boot edilebilir olmalı.
+
+## Split workstream indeksi (paralel planlar)
+
+Tek bu dosya kaynak gerçeklik olmaya devam eder. Uygulama sırası/workstream bölünmesi:
+
+| Workstream | Dalgalar | Odak |
+|------------|----------|------|
+| **WS1 Desktop Shell** | A, H3–H5, H9, I, J, **K** | WM, Settings, wallpaper, frosted UI, tıklanır menubar, window chrome |
+| **WS2 Apps & Files** | B, D, H7, H10, **L**, **O**, **Q** | `/applications`, Explorer, run/./, console attach, PATH terminal |
+| **WS3 Services & Supervisor** | B, **M**, H11 | system services, boot install, os-ui respawn |
+| **WS4 Observe & Env** | E, **N**, **P** | Activity Monitor, CPU/RAM API, global/process env |
+
+AI bir workstream’i bitirmeden diğerine “shell kırarak” geçmesin; bağımlılık: WS1 ↔ K önce tıklanır shell; L/Q için B spawn; M için B+L path; N için proc stats syscall.
 
 ## Mimari
 
@@ -1506,17 +1539,244 @@ compose order (chrome):
 | H12 | diğer kmods smoke | driver | all |
 | H13 | os-settings.mke (usermode, SDK, tum sayfalar + OS info) | usermode process | I |
 | J | image decode + 4K wallpaper + frosted menubar/dock | gfx + os-ui | J |
+| K | os-ui profesyonel shell / window mgmt | usermode | K |
+| L | File Explorer + /applications + run | usermode+kernel | L |
+| M | system services supervisor | kernel+usermode | M |
+| N | Activity Monitor + proc stats | usermode+kernel | N |
+| O | per-process console attach rules | kernel+wm+apps | O |
+| P | global/process env | kernel+SDK | P |
+| Q | terminal PATH/tools | terminal+env | Q |
+
+---
+
+# WAVE K — os-ui profesyonel shell (madde 1 — öncekiyle birleşik)
+
+**Not:** Bu madde eski “useless topbar” şikayetini giderir; **önceki** Settings deep-link, frosted glass, dock pins∪running, OS menü maddelerini **iptal etmez** — hepsi kalır, üzerine gerçek pencere yönetimi eklenir.
+
+## K1) Tıklanabilir topbar
+
+- Hit-test gerçek: logo, Settings, System Information, (focus varken opsiyonel app menü)
+- Hover/active paint; `MOUSE_DOWN` → deep-link / menü (H9/H13.5)
+- Menubar `accept_focus` false ama tıklama event’leri os-ui’ye gelir (chrome window)
+
+## K2) Pencere yönetimi (shell)
+
+os-ui veya küçük `window-manager` policy usermode’da (kernel WM hâlâ create/focus/close):
+
+| Aksiyon | Nasıl |
+|---------|--------|
+| Focus window | dock / click / Alt-Tab lite |
+| Close focused | menü **Close Window** → `SYS_WM_CLOSE` / deep event CLOSE |
+| Minimize / Maximize / Restore | Settings/Window menü veya chrome; `WindowOptions` set |
+| Open Terminal | dock / menü → spawn `/applications/terminal.mke` veya `run terminal` |
+| Close Terminal | find Terminal → close; process exit |
+| Open Settings | deep-link (mevcut) |
+| Show all windows | enum + raise list (opsiyonel lite) |
+
+Menü örneği (focus yokken OS bar): Settings | System Information | **Terminal** (aç/kapa toggle)
+
+## K3) Kabul
+
+- Topbar öğeleri tıklanınca aksiyon alır (useless değil)
+- Terminal aç/kapa shell’den çalışır
+- Focus’lu pencere kapatılabilir
+- Deep-link + frosted + dock kuralları bozulmaz
+
+---
+
+# WAVE L — File Explorer + `/applications` + `run` / `./` (madde 2–3)
+
+## L1) VFS layout
+
+```text
+/applications/          # usermode .mke / executables (build sonrası buraya)
+  terminal.mke
+  os-settings.mke
+  os-ui.mke              # veya service olarak
+  files.mke               # explorer
+  activity-monitor.mke
+/usr/bin/                 # PATH tools / symlinks → /applications/...
+/etc/os-settings.ini
+/etc/environment          # global env
+/run/                     # deeplink, service runtime
+```
+
+Boot/build (H11): initrd veya disk image’a `.mke` dosyalarını **`/applications`** altına kopyala (sadece multiboot module spawn değil).
+
+## L2) File Explorer (`files.mke`)
+
+- Usermode GUI: sidebar (Home, Applications, /, mounts) + liste (name, size, type)
+- Double-click:
+  - dizin → chdir/navigate
+  - `.mke` / executable → **launch without visible console** (Wave O kuralı)
+- Terminal ile uyum: path kopyala; `open .` terminal builtin Explorer’ı cwd ile açar
+- SDK fs: readdir/stat
+
+## L3) Terminal `run` + `./`
+
+- Builtin: `run <name|path> [args...]` → `SYS_SPAWN` / `execve` (Wave B)
+- `./foo.mke` veya `./tool` → path exec; executable bit / `.mke` magic
+- Extension: `.mke` resmi usermode app formatı
+- PATH üzerinden `terminal`, `my-text-app` (Wave Q)
+
+## L4) Kabul
+
+- `/applications` listelenir; Explorer’dan Terminal/Settings açılır
+- `run terminal` / `./applications/terminal.mke` process başlatır
+- Explorer ↔ Terminal cwd/path birlikte kullanılabilir
+
+---
+
+# WAVE M — Usermode system services (madde 4)
+
+## M1) Model
+
+Linux systemd-lite:
+
+- Unit dosyası veya `/etc/services.d/*.service` + binary `/applications` veya `/usr/lib/services/`
+- Kernel **service registry** (isim, pid, path, restart policy, state)
+
+```c
+typedef struct kservice {
+  char name[32];
+  char path[VFS_PATH_MAX];
+  pid_t pid;
+  int   running;
+  int   respawn;     /* 1 = kill olursa yeniden start */
+  int   critical;    /* os-ui gibi */
+} kservice_t;
+```
+
+Syscalls: `SYS_SERVICE_LIST`, `SYS_SERVICE_START`, `SYS_SERVICE_STOP`, `SYS_SERVICE_STATUS`
+
+## M2) Boot
+
+1. VFS mount sonrası `/etc/services.d` veya built-in table tara
+2. Yoksa build artifact’ları disk/initrd’ye **install** et (Makefile `install-userland`)
+3. Sırayla start: `os-ui` (critical), isteğe bağlı `settings` hidden, vs.
+4. Kernel loop / scheduler tick: critical service pid dead → `spawn` tekrar (os-ui kill → diskten restart)
+
+## M3) Usermode “drivers/services”
+
+- Örnek: ileride usermode net helper; v1: `os-ui.service`, `logd` lite opsiyonel
+- Kernel device driver’lar (virtio) kmod kalır; bu madde **usermode service** katmanı
+
+## M4) Kabul
+
+- Boot’ta service list dolu; os-ui kill edilince respawn
+- `service list` terminal veya Activity Monitor’da görünür
+
+---
+
+# WAVE N — Activity / System Monitor (madde 5)
+
+## N1) App `activity-monitor.mke`
+
+Windows Task Manager benzeri UI:
+
+- Tab/list: Processes (name, pid, cpu%, mem KB, state)
+- Üst: total CPU, total RAM, process count (grafik: basit bar/history strip)
+- Kill / End Task butonu → `SYS_KILL`
+- Refresh timer (`nanosleep` / clock)
+
+## N2) Kernel API
+
+| Syscall | Çıktı |
+|---------|--------|
+| `SYS_PROC_LIST` | pid, name, state, parent |
+| `SYS_PROC_STAT` | per-pid: cpu_ticks, mem_bytes, threads |
+| `SYS_SYSINFO` | total/used ram, uptime, load lite |
+| `SYS_PROC_KILL` | alias kill |
+
+CPU: scheduler tick sayacı per-process; userspace yüzde = delta ticks / wall.
+
+## N3) Kabul
+
+- Monitor açılınca canlı liste; RAM/CPU dolu; End Task çalışır
+
+---
+
+# WAVE O — Per-process console (madde 6)
+
+Her process doğuştan **console** sahibi (AllocConsole benzeri, Wave A3 genişler):
+
+| Launch yolu | Görünür konsol? | Arkada console var? |
+|-------------|-----------------|---------------------|
+| Terminal `./` veya `run` | **Evet** (parent terminal veya attached console window) | Evet |
+| Explorer double-click / dock GUI launch | **Hayır** (gizli) | **Evet** (gizli console; log yazılabilir) |
+| GUI app `ShowConsole(false)` | Gizli | Evet |
+| GUI app debug | `ShowConsole(true)` | Görünür |
+
+Kurallar:
+
+- `SYS_SPAWN` flags: `SPAWN_CONSOLE_VISIBLE` / `SPAWN_CONSOLE_HIDDEN`
+- Terminal spawn → VISIBLE; Explorer/dock → HIDDEN
+- Process stdout/stderr → console buffer (gizli bile yazılır)
+- Settings/Terminal “Show console for app X” → show existing console window
+
+## O1) Kabul
+
+- `./app.mke` konsollu; Explorer double-click aynı app konsolsuz UI; gizli console’a log yazılabiliyor
+
+---
+
+# WAVE P — Environment variables (madde 7)
+
+## P1) Global
+
+- `/etc/environment` veya kernel `environ_global`
+- `SYS_GETENV` / `SYS_SETENV` (global flag) / boot load
+- Örnek: `PATH=/usr/bin:/applications`
+
+## P2) Process-level
+
+- `process_t` env block (key=value array)
+- Spawn’da inherit global + override
+- `putenv` / `setenv` process-local (`DATABASE_URL=...`)
+- `SYS_EXECVE` envp[]
+
+## P3) Kabul
+
+- Child global PATH görür; process-local `DATABASE_URL` diğer process’e sızmaz
+
+---
+
+# WAVE Q — Terminal zenginleştirme + PATH tools (madde 8)
+
+- `PATH` resolve: `run` / komut adı → `/usr/bin`, `/applications`
+- Tool register: `.mke` veya native user binary symlink `/usr/bin/my-text-app` → `/applications/my-text-app.mke`
+- `my-text-app --help` PATH ile çalışır
+- Tab-complete lite opsiyonel; en azından exact name
+- `which`, `env`, `export` builtins
+- Wave L `run` ile birleşik
+
+## Q1) Kabul
+
+- PATH’te tool; `my-text-app --help` çıktı; `export` process env değiştirir
+
+---
+
+# Uygulama sırası (güncel — split uyumlu)
+
+1. WS1: A → H* gfx → I Settings → J wallpaper → **K shell**
+2. WS2: B process → D/H7 fs → **L** Explorer/applications → **O** console → H10/**Q** terminal PATH
+3. WS3: **M** services + respawn (K sonrası os-ui critical)
+4. WS4: E time → **P** env → **N** Activity Monitor
+5. F networking (paralel mümkün WS2 sonrası)
+6. G verify hepsi
 
 ---
 
 ## AI uygulama disiplini
 
-1. Bir Phase H* bitmeden sonrakine geçme.
+1. Bir Phase H* / Wave bitmeden bağımlı sonrakine geçme.
 2. Her phase sonunda: compile + ilgili kabul kriteri.
-3. Plan maddesini “kısaltarak atlama” yok — bool alan, syscall, dosya listesi eksikse önce plana ekle sonra kodla.
-4. Usermode process (H9/H10/H13) SDK (H8) olmadan migrate edilmez.
-5. Net builtins (H10) Phase H6+F3 olmadan eklenmez.
-6. Settings layout UI (H13) Phase H5 `SYS_KBD_SET_LAYOUT` olmadan eklenmez.
-7. Mevcut PS/2 keyboard/mouse **silinmez**; PCI virtio-input ek keşif katmanıdır.
-8. Frosted menubar/dock + wallpaper (Wave J) olmadan shell bitmiş sayılmaz; kullanıcı 4K asset’i `assets/wallpaper-default.*` olarak verir.
-8. Frosted menubar/dock, wallpaper image pipeline (Wave J) olmadan “bitmiş shell” sayılmaz; kullanıcı 4K asset’i verince `assets/wallpaper-default.*` olarak bağlanır.
+3. Plan maddesini “kısaltarak atlama” yok.
+4. Usermode apps SDK olmadan migrate edilmez.
+5. Net builtins Phase H6+F3 olmadan eklenmez.
+6. Settings layout H5 `SYS_KBD_SET_LAYOUT` olmadan apply edilemez (UI önce olabilir).
+7. PS/2 silinmez; PCI virtio-input ekdir.
+8. Wave J wallpaper/frosted olmadan shell görsel olarak bitmiş sayılmaz; 4K asset `assets/wallpaper-default.*`.
+9. Wave K, önceki menubar/deep-link/dock maddelerini **geçersiz kılmaz** — birleştirir.
+10. `/applications` + services install H11/Makefile zorunlu.
+11. Split workstream’ler aynı repo planına bağlı; çakışan ABI tek H1’den geçer.
