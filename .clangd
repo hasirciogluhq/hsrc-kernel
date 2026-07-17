@@ -8,6 +8,9 @@ CompileFlags:
     - -fno-pic
     - -nostdlib
     - -I/Users/hasircioglu/projects/mykernel/include
+    - -I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx
+    - -I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga
+    - -I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu
   Remove:
     - -m32
     - -m64

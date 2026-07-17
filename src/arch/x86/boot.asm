@@ -1,7 +1,6 @@
 MBALIGN  equ 1 << 0
 MEMINFO  equ 1 << 1
-VIDEO    equ 1 << 2
-FLAGS    equ MBALIGN | MEMINFO | VIDEO
+FLAGS    equ MBALIGN | MEMINFO
 MAGIC    equ 0x1BADB002
 CHECKSUM equ -(MAGIC + FLAGS)
 
@@ -10,11 +9,6 @@ align 4
     dd MAGIC
     dd FLAGS
     dd CHECKSUM
-    ; video mode (present because VIDEO flag is set)
-    dd 0        ; mode_type: 0 = linear graphics
-    dd 800      ; width
-    dd 600      ; height
-    dd 32       ; depth
 
 section .text
 global start

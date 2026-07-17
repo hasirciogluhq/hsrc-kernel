@@ -1,185 +1,250 @@
 ---
 name: VFS File Drivers
-overview: MyKernel’de VFS’i gerçek mount/vnode modeline çıkarıp block + filesystem driver’larını (önce virtio-blk + FAT32, sonra diskten .kmod load) ayrı kmod olarak ekleyeceğiz. İlk boot grafiği hâlâ initrd/Multiboot ile kalır; file/disk yolu VFS oturunca devreye girer.
+overview: "Production-ready, Linux tarzı VFS (inode/dentry/super_block/file) tamamen external kmod. Block + partition + her FS ayrı driver; format switch-case yok — register ile eklenir. Windows/Linux VFS özellik yüzeyi eksiksiz API olarak vfs.kmod içinde; desteklenmeyen ops hard ENOTSUP. Kernel core sadece loader + syscall jump."
 todos:
-  - id: vfs-core
-    content: vnode/mount/path-walk/ramfs; console /dev altina tasi
+  - id: vfs-kmod-abi
+    content: vfs.kmod — inode/dentry/file/super_block/mount ABI + syscall export tablosu
     status: pending
-  - id: initrd-fs
-    content: Initrd arsivini VFS mount olarak gezilebilir yap
+  - id: block-layer-kmod
+    content: block.kmod — bdev, request queue, bio, partition scan hook
     status: pending
-  - id: virtio-blk
-    content: drivers/block/virtio_blk kmod; bread/bwrite; /dev/vda
+  - id: part-drivers
+    content: part_mbr.kmod + part_gpt.kmod (external)
     status: pending
-  - id: fat32-ro
-    content: drivers/fs/fat32 read-only mount + open/read
+  - id: block-backends
+    content: virtio_blk, ahci_ata, nvme, loop, ramdisk — hepsi ayrı kmod
+    status: pending
+  - id: fs-pseudo
+    content: ramfs, tmpfs, devtmpfs, procfs, sysfs, initrdfs — ayrı kmod
+    status: pending
+  - id: fs-disk
+    content: fat32, exfat, ext2/3/4, iso9660, udf, ntfs — ayrı kmod register_filesystem
+    status: pending
+  - id: vfs-features
+    content: "page cache, dcache, xattr, ioctl, mmap, flock, symlink, poll, notify"
     status: pending
   - id: module-from-vfs
-    content: "module_load_path: VFS uzerinden .kmod yukle"
-    status: pending
-  - id: qemu-disk
-    content: disk.img + QEMU virtio-blk run hedefi
+    content: module_load_path ile disk/initrd uzerinden kmod
     status: pending
 isProject: false
 ---
 
-# VFS + File / Block Driver Planı
+# Production VFS — Hepsi External Driver
 
-Bu plan **MKDX grafik planından ayrıdır**. Grafik kmod’ları boot’ta initrd/Multiboot ile yüklenmeye devam eder; disk/VFS olgunlaşınca *ek* olarak diskten de `driver_load` açılır.
+MKDX planından bağımsız. Hedef: Linux VFS + Windows IFS’in “cool” özellik yüzeyi; **hiçbir FS/block formatı VFS içine gömülmez** — hepsi `.kmod`.
 
-## Öneri (net yol)
+## Kritik kural
 
-“File driver” tek parça değil — üç katman:
+- **Format = driver.** `if (fat) ... else if (ext4)` yok. `register_filesystem("ext4", &ops)`.
+- **Disk backend = driver.** virtio / AHCI / NVMe / loop ayrı kmod.
+- **VFS’in kendisi de external:** `vfs.kmod` (core’da sadece module loader + syscall stub → vfs export).
+- Desteklenmeyen ops: sessiz stub yok → **`-ENOTSUP` / hard fail**.
+- “Tüm formatlar” = VFS’in **sınırsız eklenebilir** olması + aşağıda listelenen driver’ların her birinin ayrı kmod olarak projede yer alması (hepsi aynı `file_ops` / `inode_ops` / `super_ops` sözleşmesine bağlanır).
 
-| Katman | Rol | Örnek |
-|--------|-----|--------|
-| **VFS** (kernel core) | `open/read/write/mount` tek API | genişletilmiş [vfs.h](include/kernel/vfs.h) |
-| **Block driver** | Sektör oku/yaz | `drivers/block/virtio_blk` |
-| **FS driver** | Dosya sistemi | `drivers/fs/fat32` |
+“Dosya formatı” burada **filesystem / volume formatı** demektir (FAT, ext4, NTFS…), PNG/PDF parser değil.
 
-App / `driver_load("mkdx")` sadece VFS path görür: `/lib/drivers/mkdx.kmod` → VFS → FAT → virtio-blk → disk.
+---
+
+## Katmanlar (hepsi kmod)
 
 ```mermaid
 flowchart TB
-  App[open_read_path]
-  VFS[VFS_core]
-  FAT[fat32_kmod]
-  Blk[virtio_blk_kmod]
-  Disk[QEMU_disk]
+  Sys[syscall_stubs_core]
+  VFS[vfs.kmod]
+  Cache[page_dentry_cache_in_vfs]
+  FS[fs_star_kmod]
+  Part[part_gpt_mbr_kmod]
+  BlkLayer[block.kmod]
+  Bdev[virtio_ahci_nvme_loop_kmod]
 
-  App --> VFS
-  VFS -->|"mount /"| FAT
-  FAT -->|"bread/bwrite"| Blk
-  Blk --> Disk
+  Sys --> VFS
+  VFS --> Cache
+  VFS --> FS
+  FS --> BlkLayer
+  BlkLayer --> Part
+  BlkLayer --> Bdev
 ```
 
-**Neden virtio-blk + FAT32?** QEMU’da gerçekçi PCI block cihaz; FAT32 implementasyonu ext2’den basit; Windows/USB uyumu iyi. IDE/ATA sonra eklenebilir.
+| Kmod | İş |
+|------|-----|
+| `vfs.kmod` | inode, dentry, file, super_block, mount, path walk, cache, POSIX/Win özellik API |
+| `block.kmod` | bdev, bio/request, generic_make_request |
+| `part_mbr.kmod` / `part_gpt.kmod` | partition table → alt bdev |
+| `virtio_blk` / `ahci` / `nvme` / `loop` / `ramdisk` | fiziksel/sanal disk backend |
+| `fs_*.kmod` | her bir filesystem |
 
-**İlk boot hâlâ initrd:** File driver olmadan MKDX load (grafik planı). VFS+disk gelince ikinci aşama: initrd’den sadece `virtio_blk` + `fat32` load → root mount → kalan kmod’lar diskten.
-
----
-
-## Bugünkü durum
-
-[include/kernel/vfs.h](include/kernel/vfs.h) / [src/kernel/vfs.c](src/kernel/vfs.c):
-
-- Düz isim tablosu (`motd`, `dev/console`) — mount yok, dizin yok, block yok
-- `vfs_register_file` = RAM’de statik blob
-- Process fd mapping var ([process.c](src/kernel/process.c))
-
-Bu **ramfs-benzeri stub**; üretim dizin ağacı değil. Üzerine mountable VFS yazılacak / değiştirilecek.
+Boot: initrd → `block` + `vfs` + en az bir pseudo FS + (disk varsa) bir block backend + part + bir disk FS.
 
 ---
 
-## Hedef VFS (core)
+## VFS veri modeli (Linux uyumlu isimler)
 
-Core’da kalsın (her driver buna bağlanır):
+Eski düz [vfs.c](src/kernel/vfs.c) tablosu **kalkar**. Yerine:
 
-```c
-/* kavramsal */
-vfs_mount(source, target, fstype, flags);
-vfs_open / read / write / lseek / close / stat
-vfs_mkdir / readdir          /* sonra */
-register_filesystem(fs_type_ops);
-register_block_device(bdev);
-```
+- **`inode`** — i_mode, i_uid/gid, i_size, i_nlink, timestamps, i_op, i_fop, i_mapping, private
+- **`dentry`** — isim, parent, inode*, d_op, dcache
+- **`file`** — f_pos, f_flags, f_op, private_data
+- **`super_block`** — s_type, s_root, s_bdev, s_op, s_flags
+- **`vfsmount` / `mount`** — mount ağacı, bind/rbind hazır API
+- **`block_device`** — queue, disk boyutu, part listesi
 
-Yapılar:
-
-- `vnode` / `vfs_node`: tip (file/dir/dev), ops tablosu, FS private
-- `file` (open file): offset, flags, vnode*
-- `mount`: root vnode + fs_ops + device
-- Path walk: `/a/b/c` → mount noktaları + `lookup`
-
-İlk mount’lar:
-
-1. **ramfs** `/` veya `/dev` — console, null (mevcut device kaydı buraya)
-2. **initrd** (opsiyonel) — boot blob’ları dosya gibi
-3. **fat32** `/` veya `/mnt` — virtio-blk üzerinde
-
-Syscall: mevcut open/read/write varsa bağla; yoksa ekle.
+Path walk: `path_lookup` → dcache → `inode_ops.lookup` → mount crossing.
 
 ---
 
-## Block driver (`drivers/block/virtio_blk/`)
+## Ops sözleşmeleri (eksiksiz yüzey)
 
-Ayrı `.kmod` (veya ilk etapta initrd’den load):
+FS driver bunları doldurur; doldurmadığı slot = VFS `-ENOTSUP` (NULL çağrılmaz).
 
-- PCI virtio-blk bul, queue init
-- API: `bread(dev, lba, buf)`, `bwrite(...)`, `block_size`, `capacity`
-- VFS/FS sadece bu API’yi görür — ATA detayı sızmaz
+**super_operations:** `alloc_inode`, `destroy_inode`, `put_super`, `statfs`, `remount_fs`, `sync_fs`, `show_options`
 
-QEMU: `-drive file=disk.img,if=virtio` (veya eşdeğeri).
+**inode_operations:** `lookup`, `create`, `link`, `unlink`, `symlink`, `mkdir`, `rmdir`, `mknod`, `rename`, `setattr`, `getattr`, `listxattr`, `permission`, `get_link`
 
----
+**file_operations:** `read`/`write`/`read_iter`/`write_iter`, `llseek`, `mmap`, `ioctl`/`unlocked_ioctl`, `fsync`, `flush`, `poll`, `lock`/`flock`, `fallocate`, `open`, `release`, `readdir`/`iterate`
 
-## FS driver (`drivers/fs/fat32/`)
+**dentry_operations:** `d_hash`, `d_compare` (case-insensitive FS: VFAT/NTFS), `d_delete`, `d_revalidate`
 
-Ayrı `.kmod`:
+**address_space_operations (page cache):** `readpage`/`readahead`, `writepage`/`writepages`, `dirty_folio`, `invalidate`
 
-- `filesystem_ops`: mount, lookup, read_file, (sonra write/create)
-- İlk sürüm: **read-only FAT32** yeter (kmod + asset okumak için)
-- Write/create ikinci faz
+**xattr_handlers:** user/system/security/trusted (Linux); ADS benzeri named stream → xattr veya `:` stream API Windows uyumu için ayrı `stream_ops` opsiyonel slot.
 
-Mount örneği: `vfs_mount("/dev/vda", "/", "fat32", 0)` veya `/mnt/root`.
+Bu yüzey vfs.kmod’da **tam tanımlı**dır; “cool feature sonra ekleriz” diye ops tablosu eksik bırakılmaz.
 
 ---
 
-## File / kmod load yolu (VFS sonrası)
+## Linux + Windows özellik yüzeyi (vfs.kmod)
+
+Hepsi VFS katmanında API olarak var; FS driver yeteneğine göre doldurur:
+
+| Özellik | Not |
+|---------|-----|
+| open/read/write/lseek/close | POSIX |
+| mkdir/rmdir/readdir/unlink/rename/link/symlink | dizin + link |
+| stat/fstat/statfs | |
+| chmod/chown/utimens (setattr) | permission modeli |
+| mmap / msync | file → VM (kernel VM ile export) |
+| ioctl | FS/device özel |
+| flock / POSIX locks | |
+| poll/select | |
+| xattr get/set/list | |
+| Named streams | NTFS/Win tarzı; FS ops slot |
+| Case-sensitive / insensitive mount flag | d_compare |
+| Sparse / fallocate | |
+| sync/fsync/fdatasync | |
+| mount/umount/bind/move | |
+| Device nodes | mknod + devtmpfs |
+| Pipe/FIFO / Unix socket vnode tipi | inode mode bits |
+| inotify/fanotify tarzı watch | `fsnotify` API iskeleti + en az bir backend |
+| Volume label / UUID | super + udev-benzeri |
+
+Uid/gid + basit permission **vfs.kmod içinde** (process cred ile); ACL genişlemesi xattr üzerinde.
+
+---
+
+## Disk / backend driver’ları (external)
+
+Hepsi `block.kmod`’a `register_blkdev` / `add_disk`:
+
+- `virtio_blk.kmod` — QEMU birincil
+- `ahci.kmod` / `ata_piix.kmod` — gerçekçi IDE/SATA
+- `nvme.kmod`
+- `loop.kmod` — dosyayı bdev yap
+- `ramdisk.kmod` — test
+
+Partition:
+
+- `part_mbr.kmod`
+- `part_gpt.kmod`  
+Probe sırası: GPT → MBR; ikisi de driver.
+
+---
+
+## Filesystem driver’ları (external, register)
+
+Pseudo / sistem:
+
+- `ramfs`, `tmpfs`, `devtmpfs`, `procfs`, `sysfs`, `initrdfs`
+
+Disk:
+
+- `fat` (12/16/32), `exfat`
+- `ext2`, `ext3`, `ext4` (ortak `ext` ailesi + feature flag)
+- `iso9660`, `udf`
+- `ntfs`
+
+Yeni format = yeni kmod + `register_filesystem`; VFS’e dokunulmaz.
+
+İlk boot için zorunlu set (initrd): `vfs` + `block` + `ramfs`/`initrdfs` + `devtmpfs`. Diskli sistem: + `virtio_blk` + `part_gpt` + en az bir disk FS (`fat` veya `ext4`).
+
+---
+
+## Layout
 
 ```text
-Boot:
-  1) Multiboot/initrd → virtio_blk.kmod + fat32.kmod (+ belki mkdx)
-  2) block init, fat mount
-  3) vfs_open("/lib/drivers/display_bga.kmod") → module_load_fd()
-  4) vfs_open("/lib/drivers/mkdx.kmod") → module_load_fd()
+src/kernel/                 module loader, syscall → vfs_export*
+src/drivers/vfs/            vfs.kmod (inode/dentry/file/mount/cache)
+src/drivers/block/          block.kmod
+src/drivers/block/virtio_blk/
+src/drivers/block/ahci/
+src/drivers/block/nvme/
+src/drivers/block/loop/
+src/drivers/part/mbr/
+src/drivers/part/gpt/
+src/drivers/fs/ramfs/
+src/drivers/fs/tmpfs/
+src/drivers/fs/devtmpfs/
+src/drivers/fs/procfs/
+src/drivers/fs/sysfs/
+src/drivers/fs/initrdfs/
+src/drivers/fs/fat/
+src/drivers/fs/exfat/
+src/drivers/fs/ext/
+src/drivers/fs/iso9660/
+src/drivers/fs/udf/
+src/drivers/fs/ntfs/
 ```
 
-`module_load_fd` / `module_load_path`: VFS’ten dosyayı RAM’e oku → mevcut ELF/.kmod loader (grafik planındaki loader ile aynı).
-
-Böylece “file driver” = **VFS + block + FS**; ayrı sihirli bir şey değil.
+Her klasör kendi `.h` + `.c`; public ABI `vfs` export + `block` export.
 
 ---
 
-## Aşamalar
-
-1. **VFS core refactor** — vnode, mount, path walk, ramfs, `/dev/console` taşı; eski düz tabloyu kaldır/uyumla.
-2. **initrd FS** (hafif) — boot arşivini VFS’te `/` veya `/boot` olarak gez (disk yokken kmod path testi).
-3. **virtio-blk kmod** — bread/bwrite + `/dev/vda` device node.
-4. **fat32 kmod read-only** — disk.img mount; `open/read` gerçek dosya.
-5. **module_load_path** — diskten `.kmod` yükle; grafik planı ile birleştir.
-6. **FAT write / mkdir** — sonra.
-
----
-
-## Dizin layout
+## Boot / load
 
 ```text
-src/kernel/vfs/          vfs core (mount, path, file, ramfs)
-src/drivers/block/virtio_blk/   .h .c → .kmod
-src/drivers/fs/fat32/           .h .c → .kmod
+1) Core + Multiboot/initrd
+2) Load vfs.kmod, block.kmod, initrdfs/ramfs, devtmpfs
+3) Mount initrd → / ; mount devtmpfs → /dev
+4) Load block backends + part_* + fs_* from initrd or later from disk
+5) mount /dev/vda1 / mnt type=ext4|fat|...
+6) module_load_path("/lib/drivers/....kmod")
 ```
 
-Header’lar driver klasöründe; core sadece `vfs.h` + `blockdev.h` + `fs_register.h` export eder.
+VFS yüklü değilken file syscall → **-1** (fail-hard).
 
 ---
 
-## MKDX planı ile ilişki
+## Eski kod
 
-| Boot aşaması | Ne yüklenir | Nasıl |
-|--------------|-------------|--------|
-| Şimdi / grafik MVP | display + mkdx | initrd/Multiboot (VFS şart değil) |
-| VFS MVP | virtio_blk + fat32 | initrd |
-| Olgun | diğer kmod’lar | disk path via VFS |
-
-İki plan paralel gidebilir; birleşme noktası `module_load_path`.
+[include/kernel/vfs.h](include/kernel/vfs.h) / [src/kernel/vfs.c](src/kernel/vfs.c) stub **kaldırılır**; yerine core’da ince `vfs_call` indirection + `drivers/vfs`.
 
 ---
 
-## Bilinçli sınırlar
+## Uygulama sırası (mimari önce, driver dalgası)
 
-- İlk FAT **read-only**.
-- Tek block cihaz, tek mount root yeter.
-- ext2/NVMe yok (sonra).
-- Page cache / dcache yok — doğrudan FS read.
-- Güvenlik/permission modeli yok (uid yok).
+1. `vfs.kmod` — tam ops tabloları + inode/dentry/file/mount + path walk + ENOTSUP varsayılanı  
+2. `block.kmod` + `ramdisk` + `loop`  
+3. `part_gpt` / `part_mbr`  
+4. Pseudo FS’ler (ramfs, tmpfs, devtmpfs, procfs, sysfs, initrdfs)  
+5. `virtio_blk` + `fat` (RW) — QEMU disk doğrulama  
+6. Page cache + dcache + xattr + flock + mmap hooks  
+7. `ext` ailesi, `exfat`, `iso9660`, `udf`, `ntfs`  
+8. `ahci`, `nvme`  
+9. `module_load_path` + fsnotify  
+
+Her dalgada ABI kırılmaz; yeni FS sadece register olur.
+
+---
+
+## MKDX ile ilişki
+
+Grafik kmod’ları initrd ile gelebilir (VFS şart değil). Diskten load için bu VFS stack şart. Birleşme: `module_load_path`.

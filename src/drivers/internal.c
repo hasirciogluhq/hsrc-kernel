@@ -1,12 +1,10 @@
 #include <drivers/driver.h>
 #include <drivers/vga.h>
-#include <drivers/fb.h>
 #include <drivers/ps2.h>
 #include <drivers/keyboard.h>
 #include <drivers/mouse.h>
 #include <drivers/console.h>
 #include <kernel/string.h>
-#include <multiboot.h>
 
 /* ---- VGA (early, already running before framework) ---- */
 
@@ -16,20 +14,6 @@ static int vga_drv_init(driver_t *drv, void *ctx)
     (void)ctx;
     vga_init();
     return 0;
-}
-
-/* ---- Framebuffer ---- */
-
-static int fb_drv_probe(driver_t *drv, void *ctx)
-{
-    (void)drv;
-    return ctx ? 0 : -1;
-}
-
-static int fb_drv_init(driver_t *drv, void *ctx)
-{
-    (void)drv;
-    return fb_init((multiboot_info_t *)ctx);
 }
 
 /* ---- PS/2 bus ---- */
@@ -103,15 +87,6 @@ void drivers_register_internal(void)
     d.flags = DRIVER_FLAG_AUTO;
     d.priority = 5;
     d.init = console_drv_init;
-    driver_register(&d);
-
-    fill_name(&d, "fb", "1.0");
-    d.kind = DRIVER_KIND_INTERNAL;
-    d.class = DRIVER_CLASS_DISPLAY;
-    d.flags = DRIVER_FLAG_AUTO;
-    d.priority = 10;
-    d.probe = fb_drv_probe;
-    d.init = fb_drv_init;
     driver_register(&d);
 
     fill_name(&d, "ps2", "1.0");

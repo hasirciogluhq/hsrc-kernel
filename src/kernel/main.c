@@ -1,10 +1,14 @@
 #include <multiboot.h>
 #include <drivers/vga.h>
 #include <drivers/driver.h>
+#include <drivers/pci.h>
+#include <drivers/display.h>
 #include <kernel/heap.h>
 #include <kernel/syscall.h>
 #include <kernel/vfs.h>
-#include <gfx/server.h>
+#include <kernel/ksym.h>
+#include <kernel/module.h>
+#include <kernel/mkdx_api.h>
 #include <arch/x86/gdt.h>
 #include <arch/x86/idt.h>
 #include <user/gx.h>
@@ -27,23 +31,39 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     idt_init();
     syscall_init();
     vfs_init();
+    ksym_init();
 
     driver_framework_init();
+    display_framework_init();
+    pci_init();
     drivers_register_internal();
     driver_attach("vga");
 
-    if (drivers_load_all(mbi) < 0) {
+    if (drivers_load_all(NULL) < 0) {
         vga_print("drivers_load_all failed\n");
         for (;;)
             __asm__ volatile("hlt");
     }
 
-    if (gx_server_init(mbi) < 0) {
-        vga_print("gx_server_init failed\n");
+    /* display_*.kmod then mkdx.kmod from Multiboot module / initrd */
+    if (modules_load_from_mbi(mbi) < 0) {
+        vga_print("modules_load_from_mbi failed\n");
         for (;;)
             __asm__ volatile("hlt");
     }
 
-    /* Desktop shell — runs on boot CPU path (ugx syscalls). Never returns. */
+    if (!display_active()) {
+        vga_print("no active display\n");
+        for (;;)
+            __asm__ volatile("hlt");
+    }
+
+    if (!mkdx_api_get()) {
+        vga_print("mkdx not loaded\n");
+        for (;;)
+            __asm__ volatile("hlt");
+    }
+
+    /* Desktop shell — ugx syscalls into mkdx. Never returns. */
     user_os_ui_main();
 }
