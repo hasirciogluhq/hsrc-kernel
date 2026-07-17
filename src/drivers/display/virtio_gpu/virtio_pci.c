@@ -78,9 +78,15 @@ static int parse_caps(virtio_pci_dev_t *vd)
                      ((uint32_t)pci_config_read8(vd->pci.bus, vd->pci.slot, vd->pci.func, (uint8_t)(cap + 10)) << 16) |
                      ((uint32_t)pci_config_read8(vd->pci.bus, vd->pci.slot, vd->pci.func, (uint8_t)(cap + 11)) << 24);
 
-            volatile uint8_t *ptr = map_cap(&vd->pci, bar, offset);
+            volatile uint8_t *ptr;
+
+            /* Type 5 (PCI_CFG) has no BAR — skip. Only map MMIO cap types. */
+            if (cfg_type < VIRTIO_PCI_CAP_COMMON_CFG || cfg_type > VIRTIO_PCI_CAP_DEVICE_CFG)
+                goto next_cap;
+
+            ptr = map_cap(&vd->pci, bar, offset);
             if (!ptr)
-                return -1;
+                goto next_cap;
 
             switch (cfg_type) {
             case VIRTIO_PCI_CAP_COMMON_CFG:
@@ -106,6 +112,7 @@ static int parse_caps(virtio_pci_dev_t *vd)
                 break;
             }
         }
+next_cap:
         cap = pci_config_read8(vd->pci.bus, vd->pci.slot, vd->pci.func, (uint8_t)(cap + 1));
     }
 

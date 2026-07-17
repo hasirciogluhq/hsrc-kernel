@@ -4,6 +4,7 @@
 #include <kernel/string.h>
 #include <drivers/driver.h>
 #include <drivers/vga.h>
+#include <drivers/serial.h>
 #include <drivers/pci.h>
 
 #define PCI_VENDOR_VIRTIO     0x1AF4
@@ -19,6 +20,8 @@
 #define VIRTIO_STATUS_DRIVER      2
 #define VIRTIO_STATUS_DRIVER_OK   4
 #define VIRTIO_STATUS_FEATURES_OK 8
+#define VIRTIO_STATUS_FAILED      128
+#define VIRTIO_F_VERSION_1        32
 
 #define VRING_DESC_F_NEXT  1
 #define VRING_DESC_F_WRITE 2
@@ -116,9 +119,16 @@ static int parse_caps(vblk_t *vd)
                 ((uint32_t)pci_config_read8(vd->pci.bus, vd->pci.slot, vd->pci.func, (uint8_t)(cap + 9)) << 8) |
                 ((uint32_t)pci_config_read8(vd->pci.bus, vd->pci.slot, vd->pci.func, (uint8_t)(cap + 10)) << 16) |
                 ((uint32_t)pci_config_read8(vd->pci.bus, vd->pci.slot, vd->pci.func, (uint8_t)(cap + 11)) << 24);
-            volatile uint8_t *ptr = map_bar(&vd->pci, bar, offset);
+            volatile uint8_t *ptr;
+
+            /* Type 5 (PCI_CFG) has no BAR — skip. Only map MMIO cap types. */
+            if (cfg < VIRTIO_PCI_CAP_COMMON_CFG || cfg > VIRTIO_PCI_CAP_DEVICE_CFG)
+                goto next_cap;
+
+            ptr = map_bar(&vd->pci, bar, offset);
             if (!ptr)
-                return -1;
+                goto next_cap;
+
             if (cfg == VIRTIO_PCI_CAP_COMMON_CFG)
                 vd->common = ptr;
             else if (cfg == VIRTIO_PCI_CAP_NOTIFY_CFG) {
@@ -133,6 +143,7 @@ static int parse_caps(vblk_t *vd)
             else if (cfg == VIRTIO_PCI_CAP_DEVICE_CFG)
                 vd->devcfg = ptr;
         }
+next_cap:
         cap = pci_config_read8(vd->pci.bus, vd->pci.slot, vd->pci.func, (uint8_t)(cap + 1));
     }
     return (vd->common && vd->notify && vd->devcfg) ? 0 : -1;
@@ -357,23 +368,45 @@ static int vblk_init(driver_t *drv, void *ctx)
     memset(vd, 0, sizeof(*vd));
     vd->pci = pci;
     pci_enable_bus_master(&pci);
-    if (parse_caps(vd) < 0)
+    if (parse_caps(vd) < 0) {
+        klog("virtio_blk: no modern caps\n");
         return 0;
+    }
 
     mmio_w8(vd->common + 20, 0);
     mmio_w8(vd->common + 20, VIRTIO_STATUS_ACKNOWLEDGE);
     mmio_w8(vd->common + 20, VIRTIO_STATUS_ACKNOWLEDGE | VIRTIO_STATUS_DRIVER);
-    /* features: accept none beyond defaults */
-    mmio_w32(vd->common + 8, 0);
-    mmio_w32(vd->common + 4, 1);
-    mmio_w32(vd->common + 8, 0);
+
+    /* Modern virtio requires VIRTIO_F_VERSION_1 (bit 32) in guest features. */
+    {
+        uint32_t feats_hi;
+        uint32_t want_hi = (1u << (VIRTIO_F_VERSION_1 - 32));
+
+        mmio_w32(vd->common + 0, 1); /* device_feature_select = 1 */
+        feats_hi = mmio_r32(vd->common + 4);
+        if (!(feats_hi & want_hi)) {
+            klog("virtio_blk: no VERSION_1\n");
+            mmio_w8(vd->common + 20, VIRTIO_STATUS_FAILED);
+            return 0;
+        }
+        mmio_w32(vd->common + 8, 0); /* guest_feature_select = 0 */
+        mmio_w32(vd->common + 12, 0);
+        mmio_w32(vd->common + 8, 1); /* guest_feature_select = 1 */
+        mmio_w32(vd->common + 12, want_hi);
+    }
     mmio_w8(vd->common + 20,
             VIRTIO_STATUS_ACKNOWLEDGE | VIRTIO_STATUS_DRIVER | VIRTIO_STATUS_FEATURES_OK);
-    if (!(mmio_r8(vd->common + 20) & VIRTIO_STATUS_FEATURES_OK))
+    if (!(mmio_r8(vd->common + 20) & VIRTIO_STATUS_FEATURES_OK)) {
+        klog("virtio_blk: FEATURES_OK rejected\n");
+        mmio_w8(vd->common + 20, VIRTIO_STATUS_FAILED);
         return 0;
+    }
 
-    if (setup_queue(vd) < 0)
+    if (setup_queue(vd) < 0) {
+        klog("virtio_blk: queue setup failed\n");
+        mmio_w8(vd->common + 20, VIRTIO_STATUS_FAILED);
         return 0;
+    }
 
     cap = *(volatile uint64_t *)vd->devcfg;
     vd->capacity = cap;
@@ -390,11 +423,15 @@ static int vblk_init(driver_t *drv, void *ctx)
     vd->bdev.major = 8;
     vd->bdev.minor = 0;
 
-    if (api->add_disk(&vd->bdev) < 0)
+    if (api->add_disk(&vd->bdev) < 0) {
+        klog("virtio_blk: add_disk failed\n");
         return 0;
+    }
     if (api->scan_partitions)
         api->scan_partitions(&vd->bdev);
-    vga_print("virtio_blk: vda ready\n");
+    klog("virtio_blk: vda ready sectors=");
+    serial_print_uint((uint32_t)cap);
+    klog("\n");
     return 0;
 }
 

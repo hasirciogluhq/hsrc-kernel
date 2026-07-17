@@ -197,6 +197,24 @@ static dentry_t *path_walk(const char *path, int *err)
         cur = next;
         tok = slash;
     }
+
+    /* Enter filesystems mounted on the final dentry (/root -> fat, etc.). */
+    for (;;) {
+        int crossed = 0;
+        size_t i;
+        for (i = 0; i < VFS_MAX_MOUNTS; i++) {
+            if (g_mounts[i].used && g_mounts[i].mnt_mountpoint == cur &&
+                g_mounts[i].mnt_root) {
+                cur->d_ref--;
+                cur = g_mounts[i].mnt_root;
+                cur->d_ref++;
+                crossed = 1;
+                break;
+            }
+        }
+        if (!crossed)
+            break;
+    }
     return cur;
 }
 

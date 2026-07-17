@@ -28,6 +28,29 @@ static int sys_log_interesting(long n)
            n == SYS_WM_SHOW || n == SYS_WM_FOCUS || n == SYS_WM_FIND;
 }
 
+static const char *fs_proc_name(void)
+{
+    process_t *p = process_current();
+    return (p && p->name[0]) ? p->name : "?";
+}
+
+static void fs_log_ret(const char *op, long ret)
+{
+    klog("[fs] ");
+    klog(fs_proc_name());
+    klog(" ");
+    klog(op);
+    klog(" -> ");
+    if (ret < 0) {
+        klog("err=");
+        serial_print_uint((uint32_t)(-ret));
+    } else {
+        klog("ok=");
+        serial_print_uint((uint32_t)ret);
+    }
+    klog("\n");
+}
+
 void syscall_isr_handler(regs_t *r)
 {
     static int s_log_left = 64;
@@ -165,12 +188,25 @@ static long do_read(long fd, long buf, long count)
     char tmp[256];
     long total = 0;
     int enc;
+    long ret;
 
-    if (!p || count < 0)
+    klog("[fs] ");
+    klog(fs_proc_name());
+    klog(" read fd=");
+    serial_print_uint((uint32_t)fd);
+    klog(" count=");
+    serial_print_uint((uint32_t)(count < 0 ? 0 : count));
+    klog("\n");
+
+    if (!p || count < 0) {
+        fs_log_ret("read", -1);
         return -1;
+    }
     enc = process_lookup_fd(p, (int)fd);
-    if (enc < 0)
+    if (enc < 0) {
+        fs_log_ret("read", -1);
         return -1;
+    }
 
     if (PROC_FD_IS_SOCK(enc)) {
         char kbuf[1472];
@@ -179,10 +215,15 @@ static long do_read(long fd, long buf, long count)
         if (want > sizeof(kbuf))
             want = sizeof(kbuf);
         n = sock_recvfrom(PROC_FD_SOCK_ID(enc), kbuf, want, 0, NULL);
-        if (n < 0)
+        if (n < 0) {
+            fs_log_ret("read", n);
             return n;
-        if (copy_to_user((void *)buf, kbuf, (size_t)n) < 0)
+        }
+        if (copy_to_user((void *)buf, kbuf, (size_t)n) < 0) {
+            fs_log_ret("read", -EFAULT);
             return -EFAULT;
+        }
+        fs_log_ret("read", n);
         return n;
     }
 
@@ -192,16 +233,22 @@ static long do_read(long fd, long buf, long count)
         if (chunk > sizeof(tmp))
             chunk = sizeof(tmp);
         n = vfs_read(enc, tmp, chunk);
-        if (n < 0)
-            return total > 0 ? total : -1;
+        if (n < 0) {
+            ret = total > 0 ? total : -1;
+            fs_log_ret("read", ret);
+            return ret;
+        }
         if (n == 0)
             break;
-        if (copy_to_user((void *)(buf + total), tmp, (size_t)n) < 0)
+        if (copy_to_user((void *)(buf + total), tmp, (size_t)n) < 0) {
+            fs_log_ret("read", -1);
             return -1;
+        }
         total += n;
         if ((size_t)n < chunk)
             break;
     }
+    fs_log_ret("read", total);
     return total;
 }
 
@@ -211,12 +258,25 @@ static long do_write(long fd, long buf, long count)
     char tmp[256];
     long total = 0;
     int enc;
+    long ret;
 
-    if (!p || count < 0)
+    klog("[fs] ");
+    klog(fs_proc_name());
+    klog(" write fd=");
+    serial_print_uint((uint32_t)fd);
+    klog(" count=");
+    serial_print_uint((uint32_t)(count < 0 ? 0 : count));
+    klog("\n");
+
+    if (!p || count < 0) {
+        fs_log_ret("write", -1);
         return -1;
+    }
     enc = process_lookup_fd(p, (int)fd);
-    if (enc < 0)
+    if (enc < 0) {
+        fs_log_ret("write", -1);
         return -1;
+    }
 
     if (PROC_FD_IS_SOCK(enc)) {
         char kbuf[1472];
@@ -224,9 +284,12 @@ static long do_write(long fd, long buf, long count)
         size_t want = (size_t)count;
         if (want > sizeof(kbuf))
             want = sizeof(kbuf);
-        if (copy_from_user(kbuf, (const void *)buf, want) < 0)
+        if (copy_from_user(kbuf, (const void *)buf, want) < 0) {
+            fs_log_ret("write", -EFAULT);
             return -EFAULT;
+        }
         n = sock_sendto(PROC_FD_SOCK_ID(enc), kbuf, want, 0, NULL);
+        fs_log_ret("write", n);
         return n;
     }
 
@@ -235,15 +298,21 @@ static long do_write(long fd, long buf, long count)
         ssize_t n;
         if (chunk > sizeof(tmp))
             chunk = sizeof(tmp);
-        if (copy_from_user(tmp, (const void *)(buf + total), chunk) < 0)
+        if (copy_from_user(tmp, (const void *)(buf + total), chunk) < 0) {
+            fs_log_ret("write", -1);
             return -1;
+        }
         n = vfs_write(enc, tmp, chunk);
-        if (n < 0)
-            return total > 0 ? total : -1;
+        if (n < 0) {
+            ret = total > 0 ? total : -1;
+            fs_log_ret("write", ret);
+            return ret;
+        }
         total += n;
         if ((size_t)n < chunk)
             break;
     }
+    fs_log_ret("write", total);
     return total;
 }
 
@@ -256,25 +325,50 @@ static long do_open(long path, long flags)
     int vfd;
     int ufd;
 
-    if (!p)
+    if (!p) {
+        fs_log_ret("open", -1);
         return -1;
+    }
     len = user_strlen((const char *)path, sizeof(upath));
-    if (len < 0)
+    if (len < 0) {
+        fs_log_ret("open", -1);
         return -1;
-    if (copy_from_user(upath, (const void *)path, (size_t)len + 1) < 0)
+    }
+    if (copy_from_user(upath, (const void *)path, (size_t)len + 1) < 0) {
+        fs_log_ret("open", -1);
         return -1;
-    if (resolve_path(p, upath, kpath, sizeof(kpath)) < 0)
+    }
+    if (resolve_path(p, upath, kpath, sizeof(kpath)) < 0) {
+        klog("[fs] ");
+        klog(fs_proc_name());
+        klog(" open resolve fail path=");
+        klog(upath);
+        klog("\n");
+        fs_log_ret("open", -1);
         return -1;
+    }
+
+    klog("[fs] ");
+    klog(fs_proc_name());
+    klog(" open path=");
+    klog(kpath);
+    klog(" flags=");
+    serial_print_hex((uint32_t)flags);
+    klog("\n");
 
     vfd = vfs_open(kpath, (int)flags);
-    if (vfd < 0)
+    if (vfd < 0) {
+        fs_log_ret("open", vfd);
         return -1;
+    }
 
     ufd = process_alloc_fd(p, vfd);
     if (ufd < 0) {
         vfs_close(vfd);
+        fs_log_ret("open", -1);
         return -1;
     }
+    fs_log_ret("open", ufd);
     return ufd;
 }
 

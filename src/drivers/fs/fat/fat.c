@@ -921,11 +921,11 @@ static int fat_init(driver_t *drv, void *ctx)
     if (api->mount && api->mkdir) {
         (void)api->mkdir("/root", 0755);
         if (api->mount("vda", "/root", "fat", 0, NULL) == 0)
-            vga_print("fat: mounted vda -> /root\n");
+            vga_print("fat: mounted vda -> /root (persistent)\n");
         else if (api->mount("vda", "/root", "vfat", 0, NULL) == 0)
-            vga_print("fat: mounted vda -> /root (vfat)\n");
+            vga_print("fat: mounted vda -> /root (vfat, persistent)\n");
         else
-            vga_print("fat: vda not mounted (no disk?)\n");
+            vga_print("fat: vda not mounted — /root is RAM only!\n");
     }
     return 0;
 }
