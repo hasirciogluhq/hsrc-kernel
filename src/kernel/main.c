@@ -131,12 +131,8 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     service_register_builtin_defaults();
 
     klog("[boot] spawning .mke apps...\n");
-    if (mke_spawn_from_mbi(mbi) < 0) {
-        klog("[boot] mke_spawn_from_mbi FAILED (no apps)\n");
-        vga_print("mke_spawn_from_mbi failed\n");
-        for (;;)
-            __asm__ volatile("hlt");
-    }
+    if (mke_spawn_from_mbi(mbi) < 0)
+        klog("[boot] no .mke modules in multiboot (service may spawn os-ui)\n");
     klog("[boot] mke spawn done\n");
     service_bind_existing_processes();
     service_start_critical();

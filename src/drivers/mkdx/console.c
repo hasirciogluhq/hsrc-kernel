@@ -10,6 +10,7 @@ typedef struct proc_console {
     int   win_id;
     int   visible;
     int   dirty;
+    char  name[64];
     char  buf[PROC_CONSOLE_BUF_SIZE];
     size_t len;
 } proc_console_t;
@@ -116,6 +117,66 @@ static void paint_console(wm_t *wm, proc_console_t *c)
     c->dirty = 0;
 }
 
+static int proc_console_create_window(wm_t *wm, proc_console_t *c, int visible)
+{
+    ugx_window_opts opts;
+    wm_window *w;
+
+    if (!wm || !c || c->win_id >= 0)
+        return 0;
+
+    memset(&opts, 0, sizeof(opts));
+    opts.x = 80 + (c->pid % 5) * 24;
+    opts.y = 80 + (c->pid % 5) * 18;
+    opts.w = 720;
+    opts.h = 420;
+    opts.radius = 10;
+    opts.opacity = 255;
+    strncpy(opts.class_name, "proc.console", sizeof(opts.class_name) - 1);
+    if (c->name[0]) {
+        size_t pos = 0;
+        const char *prefix = "Console: ";
+
+        while (prefix[pos] && pos < sizeof(opts.title) - 1) {
+            opts.title[pos] = prefix[pos];
+            pos++;
+        }
+        for (size_t ni = 0; c->name[ni] && pos < sizeof(opts.title) - 1; ni++, pos++)
+            opts.title[pos] = c->name[ni];
+        opts.title[pos] = 0;
+    } else {
+        strncpy(opts.title, "Console", sizeof(opts.title) - 1);
+    }
+    opts.rounded = 1;
+    opts.framed = 1;
+    opts.resizable = 1;
+    opts.closable = 1;
+    opts.can_minimize = 1;
+    opts.can_maximize = 0;
+    opts.accept_focus = 1;
+    opts.visible = visible ? 1 : 0;
+
+    w = wm_create(wm, &opts, c->pid);
+    if (!w)
+        return -1;
+
+    c->win_id = w->id;
+    c->visible = visible ? 1 : 0;
+    c->dirty = 1;
+    if (visible)
+        paint_console(wm, c);
+    return 0;
+}
+
+static int proc_console_ensure_window(wm_t *wm, proc_console_t *c, int visible)
+{
+    if (!c)
+        return -1;
+    if (c->win_id >= 0)
+        return 0;
+    return proc_console_create_window(wm, c, visible);
+}
+
 int proc_console_init(void)
 {
     memset(g_consoles, 0, sizeof(g_consoles));
@@ -139,7 +200,6 @@ void proc_console_shutdown(void)
 int proc_console_alloc(wm_t *wm, int pid, const char *name, int visible)
 {
     proc_console_t *c;
-    ugx_window_opts opts;
 
     if (!wm || pid <= 0)
         return -1;
@@ -150,46 +210,15 @@ int proc_console_alloc(wm_t *wm, int pid, const char *name, int visible)
     if (!c)
         return -1;
 
-    memset(&opts, 0, sizeof(opts));
-    opts.x = 80 + (pid % 5) * 24;
-    opts.y = 80 + (pid % 5) * 18;
-    opts.w = 720;
-    opts.h = 420;
-    opts.radius = 10;
-    opts.opacity = 255;
-    strncpy(opts.class_name, "proc.console", sizeof(opts.class_name) - 1);
-    if (name && name[0]) {
-        size_t pos = 0;
-        const char *prefix = "Console: ";
-        while (prefix[pos] && pos < sizeof(opts.title) - 1) {
-            opts.title[pos] = prefix[pos];
-            pos++;
-        }
-        for (size_t ni = 0; name[ni] && pos < sizeof(opts.title) - 1; ni++, pos++)
-            opts.title[pos] = name[ni];
-        opts.title[pos] = 0;
-    } else {
-        strncpy(opts.title, "Console", sizeof(opts.title) - 1);
-    }
-    opts.rounded = 1;
-    opts.framed = 1;
-    opts.resizable = 1;
-    opts.closable = 1;
-    opts.can_minimize = 1;
-    opts.can_maximize = 0;
-    opts.accept_focus = 1;
-    opts.visible = visible ? 1 : 0;
+    if (name && name[0])
+        strncpy(c->name, name, sizeof(c->name) - 1);
+    else
+        c->name[0] = 0;
 
-    wm_window *w = wm_create(wm, &opts, pid);
-    if (!w) {
-        c->used = 0;
-        return -1;
-    }
+    if (visible)
+        return proc_console_create_window(wm, c, 1);
 
-    c->win_id = w->id;
-    c->visible = visible ? 1 : 0;
-    c->dirty = 1;
-    paint_console(wm, c);
+    c->visible = 0;
     return 0;
 }
 
@@ -217,8 +246,11 @@ ssize_t proc_console_write(int pid, const void *buf, size_t len)
         return 0;
 
     append_bytes(c, data, len);
-    if (c->visible && wm)
+    if (c->visible && wm) {
+        if (proc_console_ensure_window(wm, c, 1) < 0)
+            return (ssize_t)len;
         paint_console(wm, c);
+    }
     return (ssize_t)len;
 }
 
@@ -228,8 +260,16 @@ int proc_console_show(int pid, int visible)
     wm_t *wm = srv ? &srv->wm : NULL;
     proc_console_t *c = slot_by_pid(pid);
 
-    if (!c || !wm || c->win_id < 0)
+    if (!c || !wm)
         return -1;
+
+    if (visible) {
+        if (proc_console_ensure_window(wm, c, 1) < 0)
+            return -1;
+    } else if (c->win_id < 0) {
+        c->visible = 0;
+        return 0;
+    }
 
     c->visible = visible ? 1 : 0;
     wm_show(wm, c->win_id, c->visible);

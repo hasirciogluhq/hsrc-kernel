@@ -44,18 +44,15 @@ static const char *fs_proc_name(void)
 
 static void fs_log_ret(const char *op, long ret)
 {
+    if (ret >= 0)
+        return;
+
     klog("[fs] ");
     klog(fs_proc_name());
     klog(" ");
     klog(op);
-    klog(" -> ");
-    if (ret < 0) {
-        klog("err=");
-        serial_print_uint((uint32_t)(-ret));
-    } else {
-        klog("ok=");
-        serial_print_uint((uint32_t)ret);
-    }
+    klog(" -> err=");
+    serial_print_uint((uint32_t)(-ret));
     klog("\n");
 }
 
@@ -198,14 +195,6 @@ static long do_read(long fd, long buf, long count)
     int enc;
     long ret;
 
-    klog("[fs] ");
-    klog(fs_proc_name());
-    klog(" read fd=");
-    serial_print_uint((uint32_t)fd);
-    klog(" count=");
-    serial_print_uint((uint32_t)(count < 0 ? 0 : count));
-    klog("\n");
-
     if (!p || count < 0) {
         fs_log_ret("read", -1);
         return -1;
@@ -267,14 +256,6 @@ static long do_write(long fd, long buf, long count)
     long total = 0;
     int enc;
     long ret;
-
-    klog("[fs] ");
-    klog(fs_proc_name());
-    klog(" write fd=");
-    serial_print_uint((uint32_t)fd);
-    klog(" count=");
-    serial_print_uint((uint32_t)(count < 0 ? 0 : count));
-    klog("\n");
 
     if (!p || count < 0) {
         fs_log_ret("write", -1);
@@ -352,22 +333,9 @@ static long do_open(long path, long flags)
         return -1;
     }
     if (resolve_path(p, upath, kpath, sizeof(kpath)) < 0) {
-        klog("[fs] ");
-        klog(fs_proc_name());
-        klog(" open resolve fail path=");
-        klog(upath);
-        klog("\n");
         fs_log_ret("open", -1);
         return -1;
     }
-
-    klog("[fs] ");
-    klog(fs_proc_name());
-    klog(" open path=");
-    klog(kpath);
-    klog(" flags=");
-    serial_print_hex((uint32_t)flags);
-    klog("\n");
 
     vfd = vfs_open(kpath, (int)flags);
     if (vfd < 0) {

@@ -1,6 +1,8 @@
 #include <user/mke.h>
+#include <kernel/syscall.h>
 #include <user/sdk/fs.hpp>
 #include <user/sdk/gfx.hpp>
+#include <user/sdk/syscall.hpp>
 #include <user/string.h>
 
 namespace {
@@ -132,6 +134,9 @@ ScreenInfo g_screen{};
 Input g_prev_input{};
 bool g_dirty = true;
 int g_active_category = CAT_GENERAL;
+int g_hover_sidebar = -1;
+int g_hover_setting = -1;
+int g_deeplink_cooldown = 0;
 ClickTarget g_targets[16];
 int g_target_count = 0;
 
@@ -181,6 +186,39 @@ void register_target(int y, int h, int setting_index)
     g_target_count++;
 }
 
+void rebuild_click_targets()
+{
+    g_target_count = 0;
+
+    switch (g_active_category) {
+    case CAT_DISPLAY:
+    case CAT_ABOUT:
+        return;
+    case CAT_NETWORK:
+        register_target(kRowsStartY + (kRowH + kRowGap), kRowH, 8);
+        register_target(kRowsStartY + 2 * (kRowH + kRowGap), kRowH, 9);
+        return;
+    case CAT_STORAGE:
+        register_target(kRowsStartY + (kRowH + kRowGap), kRowH, 12);
+        return;
+    default:
+        break;
+    }
+
+    int y = kRowsStartY;
+    for (int i = 0; i < kSettingCount; i++) {
+        if (g_settings[i].category != g_active_category)
+            continue;
+        register_target(y, kRowH, i);
+        y += kRowH + kRowGap;
+    }
+}
+
+void unlink_deeplink()
+{
+    (void)hsrc::sdk::syscall1(SYS_UNLINK, (long)kDeepLinkPath);
+}
+
 void make_resolution_text(char *out, size_t out_size)
 {
     out[0] = 0;
@@ -196,10 +234,17 @@ void make_color_depth_text(char *out, size_t out_size)
     append_text(out, out_size, "-bit");
 }
 
-void draw_row(Surface &s, int y, const char *label, const char *value, bool interactive)
+void draw_row(Surface &s, int y, const char *label, const char *value, bool interactive, bool hover)
 {
-    s.fill_round(kContentX, y, kContentW, kRowH, 8, interactive ? kAccentSoft : rgb(249, 249, 247));
-    s.rect(kContentX, y, kContentW, kRowH, kBorder, 1);
+    Color row_bg = rgb(249, 249, 247);
+    if (interactive) {
+        if (hover)
+            row_bg = rgba(35, 131, 226, 48);
+        else
+            row_bg = kAccentSoft;
+    }
+    s.fill_round(kContentX, y, kContentW, kRowH, 8, row_bg);
+    s.rect(kContentX, y, kContentW, kRowH, hover ? kAccent : kBorder, hover ? 2 : 1);
     s.text(kContentX + 14, y + 14, label, kText, 1);
     int value_x = kContentX + kContentW - 14 - text_width(value, 1);
     if (value_x < kContentX + 220)
@@ -282,27 +327,26 @@ int category_from_id(const char *id)
     return CAT_GENERAL;
 }
 
-void clear_deeplink()
-{
-    int fd = (int)hsrc::sdk::open(kDeepLinkPath, O_WRONLY | O_CREAT | O_TRUNC);
-    if (fd < 0)
-        return;
-    char zero[kDeepLinkBytes];
-    memset(zero, 0, sizeof(zero));
-    (void)hsrc::sdk::write(fd, zero, sizeof(zero));
-    (void)hsrc::sdk::close(fd);
-}
-
 void poll_deeplink()
 {
-    int fd = (int)hsrc::sdk::open(kDeepLinkPath, O_RDONLY);
-    if (fd < 0)
+    if (g_deeplink_cooldown > 0) {
+        g_deeplink_cooldown--;
         return;
+    }
+
+    int fd = (int)hsrc::sdk::open(kDeepLinkPath, O_RDONLY);
+    if (fd < 0) {
+        g_deeplink_cooldown = 60;
+        return;
+    }
 
     char buf[kDeepLinkBytes];
     memset(buf, 0, sizeof(buf));
     long nread = hsrc::sdk::read(fd, buf, sizeof(buf) - 1);
     (void)hsrc::sdk::close(fd);
+    unlink_deeplink();
+    g_deeplink_cooldown = 15;
+
     if (nread <= 0 || buf[0] == 0)
         return;
 
@@ -311,7 +355,6 @@ void poll_deeplink()
         id = buf + 11;
     g_active_category = category_from_id(id);
     g_dirty = true;
-    clear_deeplink();
 }
 
 bool refresh_window_options()
@@ -321,7 +364,7 @@ bool refresh_window_options()
 
 int sidebar_hit(int lx, int ly)
 {
-    if (lx < 14 || lx >= kSidebarW - 14)
+    if (lx < 8 || lx >= kSidebarW - 8 || ly < kSidebarTop)
         return -1;
     for (int i = 0; i < CAT_COUNT; i++) {
         int y = kSidebarTop + i * kSidebarItemH;
@@ -335,6 +378,7 @@ int target_setting_hit(int lx, int ly)
 {
     if (lx < kContentX || lx >= kContentX + kContentW)
         return -1;
+    rebuild_click_targets();
     for (int i = 0; i < g_target_count; i++) {
         if (ly >= g_targets[i].y && ly < g_targets[i].y + g_targets[i].h)
             return g_targets[i].setting_index;
@@ -362,9 +406,14 @@ void draw_sidebar(Surface &s)
 
     for (int i = 0; i < CAT_COUNT; i++) {
         int y = kSidebarTop + i * kSidebarItemH;
-        if (i == g_active_category)
-            s.fill_round(12, y, kSidebarW - 24, 28, 8, kAccentSoft);
-        s.text(24, y + 10, kCategories[i].label, i == g_active_category ? kAccent : kText, 1);
+        bool selected = (i == g_active_category);
+        bool hover = (i == g_hover_sidebar);
+        if (selected)
+            s.fill_round(10, y + 2, kSidebarW - 20, kSidebarItemH - 4, 8, kAccentSoft);
+        else if (hover)
+            s.fill_round(10, y + 2, kSidebarW - 20, kSidebarItemH - 4, 8, rgb(242, 241, 238));
+        Color label = selected ? kAccent : (hover ? kText : kText);
+        s.text(24, y + 10, kCategories[i].label, label, 1);
     }
 }
 
@@ -378,7 +427,8 @@ void draw_cycle_page(Surface &s, const char *subtitle)
     for (int i = 0; i < kSettingCount; i++) {
         if (g_settings[i].category != g_active_category)
             continue;
-        draw_row(s, y, g_settings[i].label, g_settings[i].choices[g_settings[i].current], true);
+        bool hover = (i == g_hover_setting);
+        draw_row(s, y, g_settings[i].label, g_settings[i].choices[g_settings[i].current], true, hover);
         register_target(y, kRowH, i);
         y += kRowH + kRowGap;
     }
@@ -396,10 +446,10 @@ void draw_display_page(Surface &s)
     s.text(kContentX, 70, "Live display details from screen_info().", kTextDim, 1);
     g_target_count = 0;
 
-    draw_row(s, kRowsStartY + 0 * (kRowH + kRowGap), "Resolution", resolution, false);
-    draw_row(s, kRowsStartY + 1 * (kRowH + kRowGap), "Color Depth", depth, false);
-    draw_row(s, kRowsStartY + 2 * (kRowH + kRowGap), "Window Server", "MKDX compositor", false);
-    draw_row(s, kRowsStartY + 3 * (kRowH + kRowGap), "Refresh Rate", "n/a", false);
+    draw_row(s, kRowsStartY + 0 * (kRowH + kRowGap), "Resolution", resolution, false, false);
+    draw_row(s, kRowsStartY + 1 * (kRowH + kRowGap), "Color Depth", depth, false, false);
+    draw_row(s, kRowsStartY + 2 * (kRowH + kRowGap), "Window Server", "MKDX compositor", false, false);
+    draw_row(s, kRowsStartY + 3 * (kRowH + kRowGap), "Refresh Rate", "n/a", false, false);
 }
 
 void draw_network_page(Surface &s)
@@ -408,12 +458,12 @@ void draw_network_page(Surface &s)
     s.text(kContentX, 70, "Usermode preferences with live placeholders where kernel data is unavailable.", kTextDim, 1);
     g_target_count = 0;
 
-    draw_row(s, kRowsStartY, "Link State", "n/a", false);
-    draw_row(s, kRowsStartY + (kRowH + kRowGap), "IPv4 Mode", g_settings[8].choices[g_settings[8].current], true);
+    draw_row(s, kRowsStartY, "Link State", "n/a", false, false);
+    draw_row(s, kRowsStartY + (kRowH + kRowGap), "IPv4 Mode", g_settings[8].choices[g_settings[8].current], true, g_hover_setting == 8);
     register_target(kRowsStartY + (kRowH + kRowGap), kRowH, 8);
-    draw_row(s, kRowsStartY + 2 * (kRowH + kRowGap), "Hostname", g_settings[9].choices[g_settings[9].current], true);
+    draw_row(s, kRowsStartY + 2 * (kRowH + kRowGap), "Hostname", g_settings[9].choices[g_settings[9].current], true, g_hover_setting == 9);
     register_target(kRowsStartY + 2 * (kRowH + kRowGap), kRowH, 9);
-    draw_row(s, kRowsStartY + 3 * (kRowH + kRowGap), "DNS", "n/a", false);
+    draw_row(s, kRowsStartY + 3 * (kRowH + kRowGap), "DNS", "n/a", false, false);
 }
 
 void draw_storage_page(Surface &s)
@@ -422,10 +472,10 @@ void draw_storage_page(Surface &s)
     s.text(kContentX, 70, "Simple persisted controls plus filesystem placeholders.", kTextDim, 1);
     g_target_count = 0;
 
-    draw_row(s, kRowsStartY, "Mounted Root", "/", false);
-    draw_row(s, kRowsStartY + (kRowH + kRowGap), "Cleanup Schedule", g_settings[12].choices[g_settings[12].current], true);
+    draw_row(s, kRowsStartY, "Mounted Root", "/", false, false);
+    draw_row(s, kRowsStartY + (kRowH + kRowGap), "Cleanup Schedule", g_settings[12].choices[g_settings[12].current], true, g_hover_setting == 12);
     register_target(kRowsStartY + (kRowH + kRowGap), kRowH, 12);
-    draw_row(s, kRowsStartY + 2 * (kRowH + kRowGap), "Available Space", "n/a", false);
+    draw_row(s, kRowsStartY + 2 * (kRowH + kRowGap), "Available Space", "n/a", false, false);
 }
 
 void draw_about_page(Surface &s)
@@ -437,10 +487,10 @@ void draw_about_page(Surface &s)
     s.text(kContentX, 70, "System Information deep-link lands here.", kTextDim, 1);
     g_target_count = 0;
 
-    draw_row(s, kRowsStartY + 0 * (kRowH + kRowGap), "Product", "HSRC OS", false);
-    draw_row(s, kRowsStartY + 1 * (kRowH + kRowGap), "Settings App", "os-settings.mke", false);
-    draw_row(s, kRowsStartY + 2 * (kRowH + kRowGap), "Display", resolution, false);
-    draw_row(s, kRowsStartY + 3 * (kRowH + kRowGap), "Status", "usermode control center", false);
+    draw_row(s, kRowsStartY + 0 * (kRowH + kRowGap), "Product", "HSRC OS", false, false);
+    draw_row(s, kRowsStartY + 1 * (kRowH + kRowGap), "Settings App", "os-settings.mke", false, false);
+    draw_row(s, kRowsStartY + 2 * (kRowH + kRowGap), "Display", resolution, false, false);
+    draw_row(s, kRowsStartY + 3 * (kRowH + kRowGap), "Status", "usermode control center", false, false);
 }
 
 void paint()
@@ -501,7 +551,7 @@ bool build_ui()
     opts.y = screen_h > kWinH ? (screen_h - kWinH) / 2 : 40;
     opts.w = kWinW;
     opts.h = kWinH;
-    opts.background = true;
+    opts.background = false;
     opts.rounded = true;
     opts.shadow = true;
     opts.radius = 10;
@@ -512,6 +562,20 @@ bool build_ui()
     if (!g_win.create(opts))
         return false;
     return refresh_window_options();
+}
+
+void update_hover(int lx, int ly)
+{
+    int next_sidebar = sidebar_hit(lx, ly);
+    int next_setting = -1;
+    if (lx >= kContentX)
+        next_setting = target_setting_hit(lx, ly);
+
+    if (next_sidebar != g_hover_sidebar || next_setting != g_hover_setting) {
+        g_hover_sidebar = next_sidebar;
+        g_hover_setting = next_setting;
+        g_dirty = true;
+    }
 }
 
 void handle_click(const Input &in)
@@ -525,18 +589,20 @@ void handle_click(const Input &in)
     if (lx < 0 || ly < 0 || lx >= g_win_opts.w || ly >= g_win_opts.h)
         return;
 
-    int cat = sidebar_hit(lx, ly);
-    if (cat >= 0) {
-        if (g_active_category != cat) {
-            g_active_category = cat;
-            g_dirty = true;
+    if (lx >= kContentX) {
+        int setting = target_setting_hit(lx, ly);
+        if (setting >= 0) {
+            cycle_setting(setting);
+            return;
         }
-        return;
     }
 
-    int setting = target_setting_hit(lx, ly);
-    if (setting >= 0)
-        cycle_setting(setting);
+    int cat = sidebar_hit(lx, ly);
+    if (cat >= 0 && g_active_category != cat) {
+        g_active_category = cat;
+        g_hover_setting = -1;
+        g_dirty = true;
+    }
 }
 
 } // namespace
@@ -555,6 +621,8 @@ extern "C" void mke_main(void)
             hsrc::sdk::yield();
     }
 
+    g_win.show(true);
+    g_win.focus();
     poll_deeplink();
     paint();
     (void)hsrc::sdk::present();
@@ -564,9 +632,22 @@ extern "C" void mke_main(void)
 
         Input in{};
         if (hsrc::sdk::input(in)) {
+            if (refresh_window_options()) {
+                int lx = in.mouse_x - g_win_opts.x;
+                int ly = in.mouse_y - g_win_opts.y;
+                if (lx >= 0 && ly >= 0 && lx < g_win_opts.w && ly < g_win_opts.h)
+                    update_hover(lx, ly);
+            }
+
             uint8_t pressed = (uint8_t)(in.buttons & ~g_prev_input.buttons);
-            if (pressed & UGX_BTN_LEFT)
-                handle_click(in);
+            if (pressed & UGX_BTN_LEFT) {
+                int click_lx = in.mouse_x - g_win_opts.x;
+                int click_ly = in.mouse_y - g_win_opts.y;
+                bool over = click_lx >= 0 && click_ly >= 0 &&
+                            click_lx < g_win_opts.w && click_ly < g_win_opts.h;
+                if (over || in.focus_id == g_win.id())
+                    handle_click(in);
+            }
             g_prev_input = in;
         }
 

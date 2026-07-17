@@ -6,8 +6,8 @@
 #include <arch/x86/io.h>
 #include <kernel/string.h>
 
-#define BGA_DEFAULT_W   800
-#define BGA_DEFAULT_H   600
+#define BGA_DEFAULT_W   1280
+#define BGA_DEFAULT_H   720
 #define BGA_DEFAULT_BPP 32
 
 #define VBE_DISPI_IOPORT_INDEX  0x01CE
