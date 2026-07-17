@@ -94,6 +94,10 @@ void gx_compositor_set_wallpaper(gx_compositor *c, gx_surface *wp)
     if (!wp)
         return;
 
+    /* Solid 1x1 wallpaper: compose fills the color; blur would just waste RAM. */
+    if (wp->width <= 1 || wp->height <= 1)
+        return;
+
     /* Real box-blur once at wallpaper set (acrylic sampling). */
     c->wallpaper_blurred = gx_surface_create(wp->width, wp->height);
     if (!c->wallpaper_blurred)
@@ -242,8 +246,12 @@ static void paint_acrylic(gx_compositor *c, gx_surface *bb, gx_layer *L)
                 if (sx < 0 || (uint32_t)sx >= bb->width)
                     continue;
                 gx_color base = GX_BLACK;
-                if ((uint32_t)sx < blurred->width && (uint32_t)sy < blurred->height)
-                    base = blurred->pixels[(uint32_t)sy * blurred->stride + (uint32_t)sx];
+                if (blurred->width == 1 && blurred->height == 1)
+                    base = blurred->pixels[0];
+                else if ((uint32_t)sx < blurred->width &&
+                         (uint32_t)sy < blurred->height)
+                    base = blurred->pixels[(uint32_t)sy * blurred->stride +
+                                           (uint32_t)sx];
                 bb->pixels[(uint32_t)sy * bb->stride + (uint32_t)sx] = gx_blend(base, tint);
             }
         }
@@ -266,8 +274,11 @@ void gx_compositor_compose(gx_compositor *c)
     gx_surface *bb = c->device->backbuffer;
 
     if (c->wallpaper) {
-        if (c->wallpaper->width == bb->width && c->wallpaper->height == bb->height &&
-            c->wallpaper->stride == bb->stride) {
+        if (c->wallpaper->width == 1 && c->wallpaper->height == 1) {
+            gx_surface_clear(bb, c->wallpaper->pixels[0]);
+        } else if (c->wallpaper->width == bb->width &&
+                   c->wallpaper->height == bb->height &&
+                   c->wallpaper->stride == bb->stride) {
             memcpy(bb->pixels, c->wallpaper->pixels,
                    (size_t)bb->stride * bb->height * sizeof(gx_color));
         } else {

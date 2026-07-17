@@ -203,21 +203,16 @@ static int api_set_wallpaper(const void *args)
     if (s->wallpaper)
         gx_surface_destroy(s->wallpaper);
 
+    /* Keep solid colors as 1x1 — expanding to fullscreen OOMs the bump heap. */
     tw = a->width;
     th = a->height;
-    if (tw == 1 && th == 1) {
-        tw = s->device.mode.width;
-        th = s->device.mode.height;
-    }
 
     s->wallpaper = gx_surface_create(tw, th);
     if (!s->wallpaper)
         return -1;
 
     if (a->width == 1 && a->height == 1) {
-        gx_accel_fill(s->wallpaper,
-                      gx_rect_make(0, 0, (int32_t)tw, (int32_t)th),
-                      a->pixels[0]);
+        s->wallpaper->pixels[0] = a->pixels[0];
     } else {
         uint32_t y, x;
         for (y = 0; y < a->height && y < th; y++) {

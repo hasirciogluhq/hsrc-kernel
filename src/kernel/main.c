@@ -22,7 +22,8 @@
  * (below .mke load addresses at 0x02000000+).
  */
 #define HEAP_PHYS 0x01000000u
-#define HEAP_SIZE (8u * 1024u * 1024u)
+/* Leave headroom below .mke load base at 0x02000000. */
+#define HEAP_SIZE (14u * 1024u * 1024u)
 
 void kernel_main(uint32_t magic, multiboot_info_t *mbi)
 {
