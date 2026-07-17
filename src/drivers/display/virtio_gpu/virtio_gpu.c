@@ -234,6 +234,7 @@ static int virtio_get_mode(display_mode_t *out)
 static int virtio_present(const uint32_t *src, uint32_t src_stride_px)
 {
     uint32_t y;
+
     if (!g_ready || !src || !g_fb)
         return -1;
 
@@ -291,6 +292,12 @@ static int virtio_gpu_bringup(void)
                           (uint8_t)(virtio_pci_get_status(&g_vd) | VIRTIO_STATUS_DRIVER_OK));
 
     if (gpu_get_display_size(&width, &height) < 0) {
+        width = VIRTIO_GPU_DEFAULT_W;
+        height = VIRTIO_GPU_DEFAULT_H;
+    }
+    /* Keep MKDX path light (blur/compositor); match BGA default. */
+    if (width == 0 || height == 0 || width > VIRTIO_GPU_DEFAULT_W ||
+        height > VIRTIO_GPU_DEFAULT_H) {
         width = VIRTIO_GPU_DEFAULT_W;
         height = VIRTIO_GPU_DEFAULT_H;
     }

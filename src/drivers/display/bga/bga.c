@@ -190,7 +190,8 @@ int kmod_init(void)
 
     if (driver_register(&d) < 0)
         return -1;
+    /* Soft-fail when BGA is absent so virtio-only boots can continue. */
     if (driver_load("display_bga", NULL) < 0)
-        return -1;
+        return 0;
     return 0;
 }

@@ -3,6 +3,8 @@
 #include <kernel/string.h>
 #include <drivers/vga.h>
 
+#define VIRTIO_MSI_NO_VECTOR 0xFFFF
+
 #define PCI_VENDOR_VIRTIO 0x1AF4
 #define PCI_DEVICE_GPU_MODERN 0x1050
 #define PCI_DEVICE_GPU_TRANS  0x1010 /* 0x1000 + virtio-gpu id 16 */
@@ -185,6 +187,8 @@ int virtio_pci_init(virtio_pci_dev_t *vd, const pci_device_t *pci)
         virtio_pci_set_status(vd, VIRTIO_STATUS_FAILED);
         return -1;
     }
+
+    mmio_w16(vd->common + 16, VIRTIO_MSI_NO_VECTOR); /* msix_config */
     return 0;
 }
 
@@ -243,6 +247,7 @@ int virtio_pci_setup_queue(virtio_pci_dev_t *vd, uint16_t qindex, uint16_t max_s
     mmio_w32(vd->common + 48, (uint32_t)(uintptr_t)vd->used);
     mmio_w32(vd->common + 52, 0);
 
+    mmio_w16(vd->common + 26, VIRTIO_MSI_NO_VECTOR); /* queue_msix_vector */
     vd->queue_notify_off = mmio_r16(vd->common + 30);
     mmio_w16(vd->common + 28, 1); /* queue_enable */
     return 0;
@@ -323,10 +328,10 @@ int virtio_pci_queue_submit(virtio_pci_dev_t *vd,
 
     notify_queue(vd);
 
-    for (spins = 0; spins < 10000000u; spins++) {
+    for (spins = 0; spins < 50000000u; spins++) {
         mmio_barrier();
-        if (vd->used->idx != vd->last_used_idx) {
-            uint16_t u = vd->last_used_idx % vd->qsize;
+        if ((uint16_t)(vd->used->idx - vd->last_used_idx) != 0) {
+            uint16_t u = (uint16_t)(vd->last_used_idx % vd->qsize);
             uint16_t id = (uint16_t)vd->used->ring[u].id;
             vd->last_used_idx++;
             free_desc_chain(vd, id);
