@@ -28,11 +28,13 @@ typedef struct mkdx_api {
     int  (*wm_pop_key)(int id);
     int  (*wm_focused_id)(void);
     int  (*wm_find)(const char *title);
+    /* Optional: find by class_name; NULL = unsupported. */
+    int  (*wm_find_class)(const char *class_name);
 
     int  (*fill)(const void *args, int rounded);
     int  (*set_wallpaper)(const void *args);
     int  (*input_state)(void *out);
-    /* Poll input + flush hardware cursor (no full frame compose). */
+    /* Poll input + cursor; also advances compositor frame if dirty (C10). */
     void (*pump_input)(void);
 
     /* Per-process console (Wave O). */

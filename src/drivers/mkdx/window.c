@@ -267,11 +267,16 @@ wm_window *wm_get(wm_t *wm, int id)
 int wm_apply_opts(wm_t *wm, int id, const ugx_window_opts *opts)
 {
     wm_window *w = slot_by_id(wm, id);
+    int was_visible;
+    int now_visible;
+
     if (!wm || !w || !opts)
         return -1;
 
     ugx_window_opts next = *opts;
     sanitize_opts(&next);
+
+    was_visible = effective_visible(&w->opts);
 
     gx_rect frame = w->frame;
     const int was_maximized = w->opts.maximized || w->opts.fullscreen;
@@ -316,7 +321,9 @@ int wm_apply_opts(wm_t *wm, int id, const ugx_window_opts *opts)
     next.h = frame.h;
     w->opts = next;
 
-    if (!w->opts.accept_focus || w->opts.background || !effective_visible(&w->opts)) {
+    now_visible = effective_visible(&w->opts);
+
+    if (!w->opts.accept_focus || w->opts.background || !now_visible) {
         w->focused = 0;
         if (wm->focus_id == id)
             wm->focus_id = -1;
@@ -325,6 +332,14 @@ int wm_apply_opts(wm_t *wm, int id, const ugx_window_opts *opts)
     wm_sync_layer(wm, id);
     if (w->opts.topmost)
         raise_topmost_windows(wm);
+
+    /* Restore/unminimize: raise + damage. Focus via wm_focus (may call us once). */
+    if (now_visible && !was_visible) {
+        if (!w->opts.always_on_bottom)
+            gx_compositor_raise(wm->comp, w->layer_id);
+        raise_topmost_windows(wm);
+        gx_server_mark_dirty_rect(w->frame);
+    }
     return 0;
 }
 
@@ -351,6 +366,21 @@ int wm_find_by_title(wm_t *wm, const char *title)
         if (!w->used)
             continue;
         if (strcmp(w->opts.title, title) == 0)
+            return w->id;
+    }
+    return -1;
+}
+
+int wm_find_by_class(wm_t *wm, const char *class_name)
+{
+    int i;
+    if (!wm || !class_name || !class_name[0])
+        return -1;
+    for (i = 0; i < WM_MAX_WINDOWS; i++) {
+        wm_window *w = &wm->windows[i];
+        if (!w->used)
+            continue;
+        if (strcmp(w->opts.class_name, class_name) == 0)
             return w->id;
     }
     return -1;
@@ -419,23 +449,36 @@ void wm_resize(wm_t *wm, int id, int32_t wdt, int32_t hgt)
 
 void wm_focus(wm_t *wm, int id)
 {
+    wm_window *w;
+
     if (!wm)
         return;
 
-    wm_window *w = slot_by_id(wm, id);
-    if (w && (!w->opts.accept_focus || w->opts.background || !effective_visible(&w->opts)))
+    w = slot_by_id(wm, id);
+    if (!w || !w->opts.accept_focus || w->opts.background)
         return;
+
+    /* Dock/activate: unminimize + show before raise (was silent no-op). */
+    if (!effective_visible(&w->opts)) {
+        ugx_window_opts opts = w->opts;
+        opts.visible = 1;
+        opts.minimized = 0;
+        if (wm_apply_opts(wm, id, &opts) < 0)
+            return;
+        w = slot_by_id(wm, id);
+        if (!w || !effective_visible(&w->opts))
+            return;
+    }
 
     for (int i = 0; i < WM_MAX_WINDOWS; i++) {
         if (wm->windows[i].used)
             wm->windows[i].focused = (wm->windows[i].id == id);
     }
     wm->focus_id = id;
-    if (w && !w->opts.always_on_bottom)
+    if (!w->opts.always_on_bottom)
         gx_compositor_raise(wm->comp, w->layer_id);
     raise_topmost_windows(wm);
-    if (w)
-        gx_server_mark_dirty_rect(w->frame);
+    gx_server_mark_dirty_rect(w->frame);
 }
 
 void wm_show(wm_t *wm, int id, int visible)

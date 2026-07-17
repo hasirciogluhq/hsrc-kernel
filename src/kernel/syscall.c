@@ -4,6 +4,7 @@
 #include <kernel/argv.h>
 #include <kernel/service.h>
 #include <kernel/scheduler.h>
+#include <kernel/time.h>
 #include <kernel/vfs.h>
 #include <kernel/vfs_api.h>
 #include <kernel/errno.h>
@@ -1511,6 +1512,49 @@ long syscall_dispatch(long n, long a1, long a2, long a3, long a4, long a5)
         return do_getargc();
     case SYS_GETARGV:
         return do_getargv(a1, a2, a3);
+    case SYS_TIME_MAP: {
+        time_page_t *tp = time_page_get();
+        if (!tp || tp->magic != TIME_PAGE_MAGIC)
+            return 0;
+        return (long)(uintptr_t)tp;
+    }
+    case SYS_TIME_GET: {
+        time_snapshot_t snap;
+        memset(&snap, 0, sizeof(snap));
+        snap.utc_nsec = time_utc_nsec_now();
+        snap.mono_nsec = time_mono_nsec_now();
+        {
+            time_page_t *tp = time_page_get();
+            if (tp) {
+                snap.tz_offset_sec = tp->tz_offset_sec;
+                snap.flags = tp->flags;
+                memcpy(snap.tz_name, tp->tz_name, sizeof(snap.tz_name));
+            }
+        }
+        if (copy_to_user((void *)a1, &snap, sizeof(snap)) < 0)
+            return -1;
+        return 0;
+    }
+    case SYS_TIME_SET: {
+        uint64_t utc = ((uint64_t)(uint32_t)a2 << 32) | (uint64_t)(uint32_t)a1;
+        return time_set_utc_nsec(utc);
+    }
+    case SYS_TIME_SETTZ: {
+        char name[16];
+        memset(name, 0, sizeof(name));
+        if (a2) {
+            int n = user_strlen((const char *)a2, sizeof(name));
+            if (n < 0)
+                return -1;
+            if (n >= (int)sizeof(name))
+                n = (int)sizeof(name) - 1;
+            if (copy_from_user(name, (const void *)a2, (size_t)n + 1) < 0)
+                return -1;
+        }
+        return time_set_timezone((int32_t)a1, name);
+    }
+    case SYS_TIME_SETFLAGS:
+        return time_set_flags((uint32_t)a1);
     case SYS_GETPID: return do_getpid();
     case SYS_GETPPID: return do_getppid();
     case SYS_YIELD:  return do_yield();

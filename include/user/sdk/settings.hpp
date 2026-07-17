@@ -51,7 +51,23 @@ Appearance appearance();
 ThemeMode theme_mode();
 const AppTheme &theme();
 
+/* Persist general.appearance and update in-process cache. */
+bool set_appearance(Appearance appearance);
+/* Toggle Light ↔ Dark (Auto becomes Dark). */
+bool toggle_theme();
+
 /* Re-read /etc/os-settings.ini (throttled + cached). Returns true if theme changed. */
 bool refresh_theme();
+
+/* Placeholder status for menubar indicators (ini stubs until real drivers). */
+struct StatusInfo {
+    bool wifi_connected = true;
+    int  wifi_bars = 3;          /* 0..3 */
+    int  battery_percent = 78;   /* 0..100 */
+    bool battery_charging = false;
+};
+
+const StatusInfo &status();
+bool refresh_status();
 
 } // namespace hsrc::sdk::settings

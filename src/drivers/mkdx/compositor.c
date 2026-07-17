@@ -85,10 +85,23 @@ int gx_compositor_init(gx_compositor *c, gx_device *dev)
     return 0;
 }
 
+static void acrylic_cache_clear(gx_compositor *c)
+{
+    int i;
+    if (!c)
+        return;
+    for (i = 0; i < GX_ACRYLIC_CACHE_MAX; i++) {
+        if (c->acrylic_cache[i].tile)
+            gx_surface_destroy(c->acrylic_cache[i].tile);
+        memset(&c->acrylic_cache[i], 0, sizeof(c->acrylic_cache[i]));
+    }
+}
+
 void gx_compositor_shutdown(gx_compositor *c)
 {
     if (!c)
         return;
+    acrylic_cache_clear(c);
     if (c->wallpaper_blurred) {
         gx_surface_destroy(c->wallpaper_blurred);
         c->wallpaper_blurred = NULL;
@@ -102,6 +115,8 @@ void gx_compositor_set_wallpaper(gx_compositor *c, gx_surface *wp)
     if (!c)
         return;
     c->wallpaper = wp;
+    c->wallpaper_gen++;
+    acrylic_cache_clear(c);
 
     if (c->wallpaper_blurred) {
         gx_surface_destroy(c->wallpaper_blurred);
@@ -124,6 +139,50 @@ void gx_compositor_set_wallpaper(gx_compositor *c, gx_surface *wp)
         gx_surface_destroy(c->wallpaper_blurred);
         c->wallpaper_blurred = NULL;
     }
+}
+
+static gx_acrylic_cache *acrylic_cache_get(gx_compositor *c, int layer_id,
+                                           gx_layer *L)
+{
+    int i;
+    int free_slot = -1;
+    gx_acrylic_cache *e;
+
+    for (i = 0; i < GX_ACRYLIC_CACHE_MAX; i++) {
+        e = &c->acrylic_cache[i];
+        if (!e->used) {
+            if (free_slot < 0)
+                free_slot = i;
+            continue;
+        }
+        if (e->layer_id == layer_id &&
+            e->bounds.x == L->bounds.x && e->bounds.y == L->bounds.y &&
+            e->bounds.w == L->bounds.w && e->bounds.h == L->bounds.h &&
+            e->tint == L->tint && e->radius == L->corner_radius &&
+            e->wp_gen == c->wallpaper_gen && e->tile)
+            return e;
+    }
+
+    if (free_slot < 0)
+        free_slot = layer_id & (GX_ACRYLIC_CACHE_MAX - 1);
+
+    e = &c->acrylic_cache[free_slot];
+    if (e->tile) {
+        gx_surface_destroy(e->tile);
+        e->tile = NULL;
+    }
+    memset(e, 0, sizeof(*e));
+    e->layer_id = layer_id;
+    e->bounds = L->bounds;
+    e->tint = L->tint;
+    e->radius = L->corner_radius;
+    e->wp_gen = c->wallpaper_gen;
+    e->ready = 0;
+    e->tile = gx_surface_create((uint32_t)L->bounds.w, (uint32_t)L->bounds.h);
+    if (!e->tile)
+        return NULL;
+    e->used = 1;
+    return e;
 }
 
 int gx_compositor_add_layer(gx_compositor *c, gx_layer *desc)
@@ -295,34 +354,118 @@ static void blit_layer(gx_surface *bb, gx_layer *L, uint8_t opacity, gx_rect cli
     }
 }
 
-static void paint_acrylic(gx_compositor *c, gx_surface *bb, gx_layer *L, gx_rect clip)
+static void paint_acrylic_tile(gx_compositor *c, gx_acrylic_cache *e, gx_layer *L)
 {
     gx_surface *blurred = c->wallpaper_blurred ? c->wallpaper_blurred : c->wallpaper;
+    gx_surface *tile = e->tile;
     gx_rect r = L->bounds;
-    gx_rect vis = gx_rect_empty(clip) ? r : gx_rect_intersect(r, clip);
     int32_t rad = L->corner_radius;
     gx_color tint = L->tint;
+    int32_t y, x;
+
+    if (!tile)
+        return;
+    gx_surface_clear(tile, GX_TRANSPARENT);
+    if (!blurred)
+        return;
+
+    for (y = 0; y < r.h; y++) {
+        int32_t sy = r.y + y;
+        int32_t x0 = 0, x1 = r.w;
+        if ((y & 15) == 0)
+            ps2_poll();
+        if (rad > 0) {
+            int32_t rx0, rx1;
+            round_span(y, r.w, r.h, rad, &rx0, &rx1);
+            if (rx0 > 0)
+                rx0--;
+            if (rx1 < r.w)
+                rx1++;
+            x0 = rx0;
+            x1 = rx1;
+        }
+        for (x = x0; x < x1; x++) {
+            int32_t sx = r.x + x;
+            uint8_t cov = rad > 0 ? gx_round_coverage(x, y, r.w, r.h, rad) : 255;
+            gx_color base = GX_BLACK;
+            gx_color t = tint;
+            if (cov == 0)
+                continue;
+            if (blurred->width == 1 && blurred->height == 1)
+                base = blurred->pixels[0];
+            else if (sx >= 0 && sy >= 0 &&
+                     (uint32_t)sx < blurred->width &&
+                     (uint32_t)sy < blurred->height)
+                base = blurred->pixels[(uint32_t)sy * blurred->stride +
+                                       (uint32_t)sx];
+            if (cov < 255)
+                t = gx_color_mul_alpha(t, cov);
+            tile->pixels[(uint32_t)y * tile->stride + (uint32_t)x] =
+                gx_blend(base, t);
+        }
+    }
+}
+
+static void paint_acrylic(gx_compositor *c, gx_surface *bb, int layer_id,
+                          gx_layer *L, gx_rect clip)
+{
+    gx_rect r = L->bounds;
+    gx_rect vis = gx_rect_empty(clip) ? r : gx_rect_intersect(r, clip);
+    gx_acrylic_cache *cache;
+    int32_t y;
 
     if (gx_rect_empty(vis))
         return;
 
-    if (blurred) {
+    cache = acrylic_cache_get(c, layer_id, L);
+    if (cache && cache->tile) {
+        int32_t x;
+        if (!cache->ready) {
+            paint_acrylic_tile(c, cache, L);
+            cache->ready = 1;
+        }
+
+        /* Alpha-aware blit so rounded corners don't punch the wallpaper. */
+        for (y = 0; y < vis.h; y++) {
+            int32_t sy = vis.y + y;
+            int32_t ty = vis.y - r.y + y;
+            int32_t tx = vis.x - r.x;
+            if (sy < 0 || (uint32_t)sy >= bb->height || ty < 0 ||
+                (uint32_t)ty >= cache->tile->height)
+                continue;
+            for (x = 0; x < vis.w; x++) {
+                gx_color src =
+                    cache->tile->pixels[(uint32_t)ty * cache->tile->stride +
+                                        (uint32_t)(tx + x)];
+                gx_color *dp =
+                    &bb->pixels[(uint32_t)sy * bb->stride + (uint32_t)(vis.x + x)];
+                if (GX_A(src) == 0)
+                    continue;
+                if (GX_A(src) == 255)
+                    *dp = src;
+                else
+                    *dp = gx_blend(*dp, src);
+            }
+        }
+    } else {
+        /* Fallback: direct sample (no tile memory). */
+        gx_surface *blurred =
+            c->wallpaper_blurred ? c->wallpaper_blurred : c->wallpaper;
+        int32_t rad = L->corner_radius;
+        gx_color tint = L->tint;
         int32_t y0 = vis.y - r.y;
         int32_t y1 = y0 + vis.h;
-        for (int32_t y = y0; y < y1; y++) {
-            int32_t sy = r.y + y;
-            if (sy < 0 || (uint32_t)sy >= bb->height)
-                continue;
-
-            /* Keep PS/2 drained during per-pixel acrylic work. */
-            if ((y & 15) == 0)
-                ps2_poll();
-
+        for (int32_t ly = y0; ly < y1; ly++) {
+            int32_t sy = r.y + ly;
             int32_t x0 = vis.x - r.x;
             int32_t x1 = x0 + vis.w;
+            if (sy < 0 || (uint32_t)sy >= bb->height)
+                continue;
+            if ((ly & 15) == 0)
+                ps2_poll();
             if (rad > 0) {
                 int32_t rx0, rx1;
-                round_span(y, r.w, r.h, rad, &rx0, &rx1);
+                round_span(ly, r.w, r.h, rad, &rx0, &rx1);
                 if (rx0 > 0)
                     rx0--;
                 if (rx1 < r.w)
@@ -332,25 +475,26 @@ static void paint_acrylic(gx_compositor *c, gx_surface *bb, gx_layer *L, gx_rect
                 if (x1 > rx1)
                     x1 = rx1;
             }
-            for (int32_t x = x0; x < x1; x++) {
-                int32_t sx = r.x + x;
-                if (sx < 0 || (uint32_t)sx >= bb->width)
-                    continue;
-                uint8_t cov = rad > 0 ? gx_round_coverage(x, y, r.w, r.h, rad) : 255;
-                if (cov == 0)
-                    continue;
+            for (int32_t lx = x0; lx < x1; lx++) {
+                int32_t sx = r.x + lx;
+                uint8_t cov =
+                    rad > 0 ? gx_round_coverage(lx, ly, r.w, r.h, rad) : 255;
                 gx_color base = GX_BLACK;
-                if (blurred->width == 1 && blurred->height == 1)
-                    base = blurred->pixels[0];
-                else if ((uint32_t)sx < blurred->width &&
-                         (uint32_t)sy < blurred->height)
-                    base = blurred->pixels[(uint32_t)sy * blurred->stride +
-                                           (uint32_t)sx];
                 gx_color t = tint;
+                if (cov == 0 || sx < 0 || (uint32_t)sx >= bb->width)
+                    continue;
+                if (blurred) {
+                    if (blurred->width == 1 && blurred->height == 1)
+                        base = blurred->pixels[0];
+                    else if ((uint32_t)sx < blurred->width &&
+                             (uint32_t)sy < blurred->height)
+                        base = blurred->pixels[(uint32_t)sy * blurred->stride +
+                                               (uint32_t)sx];
+                }
                 if (cov < 255)
                     t = gx_color_mul_alpha(t, cov);
-                gx_color *dp = &bb->pixels[(uint32_t)sy * bb->stride + (uint32_t)sx];
-                *dp = gx_blend(base, t);
+                bb->pixels[(uint32_t)sy * bb->stride + (uint32_t)sx] =
+                    gx_blend(base, t);
             }
         }
     }
@@ -393,6 +537,8 @@ void gx_compositor_compose_rect(gx_compositor *c, gx_surface *dst, gx_rect clip)
     gx_rect screen;
     int ids[GX_MAX_LAYERS];
     int n = 0;
+    int start = 0;
+    int i;
 
     if (!c || !dst || !dst->pixels)
         return;
@@ -402,11 +548,30 @@ void gx_compositor_compose_rect(gx_compositor *c, gx_surface *dst, gx_rect clip)
     if (gx_rect_empty(clip))
         return;
 
-    paint_wallpaper_rect(c, dst, clip);
-
     sort_ids_by_z(c, ids, &n);
 
-    for (int i = 0; i < n; i++) {
+    /*
+     * Occlusion (P13): if a sharp opaque layer fully covers the clip, skip
+     * wallpaper and everything below it — still correct for partial damage.
+     */
+    for (i = n - 1; i >= 0; i--) {
+        gx_layer *L = &c->layers[ids[i]];
+        if (L->style != GX_LAYER_OPAQUE || L->corner_radius > 0)
+            continue;
+        if (L->opacity && L->opacity < 255)
+            continue;
+        if (L->bounds.x <= clip.x && L->bounds.y <= clip.y &&
+            L->bounds.x + L->bounds.w >= clip.x + clip.w &&
+            L->bounds.y + L->bounds.h >= clip.y + clip.h) {
+            start = i;
+            break;
+        }
+    }
+
+    if (start == 0)
+        paint_wallpaper_rect(c, dst, clip);
+
+    for (i = start; i < n; i++) {
         gx_layer *L = &c->layers[ids[i]];
         /* Drain mouse/keyboard between layers so compose doesn't starve input. */
         gx_server_poll_input();
@@ -414,10 +579,10 @@ void gx_compositor_compose_rect(gx_compositor *c, gx_surface *dst, gx_rect clip)
             continue;
         switch (L->style) {
         case GX_LAYER_ACRYLIC:
-            paint_acrylic(c, dst, L, clip);
+            paint_acrylic(c, dst, ids[i], L, clip);
             break;
         case GX_LAYER_BLUR_BEHIND:
-            paint_acrylic(c, dst, L, clip);
+            paint_acrylic(c, dst, ids[i], L, clip);
             break;
         case GX_LAYER_ALPHA:
             blit_layer(dst, L, L->opacity ? L->opacity : 255, clip);

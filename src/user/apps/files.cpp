@@ -5,6 +5,10 @@
 #include <user/sdk/settings.hpp>
 #include <user/string.h>
 
+/*
+ * Files — gfx API explorer, terminal-clean chrome + list.
+ */
+
 namespace {
 
 using hsrc::sdk::ChromeHit;
@@ -18,22 +22,12 @@ using hsrc::sdk::kChromeTitleH;
 using hsrc::sdk::settings::theme;
 using hsrc::sdk::settings::refresh_theme;
 
-constexpr int kWinW = 760;
-constexpr int kWinH = 548;
-constexpr int kSidebarW = 172;
-constexpr int kHeaderH = 58;
-constexpr int kFooterH = 34;
-constexpr int kListX = kSidebarW + 18;
-constexpr int kListW = kWinW - kListX - 18;
-constexpr int kListY = kChromeTitleH + 92;
-constexpr int kRowH = 32;
-constexpr int kVisibleRows = 12;
-constexpr int kShortcutX = 14;
-constexpr int kShortcutW = kSidebarW - 28;
-constexpr int kShortcutH = 30;
-constexpr int kShortcutGap = 8;
-constexpr int kShortcutTop = kChromeTitleH + 88;
-constexpr int kFooterBtnW = 72;
+constexpr int kWinW = 720;
+constexpr int kWinH = 460;
+constexpr int kPad = 12;
+constexpr int kRowH = 22;
+constexpr int kVisibleRows = 14;
+constexpr int kListY = kChromeTitleH + 56;
 constexpr int kMaxEntries = 96;
 constexpr int kStatusChars = 120;
 constexpr int kThemePollEvery = 96;
@@ -54,6 +48,7 @@ int g_selected = -1;
 int g_scroll = 0;
 int g_theme_poll = 0;
 bool g_dirty = true;
+bool g_was_minimized = false;
 char g_cwd[VFS_PATH_MAX];
 char g_status[kStatusChars];
 
@@ -105,17 +100,21 @@ void set_status(const char *text)
 
 bool refresh_window_options()
 {
-    return g_win.get_options(g_win_opts);
+    if (!g_win.get_options(g_win_opts))
+        return false;
+    if (g_was_minimized && !g_win_opts.minimized && g_win_opts.visible)
+        g_dirty = true;
+    g_was_minimized = g_win_opts.minimized;
+    return true;
 }
 
 void join_path(char *out, size_t out_size, const char *base, const char *name)
 {
     copy_text(out, out_size, "");
-    if (!base || !base[0]) {
+    if (!base || !base[0])
         append_text(out, out_size, "/");
-    } else {
+    else
         append_text(out, out_size, base);
-    }
     if (strcmp(out, "/") != 0)
         append_text(out, out_size, "/");
     append_text(out, out_size, name);
@@ -131,7 +130,7 @@ bool load_entries()
 {
     int fd = (int)hsrc::sdk::open(".", O_RDONLY | O_DIRECTORY);
     if (fd < 0) {
-        set_status("Current directory cannot be opened.");
+        set_status("cannot open directory");
         return false;
     }
 
@@ -139,7 +138,7 @@ bool load_entries()
     long count = hsrc::sdk::getdents(fd, raw, 64);
     (void)hsrc::sdk::close(fd);
     if (count < 0) {
-        set_status("Directory listing failed.");
+        set_status("listing failed");
         return false;
     }
 
@@ -162,18 +161,18 @@ bool load_entries()
 
     g_selected = -1;
     g_scroll = 0;
-    set_status("Click once to select, click again to open.");
+    set_status("click select · click again open");
     return true;
 }
 
 bool navigate_to(const char *path)
 {
     if (!path || !path[0]) {
-        set_status("Invalid path.");
+        set_status("invalid path");
         return false;
     }
     if (hsrc::sdk::chdir(path) < 0) {
-        set_status("Navigation failed.");
+        set_status("cd failed");
         return false;
     }
     refresh_cwd();
@@ -186,10 +185,10 @@ bool navigate_to(const char *path)
 const char *entry_type_label(const Entry &entry)
 {
     if (entry.synthetic_up || S_ISDIR(entry.type))
-        return "Dir";
+        return "dir";
     if (ends_with(entry.name, ".mke"))
-        return "App";
-    return "File";
+        return "app";
+    return "file";
 }
 
 Color entry_name_color(const Entry &entry)
@@ -212,7 +211,7 @@ bool activate_entry(int index)
         return navigate_to(entry.synthetic_up ? ".." : entry.name);
 
     if (!ends_with(entry.name, ".mke")) {
-        set_status("Only folders and .mke apps are activatable.");
+        set_status("only folders and .mke apps");
         g_dirty = true;
         return false;
     }
@@ -221,25 +220,17 @@ bool activate_entry(int index)
     join_path(full, sizeof(full), g_cwd, entry.name);
     long pid = hsrc::sdk::process::spawn_ex(full, hsrc::sdk::process::ConsoleHidden);
     if (pid <= 0) {
-        set_status("App launch failed.");
+        set_status("launch failed");
         g_dirty = true;
         return false;
     }
 
     char status[kStatusChars];
-    copy_text(status, sizeof(status), "Launched ");
+    copy_text(status, sizeof(status), "launched ");
     append_text(status, sizeof(status), full);
     set_status(status);
     g_dirty = true;
     return true;
-}
-
-void paint_shortcut(Surface &s, int y, const char *label, bool active)
-{
-    const auto &t = theme();
-    s.fill_round(kShortcutX, y, kShortcutW, kShortcutH, 8, active ? t.accent_soft : t.button);
-    s.rect(kShortcutX, y, kShortcutW, kShortcutH, active ? t.accent_soft : t.border, 1);
-    s.text(kShortcutX + 12, y + 10, label, active ? t.accent : t.text, 1);
 }
 
 void paint()
@@ -249,80 +240,62 @@ void paint()
     s.clear(t.bg);
     s.draw_window_chrome(kWinW, g_win_opts.title, g_win_opts, t.chrome, t.text, t.border);
 
-    s.fill(0, kChromeTitleH, kSidebarW, kWinH - kChromeTitleH, t.sidebar);
-    s.fill(kSidebarW - 1, kChromeTitleH, 1, kWinH - kChromeTitleH, t.border);
-    s.fill(kSidebarW, kChromeTitleH + kHeaderH - 1, kWinW - kSidebarW, 1, t.border);
-    s.fill(0, kWinH - kFooterH, kWinW, 1, t.border);
+    s.text(kPad, kChromeTitleH + 10, "Files", t.text, 1);
+    s.text(kPad + 56, kChromeTitleH + 10, g_cwd, t.accent, 1);
 
-    s.text(16, kChromeTitleH + 14, "Files", t.text, 1);
-    s.text(16, kChromeTitleH + 36, "Bounded explorer", t.text_dim, 1);
-
-    int shortcut_y = kShortcutTop;
-    paint_shortcut(s, shortcut_y, "Applications", strcmp(g_cwd, "/applications") == 0);
-    shortcut_y += kShortcutH + kShortcutGap;
-    paint_shortcut(s, shortcut_y, "Root", is_root());
-    shortcut_y += kShortcutH + kShortcutGap;
-    paint_shortcut(s, shortcut_y, "Up", false);
-
-    s.text(kListX, kChromeTitleH + 18, "Current Path", t.text_dim, 1);
-    s.fill_round(kListX, kChromeTitleH + 34, kListW, 30, 8, t.inset);
-    s.rect(kListX, kChromeTitleH + 34, kListW, 30, t.border, 1);
-    s.text(kListX + 12, kChromeTitleH + 44, g_cwd, t.text, 1);
-
-    s.text(kListX, kChromeTitleH + 74, "Name", t.text_dim, 1);
-    s.text(kListX + kListW - 72, kChromeTitleH + 74, "Type", t.text_dim, 1);
+    /* Quick jumps */
+    s.text(kPad, kChromeTitleH + 32, "[apps]", t.text_dim, 1);
+    s.text(kPad + 56, kChromeTitleH + 32, "[/]", t.text_dim, 1);
+    s.text(kPad + 96, kChromeTitleH + 32, "[..]", t.text_dim, 1);
+    s.text(kPad + 140, kChromeTitleH + 32, "name", t.text_dim, 1);
+    s.text(kWinW - kPad - 40, kChromeTitleH + 32, "type", t.text_dim, 1);
+    s.fill(kPad, kChromeTitleH + 48, kWinW - kPad * 2, 1, t.border);
 
     for (int row = 0; row < kVisibleRows; row++) {
         const int index = g_scroll + row;
         const int y = kListY + row * kRowH;
-        if (index >= g_entry_count) {
-            s.fill_round(kListX, y, kListW, kRowH - 4, 8, t.card);
-            s.rect(kListX, y, kListW, kRowH - 4, t.border, 1);
+        if (index >= g_entry_count)
             continue;
-        }
 
         const Entry &entry = g_entries[index];
         const bool selected = index == g_selected;
-        s.fill_round(kListX, y, kListW, kRowH - 4, 8, selected ? t.accent_soft : t.hover);
-        s.rect(kListX, y, kListW, kRowH - 4, t.border, 1);
-        s.text(kListX + 12, y + 9, entry.name, entry_name_color(entry), 1);
+        if (selected)
+            s.fill(kPad, y, kWinW - kPad * 2, kRowH - 2, t.accent_soft);
+
+        s.text(kPad + 4, y + 4, entry.name, entry_name_color(entry), 1);
         const char *type = entry_type_label(entry);
-        s.text(kListX + kListW - 12 - text_width(type), y + 9, type,
+        s.text(kWinW - kPad - text_width(type), y + 4, type,
                selected ? t.accent : t.text_soft, 1);
     }
 
-    s.text(16, kWinH - 22, g_status, t.text_dim, 1);
+    s.fill(kPad, kWinH - 28, kWinW - kPad * 2, 1, t.border);
+    s.text(kPad, kWinH - 20, g_status, t.text_dim, 1);
 
     const bool can_prev = g_scroll > 0;
     const bool can_next = g_scroll + kVisibleRows < g_entry_count;
-    const int next_x = kWinW - 16 - kFooterBtnW;
-    const int prev_x = next_x - 10 - kFooterBtnW;
-    s.fill_round(prev_x, kWinH - 28, kFooterBtnW, 22, 6, can_prev ? t.button : t.inset);
-    s.fill_round(next_x, kWinH - 28, kFooterBtnW, 22, 6, can_next ? t.button : t.inset);
-    s.rect(prev_x, kWinH - 28, kFooterBtnW, 22, t.border, 1);
-    s.rect(next_x, kWinH - 28, kFooterBtnW, 22, t.border, 1);
-    s.text(prev_x + 19, kWinH - 20, "Prev", can_prev ? t.text : t.text_soft, 1);
-    s.text(next_x + 19, kWinH - 20, "Next", can_next ? t.text : t.text_soft, 1);
+    s.text(kWinW - 120, kWinH - 20, can_prev ? "prev" : "    ", t.text_dim, 1);
+    s.text(kWinW - 60, kWinH - 20, can_next ? "next" : "    ", t.text_dim, 1);
 
     g_win.damage();
     g_dirty = false;
 }
 
-int shortcut_hit(int lx, int ly)
+int jump_hit(int lx, int ly)
 {
-    int shortcut_y = kShortcutTop;
-    for (int i = 0; i < 3; i++) {
-        if (lx >= kShortcutX && lx < kShortcutX + kShortcutW &&
-            ly >= shortcut_y && ly < shortcut_y + kShortcutH)
-            return i;
-        shortcut_y += kShortcutH + kShortcutGap;
-    }
+    if (ly < kChromeTitleH + 28 || ly >= kChromeTitleH + 48)
+        return -1;
+    if (lx >= kPad && lx < kPad + 50)
+        return 0; /* apps */
+    if (lx >= kPad + 56 && lx < kPad + 90)
+        return 1; /* / */
+    if (lx >= kPad + 96 && lx < kPad + 130)
+        return 2; /* .. */
     return -1;
 }
 
 int row_hit(int lx, int ly)
 {
-    if (lx < kListX || lx >= kListX + kListW)
+    if (lx < kPad || lx >= kWinW - kPad)
         return -1;
     if (ly < kListY || ly >= kListY + kVisibleRows * kRowH)
         return -1;
@@ -335,13 +308,11 @@ int row_hit(int lx, int ly)
 
 int footer_hit(int lx, int ly)
 {
-    const int next_x = kWinW - 16 - kFooterBtnW;
-    const int prev_x = next_x - 10 - kFooterBtnW;
-    if (ly < kWinH - 28 || ly >= kWinH - 6)
+    if (ly < kWinH - 24 || ly >= kWinH - 6)
         return -1;
-    if (lx >= prev_x && lx < prev_x + kFooterBtnW)
+    if (lx >= kWinW - 120 && lx < kWinW - 70)
         return 0;
-    if (lx >= next_x && lx < next_x + kFooterBtnW)
+    if (lx >= kWinW - 60 && lx < kWinW - 20)
         return 1;
     return -1;
 }
@@ -349,6 +320,8 @@ int footer_hit(int lx, int ly)
 void handle_click(const Input &in)
 {
     if (!refresh_window_options())
+        return;
+    if (g_win_opts.minimized || !g_win_opts.visible)
         return;
 
     const int lx = in.mouse_x - g_win_opts.x;
@@ -364,21 +337,22 @@ void handle_click(const Input &in)
         return;
     }
 
-    const int shortcut = shortcut_hit(lx, ly);
-    if (shortcut == 0) {
+    const int jump = jump_hit(lx, ly);
+    if (jump == 0) {
         (void)navigate_to("/applications");
         return;
     }
-    if (shortcut == 1) {
+    if (jump == 1) {
         (void)navigate_to("/");
         return;
     }
-    if (shortcut == 2) {
+    if (jump == 2) {
         if (!is_root())
             (void)navigate_to("..");
-        else
-            set_status("Already at root.");
-        g_dirty = true;
+        else {
+            set_status("already at root");
+            g_dirty = true;
+        }
         return;
     }
 
@@ -408,33 +382,8 @@ void handle_click(const Input &in)
     }
 
     g_selected = entry;
-    set_status("Selected. Click again to open.");
+    set_status("selected · click again to open");
     g_dirty = true;
-}
-
-bool build_ui()
-{
-    WindowOptions opts;
-    opts.x = g_screen.width > (uint32_t)kWinW ? ((int)g_screen.width - kWinW) / 2 : 30;
-    opts.y = g_screen.height > (uint32_t)kWinH ? ((int)g_screen.height - kWinH) / 2 : 30;
-    opts.w = kWinW;
-    opts.h = kWinH;
-    opts.background = false;
-    opts.rounded = true;
-    opts.shadow = true;
-    opts.radius = 10;
-    opts.resizable = false;
-    opts.framed = true;
-    opts.closable = true;
-    opts.can_minimize = true;
-    opts.can_maximize = true;
-    opts.accept_focus = true;
-    opts.set_title("Files");
-    opts.set_class_name("os.files");
-
-    if (!g_win.create(opts))
-        return false;
-    return refresh_window_options();
 }
 
 } // namespace
@@ -448,10 +397,28 @@ extern "C" void mke_main(void)
 
     (void)refresh_theme();
 
-    if (!build_ui()) {
+    WindowOptions opts;
+    opts.x = g_screen.width > (uint32_t)kWinW ? ((int)g_screen.width - kWinW) / 2 : 30;
+    opts.y = g_screen.height > (uint32_t)kWinH ? ((int)g_screen.height - kWinH) / 2 : 30;
+    opts.w = kWinW;
+    opts.h = kWinH;
+    opts.radius = 10;
+    opts.rounded = true;
+    opts.shadow = true;
+    opts.resizable = false;
+    opts.framed = true;
+    opts.closable = true;
+    opts.can_minimize = true;
+    opts.can_maximize = true;
+    opts.accept_focus = true;
+    opts.set_title("Files");
+    opts.set_class_name("os.files");
+
+    if (!g_win.create(opts)) {
         for (;;)
             hsrc::sdk::yield();
     }
+    (void)refresh_window_options();
 
     if (!navigate_to("/applications"))
         (void)navigate_to("/");
@@ -474,22 +441,25 @@ extern "C" void mke_main(void)
                 g_dirty = true;
         }
 
+        (void)refresh_window_options();
+
         Input in{};
         if (hsrc::sdk::input(in)) {
             const uint8_t pressed = (uint8_t)(in.buttons & ~g_prev_input.buttons);
             if (pressed & UGX_BTN_LEFT) {
+                const bool interactive = !g_win_opts.minimized && g_win_opts.visible;
                 const int lx = in.mouse_x - g_win_opts.x;
                 const int ly = in.mouse_y - g_win_opts.y;
-                const bool over = refresh_window_options() &&
+                const bool over = interactive &&
                                   lx >= 0 && ly >= 0 &&
                                   lx < g_win_opts.w && ly < g_win_opts.h;
-                if (over || in.focus_id == g_win.id())
+                if (over || (interactive && in.focus_id == g_win.id()))
                     handle_click(in);
             }
             g_prev_input = in;
         }
 
-        if (g_dirty) {
+        if (g_dirty && !g_win_opts.minimized) {
             paint();
             (void)hsrc::sdk::present();
         }

@@ -2,14 +2,20 @@
 
 SDK_SRCS := $(SRC)/user/sdk/syscall.cpp \
             $(SRC)/user/sdk/gfx.cpp \
+            $(SRC)/user/sdk/svg.cpp \
+            $(SRC)/user/sdk/time.cpp \
             $(SRC)/user/sdk/process.cpp \
             $(SRC)/user/sdk/settings.cpp \
             $(SRC)/user/string.c
 SDK_OBJS := $(BUILD)/user/sdk/syscall.o \
             $(BUILD)/user/sdk/gfx.o \
+            $(BUILD)/user/sdk/svg.o \
+            $(BUILD)/user/sdk/time.o \
             $(BUILD)/user/sdk/process.o \
             $(BUILD)/user/sdk/settings.o \
             $(BUILD)/user/string.o
+
+LIBGCC := $(shell $(CXX) -print-libgcc-file-name)
 
 MKE_OSUI := $(USEROUT)/os-ui.mke
 MKE_TERM := $(USEROUT)/terminal.mke
@@ -55,7 +61,7 @@ endef
 $(USEROUT)/os-ui.elf: $(BUILD)/user/apps/os-ui.o $(SDK_OBJS) user.ld
 	@mkdir -p $(dir $@)
 	$(LD) $(USERLDFLAGS) --defsym=LOAD_ADDR=$(LOAD_OSUI) -o $@ \
-		$(BUILD)/user/apps/os-ui.o $(SDK_OBJS)
+		$(BUILD)/user/apps/os-ui.o $(SDK_OBJS) $(LIBGCC)
 
 $(MKE_OSUI): $(USEROUT)/os-ui.elf $(PACK_MKE)
 	$(call pack_mke_from_elf,$<,$(USEROUT)/os-ui.bin,$@,$(LOAD_OSUI),os-ui)
@@ -63,7 +69,7 @@ $(MKE_OSUI): $(USEROUT)/os-ui.elf $(PACK_MKE)
 $(USEROUT)/terminal.elf: $(BUILD)/user/apps/terminal.o $(SDK_OBJS) user.ld
 	@mkdir -p $(dir $@)
 	$(LD) $(USERLDFLAGS) --defsym=LOAD_ADDR=$(LOAD_TERM) -o $@ \
-		$(BUILD)/user/apps/terminal.o $(SDK_OBJS)
+		$(BUILD)/user/apps/terminal.o $(SDK_OBJS) $(LIBGCC)
 
 $(MKE_TERM): $(USEROUT)/terminal.elf $(PACK_MKE)
 	$(call pack_mke_from_elf,$<,$(USEROUT)/terminal.bin,$@,$(LOAD_TERM),terminal)
@@ -71,7 +77,7 @@ $(MKE_TERM): $(USEROUT)/terminal.elf $(PACK_MKE)
 $(USEROUT)/os-settings.elf: $(BUILD)/user/apps/os-settings.o $(SDK_OBJS) user.ld
 	@mkdir -p $(dir $@)
 	$(LD) $(USERLDFLAGS) --defsym=LOAD_ADDR=$(LOAD_SETTINGS) -o $@ \
-		$(BUILD)/user/apps/os-settings.o $(SDK_OBJS)
+		$(BUILD)/user/apps/os-settings.o $(SDK_OBJS) $(LIBGCC)
 
 $(MKE_SETTINGS): $(USEROUT)/os-settings.elf $(PACK_MKE)
 	$(call pack_mke_from_elf,$<,$(USEROUT)/os-settings.bin,$@,$(LOAD_SETTINGS),os-settings)
@@ -79,7 +85,7 @@ $(MKE_SETTINGS): $(USEROUT)/os-settings.elf $(PACK_MKE)
 $(USEROUT)/files.elf: $(BUILD)/user/apps/files.o $(SDK_OBJS) user.ld
 	@mkdir -p $(dir $@)
 	$(LD) $(USERLDFLAGS) --defsym=LOAD_ADDR=$(LOAD_FILES) -o $@ \
-		$(BUILD)/user/apps/files.o $(SDK_OBJS)
+		$(BUILD)/user/apps/files.o $(SDK_OBJS) $(LIBGCC)
 
 $(MKE_FILES): $(USEROUT)/files.elf $(PACK_MKE)
 	$(call pack_mke_from_elf,$<,$(USEROUT)/files.bin,$@,$(LOAD_FILES),files)
@@ -87,7 +93,7 @@ $(MKE_FILES): $(USEROUT)/files.elf $(PACK_MKE)
 $(USEROUT)/activity-monitor.elf: $(BUILD)/user/apps/activity-monitor.o $(SDK_OBJS) user.ld
 	@mkdir -p $(dir $@)
 	$(LD) $(USERLDFLAGS) --defsym=LOAD_ADDR=$(LOAD_ACTIVITY) -o $@ \
-		$(BUILD)/user/apps/activity-monitor.o $(SDK_OBJS)
+		$(BUILD)/user/apps/activity-monitor.o $(SDK_OBJS) $(LIBGCC)
 
 $(MKE_ACTIVITY): $(USEROUT)/activity-monitor.elf $(PACK_MKE)
 	$(call pack_mke_from_elf,$<,$(USEROUT)/activity-monitor.bin,$@,$(LOAD_ACTIVITY),activity-monitor)
@@ -99,8 +105,6 @@ $(BUILD)/apps/imgui-demo/%.o: $(IMGUI_DEMO_DIR)/%.cpp
 $(BUILD)/apps/imgui-demo/%.o: $(IMGUI_DIR)/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(IMGUI_CXXFLAGS) -c $< -o $@
-
-LIBGCC := $(shell $(CXX) -print-libgcc-file-name)
 
 $(USEROUT)/imgui-demo.elf: $(IMGUI_DEMO_OBJS) $(SDK_OBJS) user.ld
 	@mkdir -p $(dir $@)

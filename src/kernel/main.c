@@ -18,6 +18,7 @@
 #include <kernel/env.h>
 #include <kernel/service.h>
 #include <kernel/scheduler.h>
+#include <kernel/time.h>
 #include <kernel/mke.h>
 #include <arch/x86/gdt.h>
 #include <arch/x86/idt.h>
@@ -70,6 +71,7 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     env_init();
     service_init();
     scheduler_init();
+    time_init();
     klog("[boot] core init done\n");
 
     driver_framework_init();

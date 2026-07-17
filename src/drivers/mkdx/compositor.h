@@ -26,12 +26,28 @@ typedef struct gx_layer {
     int32_t     corner_radius; /* 0 = sharp */
 } gx_layer;
 
+/* Cached frosted+tint backdrop for acrylic layers (dock/menubar). */
+#define GX_ACRYLIC_CACHE_MAX 4
+
+typedef struct gx_acrylic_cache {
+    int         used;
+    int         ready;
+    int         layer_id;
+    gx_rect     bounds;
+    gx_color    tint;
+    int32_t     radius;
+    uint32_t    wp_gen;
+    gx_surface *tile;
+} gx_acrylic_cache;
+
 typedef struct gx_compositor {
     gx_device   *device;
     gx_surface *wallpaper;
     gx_surface *wallpaper_blurred;
+    uint32_t    wallpaper_gen; /* bumps on wallpaper change → drop acrylic tiles */
     gx_layer    layers[GX_MAX_LAYERS];
     int         layer_count;
+    gx_acrylic_cache acrylic_cache[GX_ACRYLIC_CACHE_MAX];
 } gx_compositor;
 
 int  gx_compositor_init(gx_compositor *c, gx_device *dev);

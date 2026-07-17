@@ -364,6 +364,39 @@ int Surface::text_height(int scale)
     return UGX_FONT_H * scale;
 }
 
+/* Premultiplied glyph atlas: (ch, color) → UGX_FONT_W×H tinted coverage. */
+struct GlyphAtlasEntry {
+    uint8_t ch = 0;
+    Color   color = 0;
+    Color   px[UGX_FONT_H * UGX_FONT_W]{};
+    bool    valid = false;
+};
+
+constexpr int kGlyphAtlasSize = 128;
+GlyphAtlasEntry g_glyph_atlas[kGlyphAtlasSize];
+
+const Color *glyph_atlas_lookup(uint8_t ch, Color c)
+{
+    if (ch < 32 || ch > 126)
+        ch = (uint8_t)'?';
+    GlyphAtlasEntry &e = g_glyph_atlas[ch % kGlyphAtlasSize];
+    if (e.valid && e.ch == ch && e.color == c)
+        return e.px;
+
+    const ugx_glyph &g = glyph(ch);
+    for (int row = 0; row < UGX_FONT_H; row++) {
+        for (int col = 0; col < UGX_FONT_W; col++) {
+            uint8_t cov = g.alpha[row][col];
+            e.px[row * UGX_FONT_W + col] =
+                cov ? color_mul_alpha(c, cov) : (Color)0;
+        }
+    }
+    e.ch = ch;
+    e.color = c;
+    e.valid = true;
+    return e.px;
+}
+
 void Surface::text(int x, int y, const char *s, Color c, int scale)
 {
     if (!s || scale < 1)
@@ -378,15 +411,26 @@ void Surface::text(int x, int y, const char *s, Color c, int scale)
             continue;
         }
         const ugx_glyph &g = glyph(ch);
-        for (int row = 0; row < UGX_FONT_H; row++) {
-            for (int col = 0; col < UGX_FONT_W; col++) {
-                uint8_t cov = g.alpha[row][col];
-                if (cov == 0)
-                    continue;
-                Color px = color_mul_alpha(c, cov);
-                if (scale == 1) {
-                    blend(cx + col, cy + row, px);
-                } else {
+        if (scale == 1) {
+            const Color *atlas = glyph_atlas_lookup(ch, c);
+            for (int row = 0; row < UGX_FONT_H; row++) {
+                for (int col = 0; col < UGX_FONT_W; col++) {
+                    Color px = atlas[row * UGX_FONT_W + col];
+                    if (color_a(px) == 0)
+                        continue;
+                    if (color_a(px) == 255)
+                        set(cx + col, cy + row, px);
+                    else
+                        blend(cx + col, cy + row, px);
+                }
+            }
+        } else {
+            for (int row = 0; row < UGX_FONT_H; row++) {
+                for (int col = 0; col < UGX_FONT_W; col++) {
+                    uint8_t cov = g.alpha[row][col];
+                    if (cov == 0)
+                        continue;
+                    Color px = color_mul_alpha(c, cov);
                     for (int sy = 0; sy < scale; sy++)
                         for (int sx = 0; sx < scale; sx++)
                             blend(cx + col * scale + sx, cy + row * scale + sy, px);

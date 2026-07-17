@@ -10,7 +10,7 @@
 namespace {
 
 constexpr const char *kSettingsTitle = "System Settings";
-constexpr const char *kSettingsClass = "os-settings";
+constexpr const char *kSettingsClass = "os.settings";
 constexpr const char *kSettingsPath = "/applications/os-settings.mke";
 constexpr const char *kRunDir = "/run";
 constexpr const char *kDeepLinkPath = "/run/settings.deeplink";
@@ -25,7 +25,10 @@ using hsrc::sdk::rgb;
 using hsrc::sdk::rgba;
 using hsrc::sdk::settings::Appearance;
 using hsrc::sdk::settings::AppTheme;
+using hsrc::sdk::settings::StatusInfo;
 using hsrc::sdk::settings::ThemeMode;
+
+void append_text(char *dst, size_t dst_size, const char *src);
 
 Appearance g_appearance = Appearance::Light;
 ThemeMode g_theme_mode = ThemeMode::Light;
@@ -36,7 +39,24 @@ bool g_ini_present = false;
 unsigned g_absent_skip = 0;
 constexpr unsigned kAbsentRetryEvery = 256; /* refresh_theme calls while missing */
 constexpr const char *kDefaultIni =
-    "general.appearance=Light\n";
+    "general.appearance=Light\n"
+    "desktop.dock-size=Medium\n"
+    "dock.pin.monitor=On\n"
+    "dock.pin.terminal=On\n"
+    "dock.pin.files=On\n"
+    "dock.pin.settings=On\n"
+    "status.wifi_connected=1\n"
+    "status.wifi_bars=3\n"
+    "status.battery_percent=78\n"
+    "status.battery_charging=0\n";
+
+constexpr const char *kWifiConnectedKey = "status.wifi_connected";
+constexpr const char *kWifiBarsKey = "status.wifi_bars";
+constexpr const char *kBatteryPercentKey = "status.battery_percent";
+constexpr const char *kBatteryChargingKey = "status.battery_charging";
+
+StatusInfo g_status{};
+bool g_status_loaded = false;
 
 constexpr AppTheme kLightTheme = {
     rgb(255, 255, 255),          /* bg */
@@ -203,6 +223,179 @@ void ensure_theme_loaded()
     load_theme_from_disk(true);
 }
 
+const char *appearance_name(Appearance appearance)
+{
+    if (appearance == Appearance::Dark)
+        return "Dark";
+    if (appearance == Appearance::Auto)
+        return "Auto";
+    return "Light";
+}
+
+int parse_int_clamped(const char *value, int lo, int hi, int fallback)
+{
+    if (!value || !value[0])
+        return fallback;
+    int sign = 1;
+    const char *p = value;
+    if (*p == '-') {
+        sign = -1;
+        p++;
+    }
+    int v = 0;
+    bool any = false;
+    while (*p >= '0' && *p <= '9') {
+        v = v * 10 + (*p - '0');
+        p++;
+        any = true;
+    }
+    if (!any)
+        return fallback;
+    v *= sign;
+    if (v < lo)
+        return lo;
+    if (v > hi)
+        return hi;
+    return v;
+}
+
+bool parse_bool01(const char *value, bool fallback)
+{
+    if (!value || !value[0])
+        return fallback;
+    if (strcmp(value, "1") == 0 || strcmp(value, "On") == 0 ||
+        strcmp(value, "true") == 0 || strcmp(value, "True") == 0)
+        return true;
+    if (strcmp(value, "0") == 0 || strcmp(value, "Off") == 0 ||
+        strcmp(value, "false") == 0 || strcmp(value, "False") == 0)
+        return false;
+    return fallback;
+}
+
+void apply_status_defaults()
+{
+    g_status.wifi_connected = true;
+    g_status.wifi_bars = 3;
+    g_status.battery_percent = 78;
+    g_status.battery_charging = false;
+    g_status_loaded = true;
+}
+
+void load_status_from_ini_buf(char *buf, long nread)
+{
+    apply_status_defaults();
+    if (!buf || nread <= 0)
+        return;
+
+    int start = 0;
+    for (long i = 0; i <= nread; i++) {
+        if (buf[i] != '\n' && buf[i] != '\r' && buf[i] != 0)
+            continue;
+        buf[i] = 0;
+        char *line = buf + start;
+        start = (int)i + 1;
+        if (!line[0])
+            continue;
+        char *eq = line;
+        while (*eq && *eq != '=')
+            eq++;
+        if (*eq != '=')
+            continue;
+        *eq++ = 0;
+        if (strcmp(line, kWifiConnectedKey) == 0)
+            g_status.wifi_connected = parse_bool01(eq, true);
+        else if (strcmp(line, kWifiBarsKey) == 0)
+            g_status.wifi_bars = parse_int_clamped(eq, 0, 3, 3);
+        else if (strcmp(line, kBatteryPercentKey) == 0)
+            g_status.battery_percent = parse_int_clamped(eq, 0, 100, 78);
+        else if (strcmp(line, kBatteryChargingKey) == 0)
+            g_status.battery_charging = parse_bool01(eq, false);
+    }
+}
+
+void load_status_from_disk()
+{
+    int fd = (int)hsrc::sdk::open(kIniPath, O_RDONLY);
+    if (fd < 0) {
+        apply_status_defaults();
+        return;
+    }
+    char buf[kIniBytes];
+    memset(buf, 0, sizeof(buf));
+    long nread = hsrc::sdk::read(fd, buf, sizeof(buf) - 1);
+    (void)hsrc::sdk::close(fd);
+    load_status_from_ini_buf(buf, nread);
+}
+
+/* Rewrite or insert a single key=value line; preserves other keys. */
+bool upsert_ini_key(const char *key, const char *value)
+{
+    if (!key || !key[0] || !value)
+        return false;
+
+    char buf[kIniBytes];
+    memset(buf, 0, sizeof(buf));
+    long nread = 0;
+    int fd = (int)hsrc::sdk::open(kIniPath, O_RDONLY);
+    if (fd >= 0) {
+        nread = hsrc::sdk::read(fd, buf, sizeof(buf) - 1);
+        (void)hsrc::sdk::close(fd);
+        if (nread < 0)
+            nread = 0;
+    }
+
+    char out[kIniBytes];
+    memset(out, 0, sizeof(out));
+    bool replaced = false;
+    int start = 0;
+    for (long i = 0; i <= nread; i++) {
+        if (i < nread && buf[i] != '\n' && buf[i] != '\r')
+            continue;
+        buf[i] = 0;
+        char *line = buf + start;
+        start = (int)i + 1;
+        if (!line[0])
+            continue;
+
+        char *eq = line;
+        while (*eq && *eq != '=')
+            eq++;
+        if (*eq == '=') {
+            *eq = 0;
+            if (strcmp(line, key) == 0) {
+                append_text(out, sizeof(out), key);
+                append_text(out, sizeof(out), "=");
+                append_text(out, sizeof(out), value);
+                append_text(out, sizeof(out), "\n");
+                replaced = true;
+                continue;
+            }
+            *eq = '=';
+        }
+        append_text(out, sizeof(out), line);
+        append_text(out, sizeof(out), "\n");
+    }
+    if (!replaced) {
+        append_text(out, sizeof(out), key);
+        append_text(out, sizeof(out), "=");
+        append_text(out, sizeof(out), value);
+        append_text(out, sizeof(out), "\n");
+    }
+
+    (void)hsrc::sdk::mkdir("/etc", 0755);
+    fd = (int)hsrc::sdk::open(kIniPath, O_WRONLY | O_CREAT | O_TRUNC);
+    if (fd < 0)
+        return false;
+    size_t len = strlen(out);
+    long wrote = hsrc::sdk::write(fd, out, len);
+    (void)hsrc::sdk::close(fd);
+    if (wrote == (long)len) {
+        g_ini_present = true;
+        return true;
+    }
+    return false;
+}
+
 void copy_text(char *dst, size_t dst_size, const char *src)
 {
     if (!dst || dst_size == 0)
@@ -274,7 +467,10 @@ long find_settings_window()
         hsrc::sdk::WindowOptions opts;
         if (!hsrc::sdk::window_get(id, opts))
             continue;
-        if (opts.class_name[0] && strcmp(opts.class_name, kSettingsClass) == 0)
+        if (!opts.class_name[0])
+            continue;
+        if (strcmp(opts.class_name, kSettingsClass) == 0 ||
+            strcmp(opts.class_name, "os-settings") == 0)
             return id;
     }
     return -1;
@@ -361,6 +557,40 @@ bool refresh_theme()
     if (g_ini_present)
         g_absent_skip = 0;
     return prev_mode != g_theme_mode || prev_appearance != g_appearance;
+}
+
+bool set_appearance(Appearance appearance)
+{
+    if (!upsert_ini_key(kAppearanceKey, appearance_name(appearance)))
+        return false;
+    apply_theme(appearance);
+    g_ini_present = true;
+    return true;
+}
+
+bool toggle_theme()
+{
+    ensure_theme_loaded();
+    Appearance next = (g_theme_mode == ThemeMode::Dark) ? Appearance::Light
+                                                         : Appearance::Dark;
+    return set_appearance(next);
+}
+
+const StatusInfo &status()
+{
+    if (!g_status_loaded)
+        load_status_from_disk();
+    return g_status;
+}
+
+bool refresh_status()
+{
+    StatusInfo prev = g_status;
+    load_status_from_disk();
+    return prev.wifi_connected != g_status.wifi_connected ||
+           prev.wifi_bars != g_status.wifi_bars ||
+           prev.battery_percent != g_status.battery_percent ||
+           prev.battery_charging != g_status.battery_charging;
 }
 
 } // namespace hsrc::sdk::settings

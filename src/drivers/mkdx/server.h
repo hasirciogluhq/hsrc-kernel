@@ -15,6 +15,7 @@ typedef struct gx_server {
     int           dirty;       /* 1 = needs compose/present */
     int           dirty_full;  /* 1 = full-screen damage */
     gx_rect       dirty_rect;  /* valid when dirty && !dirty_full */
+    uint32_t      frame_seq;   /* increments each completed compose/present */
     int32_t       cursor_x;
     int32_t       cursor_y;
     int           ready;
@@ -27,6 +28,9 @@ void       gx_server_mark_dirty_rect(gx_rect r);
 void       gx_server_poll_input(void);
 /* Drain PS/2 + move cursor without a full compose/present. Safe on yield. */
 void       gx_server_pump_input(void);
+/* Compose+scanout if dirty (frame scheduler tick). Safe to call from yield. */
+int        gx_server_frame_tick(void);
 void       gx_server_present(void);
+uint32_t   gx_server_frame_seq(void);
 
 #endif

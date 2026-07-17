@@ -4,6 +4,10 @@
 #include <user/sdk/settings.hpp>
 #include <user/string.h>
 
+/*
+ * Activity Monitor — gfx API process list, terminal-clean layout.
+ */
+
 namespace {
 
 using hsrc::sdk::ChromeHit;
@@ -20,26 +24,15 @@ using hsrc::sdk::process::SysInfo;
 using hsrc::sdk::settings::theme;
 using hsrc::sdk::settings::refresh_theme;
 
-constexpr int kWinW = 900;
-constexpr int kWinH = 560;
-constexpr int kHeaderH = 60;
-constexpr int kSummaryY = 84;
-constexpr int kSummaryH = 72;
-constexpr int kSummaryGap = 12;
-constexpr int kSummaryW = 260;
-constexpr int kListX = 20;
-constexpr int kListY = 172;
-constexpr int kListW = 860;
-constexpr int kListHeaderH = 28;
-constexpr int kRowH = 32;
-constexpr int kVisibleRows = 10;
-constexpr int kDetailY = 514;
-constexpr int kFooterBtnW = 72;
-constexpr int kTaskBtnW = 112;
+constexpr int kWinW = 780;
+constexpr int kWinH = 480;
+constexpr int kPad = 12;
+constexpr int kRowH = 22;
+constexpr int kVisibleRows = 12;
+constexpr int kListY = kChromeTitleH + 72;
 constexpr int kRefreshEvery = 24;
 constexpr int kMaxEntries = hsrc::sdk::process::kMaxProcesses;
 constexpr int kStatusChars = 128;
-
 constexpr int kThemePollEvery = 96;
 
 struct MonitorEntry {
@@ -65,9 +58,8 @@ int g_scroll = 0;
 int g_refresh_counter = 0;
 bool g_has_selected_stat = false;
 bool g_dirty = true;
+bool g_was_minimized = false;
 int g_theme_poll = 0;
-bool g_running = true;
-bool g_summary_open = true;
 pid_t g_selected_pid = -1;
 pid_t g_self_pid = -1;
 uint64_t g_prev_total_ticks = 0;
@@ -100,7 +92,6 @@ void append_uint(char *dst, size_t dst_size, uint32_t value)
 {
     char tmp[16];
     int i = 0;
-
     if (value == 0) {
         append_text(dst, dst_size, "0");
         return;
@@ -110,9 +101,7 @@ void append_uint(char *dst, size_t dst_size, uint32_t value)
         value /= 10u;
     }
     while (i-- > 0) {
-        char ch[2];
-        ch[0] = tmp[i];
-        ch[1] = 0;
+        char ch[2] = { tmp[i], 0 };
         append_text(dst, dst_size, ch);
     }
 }
@@ -124,7 +113,12 @@ void set_status(const char *text)
 
 bool refresh_window_options()
 {
-    return g_win.get_options(g_win_opts);
+    if (!g_win.get_options(g_win_opts))
+        return false;
+    if (g_was_minimized && !g_win_opts.minimized && g_win_opts.visible)
+        g_dirty = true;
+    g_was_minimized = g_win_opts.minimized;
+    return true;
 }
 
 uint64_t prev_ticks_for(pid_t pid)
@@ -158,16 +152,15 @@ void sort_entries()
     for (int i = 0; i < g_entry_count; i++) {
         for (int j = i + 1; j < g_entry_count; j++) {
             bool swap = false;
-            if (g_entries[j].cpu_pct > g_entries[i].cpu_pct) {
+            if (g_entries[j].cpu_pct > g_entries[i].cpu_pct)
                 swap = true;
-            } else if (g_entries[j].cpu_pct == g_entries[i].cpu_pct &&
-                       g_entries[j].proc.mem_bytes > g_entries[i].proc.mem_bytes) {
+            else if (g_entries[j].cpu_pct == g_entries[i].cpu_pct &&
+                     g_entries[j].proc.mem_bytes > g_entries[i].proc.mem_bytes)
                 swap = true;
-            } else if (g_entries[j].cpu_pct == g_entries[i].cpu_pct &&
-                       g_entries[j].proc.mem_bytes == g_entries[i].proc.mem_bytes &&
-                       g_entries[j].proc.pid < g_entries[i].proc.pid) {
+            else if (g_entries[j].cpu_pct == g_entries[i].cpu_pct &&
+                     g_entries[j].proc.mem_bytes == g_entries[i].proc.mem_bytes &&
+                     g_entries[j].proc.pid < g_entries[i].proc.pid)
                 swap = true;
-            }
             if (swap) {
                 MonitorEntry tmp = g_entries[i];
                 g_entries[i] = g_entries[j];
@@ -196,36 +189,6 @@ bool can_end_task()
            proc.state != hsrc::sdk::process::Zombie;
 }
 
-void format_bytes_kb(char *out, size_t out_size, uint32_t bytes)
-{
-    out[0] = 0;
-    append_uint(out, out_size, bytes / 1024u);
-    append_text(out, out_size, " KB");
-}
-
-void format_ticks(char *out, size_t out_size, uint64_t ticks)
-{
-    out[0] = 0;
-    append_uint(out, out_size, narrow_u64(ticks));
-    append_text(out, out_size, " ticks");
-}
-
-void format_percent(char *out, size_t out_size, uint32_t pct)
-{
-    out[0] = 0;
-    append_uint(out, out_size, pct);
-    append_text(out, out_size, "%");
-}
-
-void draw_stat_card(Surface &s, int x, const char *title, const char *value, const char *note)
-{
-    s.fill_round(x, kSummaryY, kSummaryW, kSummaryH, 10, theme().card);
-    s.rect(x, kSummaryY, kSummaryW, kSummaryH, theme().border, 1);
-    s.text(x + 16, kSummaryY + 14, title, theme().text_dim, 1);
-    s.text(x + 16, kSummaryY + 32, value, theme().text, 1);
-    s.text(x + 16, kSummaryY + 52, note, theme().text_soft, 1);
-}
-
 void refresh_monitor(bool keep_status)
 {
     ProcListEntry raw[kMaxEntries];
@@ -233,21 +196,20 @@ void refresh_monitor(bool keep_status)
     long count = hsrc::sdk::process::proc_list(raw, kMaxEntries);
 
     if (hsrc::sdk::process::sysinfo(&info) < 0) {
-        set_status("System info unavailable.");
+        set_status("sysinfo unavailable");
         return;
     }
     if (count < 0) {
-        set_status("Process list unavailable.");
+        set_status("proc_list unavailable");
         return;
     }
     if (count > kMaxEntries)
         count = kMaxEntries;
 
     uint64_t total_delta = 0;
-    uint32_t total_delta32;
     if (info.total_cpu_ticks >= g_prev_total_ticks)
         total_delta = info.total_cpu_ticks - g_prev_total_ticks;
-    total_delta32 = narrow_u64(total_delta);
+    uint32_t total_delta32 = narrow_u64(total_delta);
     g_total_cpu_pct = 0;
     if (total_delta32 > 0) {
         g_total_cpu_pct = (total_delta32 * 100u) / (uint32_t)kRefreshEvery;
@@ -273,12 +235,9 @@ void refresh_monitor(bool keep_status)
     g_prev_total_ticks = info.total_cpu_ticks;
 
     if (g_selected_pid > 0) {
-        if (hsrc::sdk::process::proc_stat(g_selected_pid, &g_selected_stat) == 0) {
-            g_has_selected_stat = true;
-        } else {
+        g_has_selected_stat = hsrc::sdk::process::proc_stat(g_selected_pid, &g_selected_stat) == 0;
+        if (!g_has_selected_stat)
             g_selected_pid = -1;
-            g_has_selected_stat = false;
-        }
     } else {
         g_has_selected_stat = false;
     }
@@ -286,7 +245,7 @@ void refresh_monitor(bool keep_status)
     if (g_scroll > 0 && g_scroll >= g_entry_count)
         g_scroll = g_entry_count > 0 ? g_entry_count - 1 : 0;
     if (!keep_status)
-        set_status("Bounded scheduler sample; refresh is cooperative.");
+        set_status("cooperative sample · select then end");
     g_dirty = true;
 }
 
@@ -295,119 +254,87 @@ void paint()
     if (!g_win.ok())
         return;
 
+    const auto &t = theme();
     Surface &s = g_win.surface();
-    s.clear(theme().bg);
-    s.draw_window_chrome(kWinW, g_win_opts.title, g_win_opts, theme().chrome, theme().text, theme().border);
-    s.fill(0, kChromeTitleH + kHeaderH - 1, kWinW, 1, theme().border);
-    s.text(78, kChromeTitleH + 12, "Activity Monitor", theme().text, 1);
-    s.text(78, kChromeTitleH + 30, "Bounded process view for Wave N", theme().text_dim, 1);
+    s.clear(t.bg);
+    s.draw_window_chrome(kWinW, g_win_opts.title, g_win_opts, t.chrome, t.text, t.border);
+
+    s.text(kPad, kChromeTitleH + 10, "Activity Monitor", t.text, 1);
+
+    char line[160];
+    line[0] = 0;
+    append_text(line, sizeof(line), "cpu ");
+    append_uint(line, sizeof(line), g_total_cpu_pct);
+    append_text(line, sizeof(line), "%  ram ");
+    append_uint(line, sizeof(line), g_sysinfo.used_ram_bytes / 1024u);
+    append_text(line, sizeof(line), "/");
+    append_uint(line, sizeof(line), g_sysinfo.total_ram_bytes / 1024u);
+    append_text(line, sizeof(line), " KB  procs ");
+    append_uint(line, sizeof(line), g_sysinfo.process_count);
+    s.text(kPad, kChromeTitleH + 30, line, t.text_dim, 1);
 
     const bool can_kill = can_end_task();
-    const Color task_bg = can_kill ? theme().danger_soft : theme().card;
-    const Color task_fg = can_kill ? theme().danger : theme().text_soft;
-    s.fill_round(kWinW - 20 - kTaskBtnW, kChromeTitleH + 14, kTaskBtnW, 28, 8, task_bg);
-    s.rect(kWinW - 20 - kTaskBtnW, kChromeTitleH + 14, kTaskBtnW, 28, can_kill ? theme().danger_soft : theme().border, 1);
-    s.text(kWinW - 20 - kTaskBtnW + 18, kChromeTitleH + 24, "End Task", task_fg, 1);
+    s.text(kWinW - kPad - 72, kChromeTitleH + 10, "[end]",
+           can_kill ? t.danger : t.text_soft, 1);
 
-    char cpu_value[32];
-    char ram_value[32];
-    char proc_value[32];
-    char uptime_value[32];
-    format_percent(cpu_value, sizeof(cpu_value), g_total_cpu_pct);
-    ram_value[0] = 0;
-    append_uint(ram_value, sizeof(ram_value), g_sysinfo.used_ram_bytes / 1024u);
-    append_text(ram_value, sizeof(ram_value), " / ");
-    append_uint(ram_value, sizeof(ram_value), g_sysinfo.total_ram_bytes / 1024u);
-    append_text(ram_value, sizeof(ram_value), " KB");
-    proc_value[0] = 0;
-    append_uint(proc_value, sizeof(proc_value), g_sysinfo.process_count);
-    uptime_value[0] = 0;
-    append_uint(uptime_value, sizeof(uptime_value), narrow_u64(g_sysinfo.uptime_ticks));
-
-    const char *summary_mark = g_summary_open ? "v Summary" : "> Summary";
-    s.fill_round(20, kSummaryY - 22, 120, 20, 6, theme().hover);
-    s.text(28, kSummaryY - 16, summary_mark, theme().text_dim, 1);
-
-    if (g_summary_open) {
-        draw_stat_card(s, 20, "CPU Sample", cpu_value, "sampled from cooperative scheduler ticks");
-        draw_stat_card(s, 20 + kSummaryW + kSummaryGap, "RAM", ram_value, "kernel heap used / total");
-        draw_stat_card(s, 20 + 2 * (kSummaryW + kSummaryGap), "Processes", proc_value, uptime_value);
-    }
-
-    s.text(kListX, kListY - 18, "Name", theme().text_dim, 1);
-    s.text(kListX + 288, kListY - 18, "PID", theme().text_dim, 1);
-    s.text(kListX + 360, kListY - 18, "State", theme().text_dim, 1);
-    s.text(kListX + 520, kListY - 18, "CPU", theme().text_dim, 1);
-    s.text(kListX + 640, kListY - 18, "Memory", theme().text_dim, 1);
-    s.fill_round(kListX, kListY, kListW, kListHeaderH + kVisibleRows * kRowH, 10, theme().card);
-    s.rect(kListX, kListY, kListW, kListHeaderH + kVisibleRows * kRowH, theme().border, 1);
+    s.text(kPad, kChromeTitleH + 52, "name", t.text_dim, 1);
+    s.text(kPad + 220, kChromeTitleH + 52, "pid", t.text_dim, 1);
+    s.text(kPad + 280, kChromeTitleH + 52, "state", t.text_dim, 1);
+    s.text(kPad + 400, kChromeTitleH + 52, "cpu", t.text_dim, 1);
+    s.text(kPad + 480, kChromeTitleH + 52, "mem", t.text_dim, 1);
+    s.fill(kPad, kChromeTitleH + 68, kWinW - kPad * 2, 1, t.border);
 
     for (int row = 0; row < kVisibleRows; row++) {
         const int index = g_scroll + row;
-        const int y = kListY + kListHeaderH + row * kRowH;
-        s.fill(kListX + 1, y, kListW - 2, 1, theme().border);
+        const int y = kListY + row * kRowH;
         if (index >= g_entry_count)
             continue;
 
         const MonitorEntry &entry = g_entries[index];
         const bool selected = entry.proc.pid == g_selected_pid;
         if (selected)
-            s.fill_round(kListX + 4, y + 2, kListW - 8, kRowH - 4, 8, theme().accent_soft);
-        else
-            s.fill_round(kListX + 4, y + 2, kListW - 8, kRowH - 4, 8, theme().hover);
+            s.fill(kPad, y, kWinW - kPad * 2, kRowH - 2, t.accent_soft);
 
         char pid_text[16];
         char cpu_text[16];
         char mem_text[24];
-        copy_text(pid_text, sizeof(pid_text), "");
+        pid_text[0] = 0;
         append_uint(pid_text, sizeof(pid_text), (uint32_t)entry.proc.pid);
-        format_percent(cpu_text, sizeof(cpu_text), entry.cpu_pct);
-        format_bytes_kb(mem_text, sizeof(mem_text), entry.proc.mem_bytes);
+        cpu_text[0] = 0;
+        append_uint(cpu_text, sizeof(cpu_text), entry.cpu_pct);
+        append_text(cpu_text, sizeof(cpu_text), "%");
+        mem_text[0] = 0;
+        append_uint(mem_text, sizeof(mem_text), entry.proc.mem_bytes / 1024u);
+        append_text(mem_text, sizeof(mem_text), "K");
 
-        s.text(kListX + 12, y + 10, entry.proc.name, selected ? theme().accent : theme().text, 1);
-        s.text(kListX + 288, y + 10, pid_text, selected ? theme().accent : theme().text, 1);
-        s.text(kListX + 360, y + 10, hsrc::sdk::process::state_name(entry.proc.state),
-               selected ? theme().accent : theme().text_dim, 1);
-        s.text(kListX + 520, y + 10, cpu_text, selected ? theme().accent : theme().text, 1);
-        s.text(kListX + 640, y + 10, mem_text, selected ? theme().accent : theme().text, 1);
+        Color fg = selected ? t.accent : t.text;
+        Color dim = selected ? t.accent : t.text_dim;
+        s.text(kPad + 4, y + 4, entry.proc.name, fg, 1);
+        s.text(kPad + 220, y + 4, pid_text, fg, 1);
+        s.text(kPad + 280, y + 4, hsrc::sdk::process::state_name(entry.proc.state), dim, 1);
+        s.text(kPad + 400, y + 4, cpu_text, fg, 1);
+        s.text(kPad + 480, y + 4, mem_text, fg, 1);
     }
 
-    s.fill_round(20, kDetailY - 34, kWinW - 40, 44, 8, theme().card);
-    s.rect(20, kDetailY - 34, kWinW - 40, 44, theme().border, 1);
+    s.fill(kPad, kWinH - 48, kWinW - kPad * 2, 1, t.border);
     if (g_has_selected_stat) {
-        char detail[256];
-        char ticks[40];
-        char mem[24];
+        char detail[200];
         detail[0] = 0;
         append_text(detail, sizeof(detail), g_selected_stat.name);
         append_text(detail, sizeof(detail), "  pid=");
         append_uint(detail, sizeof(detail), (uint32_t)g_selected_stat.pid);
-        append_text(detail, sizeof(detail), "  state=");
+        append_text(detail, sizeof(detail), "  ");
         append_text(detail, sizeof(detail), hsrc::sdk::process::state_name(g_selected_stat.state));
-        append_text(detail, sizeof(detail), "  uptime=");
-        append_uint(detail, sizeof(detail), narrow_u64(g_selected_stat.uptime_ticks));
-        append_text(detail, sizeof(detail), " ticks");
-        format_ticks(ticks, sizeof(ticks), g_selected_stat.cpu_ticks);
-        format_bytes_kb(mem, sizeof(mem), g_selected_stat.mem_bytes);
-        s.text(32, kDetailY - 20, detail, theme().text, 1);
-        s.text(32, kDetailY, ticks, theme().text_dim, 1);
-        s.text(220, kDetailY, mem, theme().text_dim, 1);
+        s.text(kPad, kWinH - 40, detail, t.text, 1);
     } else {
-        s.text(32, kDetailY - 12, "Select a process to inspect per-process stats.", theme().text_dim, 1);
+        s.text(kPad, kWinH - 40, "select a process", t.text_dim, 1);
     }
-
-    s.text(20, kWinH - 20, g_status, theme().text_dim, 1);
+    s.text(kPad, kWinH - 20, g_status, t.text_dim, 1);
 
     const bool can_prev = g_scroll > 0;
     const bool can_next = g_scroll + kVisibleRows < g_entry_count;
-    const int next_x = kWinW - 20 - kFooterBtnW;
-    const int prev_x = next_x - 10 - kFooterBtnW;
-    s.fill_round(prev_x, kWinH - 28, kFooterBtnW, 22, 6, can_prev ? theme().card : theme().inset);
-    s.fill_round(next_x, kWinH - 28, kFooterBtnW, 22, 6, can_next ? theme().card : theme().inset);
-    s.rect(prev_x, kWinH - 28, kFooterBtnW, 22, theme().border, 1);
-    s.rect(next_x, kWinH - 28, kFooterBtnW, 22, theme().border, 1);
-    s.text(prev_x + 19, kWinH - 20, "Prev", can_prev ? theme().text : theme().text_soft, 1);
-    s.text(next_x + 19, kWinH - 20, "Next", can_next ? theme().text : theme().text_soft, 1);
+    s.text(kWinW - 120, kWinH - 20, can_prev ? "prev" : "    ", t.text_dim, 1);
+    s.text(kWinW - 60, kWinH - 20, can_next ? "next" : "    ", t.text_dim, 1);
 
     g_win.damage();
     g_dirty = false;
@@ -415,11 +342,11 @@ void paint()
 
 int row_hit(int lx, int ly)
 {
-    if (lx < kListX || lx >= kListX + kListW)
+    if (lx < kPad || lx >= kWinW - kPad)
         return -1;
-    if (ly < kListY + kListHeaderH || ly >= kListY + kListHeaderH + kVisibleRows * kRowH)
+    if (ly < kListY || ly >= kListY + kVisibleRows * kRowH)
         return -1;
-    int row = (ly - (kListY + kListHeaderH)) / kRowH;
+    int row = (ly - kListY) / kRowH;
     int index = g_scroll + row;
     if (index < 0 || index >= g_entry_count)
         return -1;
@@ -428,57 +355,51 @@ int row_hit(int lx, int ly)
 
 int footer_hit(int lx, int ly)
 {
-    const int next_x = kWinW - 20 - kFooterBtnW;
-    const int prev_x = next_x - 10 - kFooterBtnW;
-    if (ly < kWinH - 28 || ly >= kWinH - 6)
+    if (ly < kWinH - 24 || ly >= kWinH - 6)
         return -1;
-    if (lx >= prev_x && lx < prev_x + kFooterBtnW)
+    if (lx >= kWinW - 120 && lx < kWinW - 70)
         return 0;
-    if (lx >= next_x && lx < next_x + kFooterBtnW)
+    if (lx >= kWinW - 60 && lx < kWinW - 20)
         return 1;
     return -1;
 }
 
-bool task_button_hit(int lx, int ly)
+bool end_hit(int lx, int ly)
 {
-    const int x = kWinW - 20 - kTaskBtnW;
-    const int y = kChromeTitleH + 14;
-    return lx >= x && lx < x + kTaskBtnW && ly >= y && ly < y + 28;
-}
-
-bool summary_toggle_hit(int lx, int ly)
-{
-    return lx >= 20 && lx < 140 && ly >= kSummaryY - 22 && ly < kSummaryY - 2;
+    return lx >= kWinW - kPad - 72 && lx < kWinW - kPad &&
+           ly >= kChromeTitleH + 8 && ly < kChromeTitleH + 28;
 }
 
 void perform_end_task()
 {
     int idx = selected_index();
     if (idx < 0) {
-        set_status("Select a process first.");
+        set_status("select a process first");
         g_dirty = true;
         return;
     }
     if (!can_end_task()) {
-        set_status("Selected process cannot be terminated here.");
+        set_status("cannot end this process");
         g_dirty = true;
         return;
     }
 
     long rc = hsrc::sdk::process::kill(g_entries[idx].proc.pid);
     if (rc < 0) {
-        set_status("End Task failed.");
+        set_status("end failed");
         g_dirty = true;
         return;
     }
 
-    set_status("Process terminated.");
+    set_status("terminated");
     refresh_monitor(true);
 }
 
 void handle_click(const Input &in)
 {
     if (!refresh_window_options())
+        return;
+    if (g_win_opts.minimized || !g_win_opts.visible)
         return;
 
     const int lx = in.mouse_x - g_win_opts.x;
@@ -494,13 +415,7 @@ void handle_click(const Input &in)
         return;
     }
 
-    if (summary_toggle_hit(lx, ly)) {
-        g_summary_open = !g_summary_open;
-        g_dirty = true;
-        return;
-    }
-
-    if (task_button_hit(lx, ly)) {
+    if (end_hit(lx, ly)) {
         perform_end_task();
         return;
     }
@@ -529,17 +444,29 @@ void handle_click(const Input &in)
     }
 }
 
-bool build_ui()
+} // namespace
+
+extern "C" void mke_main(void)
 {
+    g_dirty = true;
+
+    if (!hsrc::sdk::screen_info(g_screen) || g_screen.width == 0 || g_screen.height == 0) {
+        for (;;)
+            hsrc::sdk::yield();
+    }
+
+    g_self_pid = (pid_t)hsrc::sdk::process::getpid();
+    set_status("collecting...");
+    (void)refresh_theme();
+
     WindowOptions opts;
     opts.x = g_screen.width > (uint32_t)kWinW ? ((int)g_screen.width - kWinW) / 2 : 24;
     opts.y = g_screen.height > (uint32_t)kWinH ? ((int)g_screen.height - kWinH) / 2 : 24;
     opts.w = kWinW;
     opts.h = kWinH;
-    opts.background = false;
+    opts.radius = 10;
     opts.rounded = true;
     opts.shadow = true;
-    opts.radius = 10;
     opts.resizable = false;
     opts.framed = true;
     opts.closable = true;
@@ -549,32 +476,11 @@ bool build_ui()
     opts.set_title("Activity Monitor");
     opts.set_class_name("os.activity-monitor");
 
-    if (!g_win.create(opts))
-        return false;
-    return refresh_window_options();
-}
-
-} // namespace
-
-extern "C" void mke_main(void)
-{
-    /* Explicit — do not rely on CRT dynamic/static init for globals. */
-    g_running = true;
-    g_dirty = true;
-
-    if (!hsrc::sdk::screen_info(g_screen) || g_screen.width == 0 || g_screen.height == 0) {
+    if (!g_win.create(opts)) {
         for (;;)
             hsrc::sdk::yield();
     }
-
-    g_self_pid = (pid_t)hsrc::sdk::process::getpid();
-    set_status("Collecting process data...");
-    (void)refresh_theme();
-
-    if (!build_ui()) {
-        for (;;)
-            hsrc::sdk::yield();
-    }
+    (void)refresh_window_options();
 
     g_win.show(true);
     g_win.focus();
@@ -583,7 +489,7 @@ extern "C" void mke_main(void)
     (void)hsrc::sdk::present();
 
     for (;;) {
-        if (!g_running || !g_win.ok()) {
+        if (!g_win.ok()) {
             (void)g_win.close();
             hsrc::sdk::exit(0);
         }
@@ -595,16 +501,19 @@ extern "C" void mke_main(void)
                 g_dirty = true;
         }
 
+        (void)refresh_window_options();
+
         Input in{};
         if (hsrc::sdk::input(in)) {
             const uint8_t pressed = (uint8_t)(in.buttons & ~g_prev_input.buttons);
             if (pressed & UGX_BTN_LEFT) {
+                const bool interactive = !g_win_opts.minimized && g_win_opts.visible;
                 const int lx = in.mouse_x - g_win_opts.x;
                 const int ly = in.mouse_y - g_win_opts.y;
-                const bool over = refresh_window_options() &&
+                const bool over = interactive &&
                                   lx >= 0 && ly >= 0 &&
                                   lx < g_win_opts.w && ly < g_win_opts.h;
-                if (over || in.focus_id == g_win.id())
+                if (over || (interactive && in.focus_id == g_win.id()))
                     handle_click(in);
             }
             g_prev_input = in;
@@ -613,10 +522,11 @@ extern "C" void mke_main(void)
         g_refresh_counter++;
         if (g_refresh_counter >= kRefreshEvery) {
             g_refresh_counter = 0;
-            refresh_monitor(true);
+            if (!g_win_opts.minimized)
+                refresh_monitor(true);
         }
 
-        if (g_dirty) {
+        if (g_dirty && !g_win_opts.minimized) {
             paint();
             (void)hsrc::sdk::present();
         }

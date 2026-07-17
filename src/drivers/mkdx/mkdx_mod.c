@@ -359,6 +359,14 @@ static int api_wm_find(const char *title)
     return wm_find_by_title(&s->wm, title);
 }
 
+static int api_wm_find_class(const char *class_name)
+{
+    gx_server *s = gx_server_get();
+    if (!s || !class_name)
+        return -1;
+    return wm_find_by_class(&s->wm, class_name);
+}
+
 static int api_fill(const void *args, int rounded)
 {
     const ugx_fill_args *a = (const ugx_fill_args *)args;
@@ -447,7 +455,9 @@ static int api_input_state(void *out)
 
 static void api_pump_input(void)
 {
+    /* Input first, then independent compositor clock (C10/T01/S06). */
     gx_server_pump_input();
+    (void)gx_server_frame_tick();
 }
 
 static int api_console_alloc(int pid, const char *name, int visible)
@@ -492,6 +502,7 @@ static const mkdx_api_t g_api = {
     .wm_pop_key = api_wm_pop_key,
     .wm_focused_id = api_wm_focused_id,
     .wm_find = api_wm_find,
+    .wm_find_class = api_wm_find_class,
     .fill = api_fill,
     .set_wallpaper = api_set_wallpaper,
     .input_state = api_input_state,

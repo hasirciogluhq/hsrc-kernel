@@ -58,6 +58,7 @@ wm_window *wm_get(wm_t *wm, int id);
 int        wm_apply_opts(wm_t *wm, int id, const ugx_window_opts *opts);
 int        wm_get_opts(wm_t *wm, int id, ugx_window_opts *out);
 int        wm_find_by_title(wm_t *wm, const char *title);
+int        wm_find_by_class(wm_t *wm, const char *class_name);
 int        wm_map(wm_t *wm, int id, wm_map_info *out);
 void       wm_move(wm_t *wm, int id, int32_t x, int32_t y);
 void       wm_resize(wm_t *wm, int id, int32_t w, int32_t h);

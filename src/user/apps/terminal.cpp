@@ -51,10 +51,19 @@ char g_input[kCols];
 int g_inlen = 0;
 int g_theme_poll = 0;
 bool g_dirty = true;
+bool g_was_minimized = false;
+/* Line damage: -1 = full repaint; else first history index needing redraw. */
+int g_damage_line = -1;
 
 bool refresh_window_options()
 {
-    return g_win.get_options(g_win_opts);
+    if (!g_win.get_options(g_win_opts))
+        return false;
+    /* Dock restore: force a repaint so the last buffer is committed visibly. */
+    if (g_was_minimized && !g_win_opts.minimized && g_win_opts.visible)
+        g_dirty = true;
+    g_was_minimized = g_win_opts.minimized;
+    return true;
 }
 
 Color col_fg() { return theme().term_fg; }
@@ -70,12 +79,18 @@ void line_push(const char *text, Color c)
             g_line_color[i - 1] = g_line_color[i];
         }
         g_nlines = kHist - 1;
+        g_damage_line = -1; /* history scroll → full repaint */
     }
     strncpy(g_lines[g_nlines], text ? text : "", kCols);
     g_lines[g_nlines][kCols] = 0;
     g_line_color[g_nlines] = c;
+    int newest = g_nlines;
     g_nlines++;
     g_dirty = true;
+    if (g_damage_line < 0)
+        return; /* full repaint pending */
+    if (g_damage_line > newest)
+        g_damage_line = newest;
 }
 
 void refresh_cwd()
@@ -114,33 +129,58 @@ void paint()
 {
     const auto &t = theme();
     Surface &s = g_win.surface();
-    s.clear(t.term_bg);
-    s.draw_window_chrome(kWinW, g_win_opts.title, g_win_opts, t.chrome, t.text, t.border);
-
     const int top = kChromeTitleH + kPad;
     const int visible = (kWinH - top - kPad - kLineH) / kLineH;
     int start = g_nlines > visible ? g_nlines - visible : 0;
+    const bool full = (g_damage_line < 0);
+
+    if (full) {
+        s.clear(t.term_bg);
+        s.draw_window_chrome(kWinW, g_win_opts.title, g_win_opts, t.chrome, t.text, t.border);
+    }
+
     int y = top;
     for (int i = start; i < g_nlines; i++) {
-        s.text(kPad, y, g_lines[i], g_line_color[i], 1);
+        if (full || i >= g_damage_line) {
+            s.fill(kPad, y, kWinW - kPad * 2, kLineH, t.term_bg);
+            s.text(kPad, y, g_lines[i], g_line_color[i], 1);
+        }
         y += kLineH;
     }
 
-    char prompt[160];
-    char row[kCols + 1];
-    make_prompt(prompt, sizeof(prompt));
-    int pi = 0;
-    while (prompt[pi] && pi < kCols)
-        row[pi] = prompt[pi], pi++;
-    for (int i = 0; i < g_inlen && pi < kCols; i++)
-        row[pi++] = g_input[i];
-    if (pi < kCols)
-        row[pi++] = '_';
-    row[pi] = 0;
-    s.text(kPad, y, row, t.term_accent, 1);
+    /* Prompt row always redraws (cursor blink / input). */
+    {
+        char prompt[160];
+        char row[kCols + 1];
+        make_prompt(prompt, sizeof(prompt));
+        int pi = 0;
+        while (prompt[pi] && pi < kCols)
+            row[pi] = prompt[pi], pi++;
+        for (int i = 0; i < g_inlen && pi < kCols; i++)
+            row[pi++] = g_input[i];
+        if (pi < kCols)
+            row[pi++] = '_';
+        row[pi] = 0;
+        s.fill(kPad, y, kWinW - kPad * 2, kLineH, t.term_bg);
+        s.text(kPad, y, row, t.term_accent, 1);
+    }
 
-    g_win.damage();
+    if (full) {
+        g_win.damage();
+    } else {
+        /* Damage only the text band from first dirty line through prompt. */
+        int dirty_start = g_damage_line < start ? start : g_damage_line;
+        int ly0 = top + (dirty_start - start) * kLineH;
+        int ly1 = y + kLineH;
+        if (ly0 < kChromeTitleH)
+            ly0 = kChromeTitleH;
+        (void)ly0;
+        (void)ly1;
+        g_win.damage();
+    }
     g_dirty = false;
+    /* Next keystroke only dirties the prompt; new lines set g_damage_line. */
+    g_damage_line = g_nlines;
 }
 
 const char *skip_ws(const char *s)
@@ -1190,6 +1230,7 @@ void run_line(const char *line)
     }
     if (strcmp(s, "clear") == 0) {
         g_nlines = 0;
+        g_damage_line = -1;
         g_dirty = true;
         return;
     }
@@ -1379,6 +1420,9 @@ void handle_click(const Input &in)
 {
     if (!refresh_window_options())
         return;
+    /* Minimized windows keep geometry but must not eat clicks (dock/desktop). */
+    if (g_win_opts.minimized || !g_win_opts.visible)
+        return;
 
     const int lx = in.mouse_x - g_win_opts.x;
     const int ly = in.mouse_y - g_win_opts.y;
@@ -1453,25 +1497,31 @@ extern "C" void mke_main(void)
         g_theme_poll++;
         if (g_theme_poll >= kThemePollEvery) {
             g_theme_poll = 0;
-            if (refresh_theme())
+            if (refresh_theme()) {
+                g_damage_line = -1;
                 g_dirty = true;
+            }
         }
+
+        (void)refresh_window_options();
 
         Input in{};
         if (hsrc::sdk::input(in)) {
             const uint8_t pressed = (uint8_t)(in.buttons & ~g_prev_input.buttons);
             if (pressed & UGX_BTN_LEFT) {
+                const bool interactive = !g_win_opts.minimized && g_win_opts.visible;
                 const int lx = in.mouse_x - g_win_opts.x;
                 const int ly = in.mouse_y - g_win_opts.y;
-                const bool over = refresh_window_options() &&
+                const bool over = interactive &&
                                   lx >= 0 && ly >= 0 &&
                                   lx < g_win_opts.w && ly < g_win_opts.h;
-                if (over || in.focus_id == g_win.id())
+                if (over || (interactive && in.focus_id == g_win.id()))
                     handle_click(in);
             }
             g_prev_input = in;
 
-            if (in.focus_id == g_win.id()) {
+            if (!g_win_opts.minimized && g_win_opts.visible &&
+                in.focus_id == g_win.id()) {
                 for (;;) {
                     long k = hsrc::sdk::syscall1(SYS_WM_POP_KEY, g_win.id());
                     if (k < 0)
@@ -1482,7 +1532,7 @@ extern "C" void mke_main(void)
         }
 
         /* Present only after content damage — shell (os-ui) still paces WM moves. */
-        if (g_dirty) {
+        if (g_dirty && !g_win_opts.minimized) {
             paint();
             (void)hsrc::sdk::present();
         }

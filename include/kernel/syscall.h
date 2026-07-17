@@ -94,6 +94,13 @@
 #define SYS_GETARGC         268
 #define SYS_GETARGV         269
 
+/* Time (shared page + rare calibration/set). */
+#define SYS_TIME_MAP        270  /* → pointer to time_page_t (identity) */
+#define SYS_TIME_GET        271  /* copy time_snapshot_t to user */
+#define SYS_TIME_SET        272  /* set UTC ns (a1=lo, a2=hi) */
+#define SYS_TIME_SETTZ      273  /* a1=offset_sec, a2=name ptr */
+#define SYS_TIME_SETFLAGS   274  /* a1=flags */
+
 /* SYS_SPAWN flags (Wave O). */
 #define SPAWN_CONSOLE_VISIBLE  0x01u
 #define SPAWN_CONSOLE_HIDDEN   0x02u

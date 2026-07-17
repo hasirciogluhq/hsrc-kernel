@@ -13,8 +13,17 @@
 #define CURSOR_H 19
 
 static gx_server g_server;
-/* Set while composing/full-presenting so pump_input won't fight the frame. */
-static int g_present_busy;
+/*
+ * Set for the whole compose→scanout critical section. While set:
+ *  - WM drag geometry is deferred (avoids mid-frame layer moves)
+ *  - new damage accumulates into pending_* (never cleared with this frame)
+ */
+static int g_frame_busy;
+static int g_pending_dirty;
+static int g_pending_full;
+static gx_rect g_pending_rect;
+static int g_deferred_move;
+static int32_t g_deferred_mx, g_deferred_my;
 
 /* Classic arrow — 0 empty, 1 outline, 2 fill */
 static const uint8_t cursor_mask[CURSOR_H][CURSOR_W] = {
@@ -114,10 +123,54 @@ static void present_rect(gx_server *s, int32_t x, int32_t y, int32_t w, int32_t 
         ops->present(bb->pixels, bb->stride);
 }
 
+static void pending_mark_full(void)
+{
+    g_pending_dirty = 1;
+    g_pending_full = 1;
+}
+
+static void pending_mark_rect(gx_rect r)
+{
+    gx_rect screen;
+
+    if (g_pending_full) {
+        g_pending_dirty = 1;
+        return;
+    }
+    screen = gx_rect_make(0, 0, (int32_t)g_server.device.mode.width,
+                          (int32_t)g_server.device.mode.height);
+    r = gx_rect_intersect(r, screen);
+    if (gx_rect_empty(r))
+        return;
+    if (!g_pending_dirty || gx_rect_empty(g_pending_rect))
+        g_pending_rect = r;
+    else
+        g_pending_rect = gx_rect_union(g_pending_rect, r);
+    g_pending_dirty = 1;
+}
+
+static void merge_pending_into_dirty(gx_server *s)
+{
+    if (!g_pending_dirty)
+        return;
+    if (g_pending_full)
+        gx_server_mark_dirty();
+    else
+        gx_server_mark_dirty_rect(g_pending_rect);
+    g_pending_dirty = 0;
+    g_pending_full = 0;
+    g_pending_rect = gx_rect_make(0, 0, 0, 0);
+    (void)s;
+}
+
 void gx_server_mark_dirty(void)
 {
     if (!g_server.ready)
         return;
+    if (g_frame_busy) {
+        pending_mark_full();
+        return;
+    }
     g_server.dirty = 1;
     g_server.dirty_full = 1;
 }
@@ -130,6 +183,10 @@ void gx_server_mark_dirty_rect(gx_rect r)
 
     if (!g_server.ready)
         return;
+    if (g_frame_busy) {
+        pending_mark_rect(r);
+        return;
+    }
     if (g_server.dirty_full) {
         g_server.dirty = 1;
         return;
@@ -182,6 +239,26 @@ static void flush_cursor_at(gx_server *s, int32_t mx, int32_t my)
     s->cursor_y = my;
 }
 
+static void apply_wm_move(gx_server *s, int32_t x, int32_t y)
+{
+    if (g_frame_busy) {
+        /* Keep latest pointer; apply after the frame so old scene stays coherent. */
+        g_deferred_move = 1;
+        g_deferred_mx = x;
+        g_deferred_my = y;
+        return;
+    }
+    wm_on_mouse_move(&s->wm, x, y);
+}
+
+static void flush_deferred_move(gx_server *s)
+{
+    if (!g_deferred_move)
+        return;
+    g_deferred_move = 0;
+    wm_on_mouse_move(&s->wm, g_deferred_mx, g_deferred_my);
+}
+
 void gx_server_poll_input(void)
 {
     gx_server *s = gx_server_get();
@@ -201,22 +278,24 @@ void gx_server_poll_input(void)
             have_move = 1;
         } else if (ev.type == MOUSE_EV_DOWN) {
             if (have_move) {
-                wm_on_mouse_move(&s->wm, last_move.x, last_move.y);
+                apply_wm_move(s, last_move.x, last_move.y);
                 have_move = 0;
             }
             /* Focus/raise/drag paths mark their own damage rects. */
-            wm_on_mouse_button(&s->wm, ev.button, 1, ev.x, ev.y);
+            if (!g_frame_busy)
+                wm_on_mouse_button(&s->wm, ev.button, 1, ev.x, ev.y);
         } else if (ev.type == MOUSE_EV_UP) {
             if (have_move) {
-                wm_on_mouse_move(&s->wm, last_move.x, last_move.y);
+                apply_wm_move(s, last_move.x, last_move.y);
                 have_move = 0;
             }
-            wm_on_mouse_button(&s->wm, ev.button, 0, ev.x, ev.y);
+            if (!g_frame_busy)
+                wm_on_mouse_button(&s->wm, ev.button, 0, ev.x, ev.y);
         }
     }
     if (have_move) {
         /* wm_move damages old+new frames; do not escalate to full-screen dirty. */
-        wm_on_mouse_move(&s->wm, last_move.x, last_move.y);
+        apply_wm_move(s, last_move.x, last_move.y);
     }
 
     while ((ch = keyboard_getchar()) >= 0)
@@ -235,7 +314,7 @@ void gx_server_pump_input(void)
     gx_server_poll_input();
 
     /* Don't redraw cursor while compose/full-present owns the backbuffer. */
-    if (g_present_busy)
+    if (g_frame_busy)
         return;
 
     ms = mouse_get();
@@ -277,6 +356,7 @@ int gx_server_init(void)
     g_server.dirty = 1;
     g_server.dirty_full = 1;
     g_server.dirty_rect = gx_rect_make(0, 0, 0, 0);
+    g_server.frame_seq = 0;
     g_server.ready = 1;
     return 0;
 }
@@ -286,42 +366,32 @@ gx_server *gx_server_get(void)
     return g_server.ready ? &g_server : NULL;
 }
 
-static void present_frame_banded(gx_server *s, display_ops_t *ops,
-                                 gx_surface *bb, int32_t *mx, int32_t *my)
+static void present_full_frame(gx_server *s, display_ops_t *ops,
+                               gx_surface *bb, int32_t *mx, int32_t *my)
 {
-    const uint32_t band_h = 48;
-    uint32_t y;
     const mouse_state_t *ms;
 
-    if (!ops->present_rect) {
-        g_present_busy = 1;
-        ops->present(bb->pixels, bb->stride);
-        g_present_busy = 0;
-        return;
-    }
+    /*
+     * Prefer atomic full present: BGA Y_OFFSET page-flip / virtio resource flush.
+     * Drivers drain PS/2 during the copy; WM moves stay deferred via g_frame_busy.
+     */
+    ops->present(bb->pixels, bb->stride);
 
-    /* Present in horizontal bands; between bands drain PS/2 and move cursor
-     * so a dirty full-frame blit cannot freeze the pointer for the whole copy. */
-    for (y = 0; y < bb->height; y += band_h) {
-        uint32_t h = band_h;
-        if (y + h > bb->height)
-            h = bb->height - y;
-
-        g_present_busy = 1;
-        ops->present_rect(bb->pixels, bb->stride, 0, y, bb->width, h);
-        g_present_busy = 0;
-
-        gx_server_poll_input();
-        ms = mouse_get();
-        if (ms && (ms->x != *mx || ms->y != *my)) {
-            flush_cursor_at(s, ms->x, ms->y);
-            *mx = ms->x;
-            *my = ms->y;
-        }
+    gx_server_poll_input();
+    ms = mouse_get();
+    if (ms && (ms->x != *mx || ms->y != *my)) {
+        flush_cursor_at(s, ms->x, ms->y);
+        *mx = ms->x;
+        *my = ms->y;
     }
 }
 
-void gx_server_present(void)
+/*
+ * Independent frame clock (C10/T01): compose+scanout when dirty.
+ * Called from present syscall and from yield (via pump) so apps that skip
+ * present still get WM move/focus damage painted.
+ */
+int gx_server_frame_tick(void)
 {
     gx_server *s = gx_server_get();
     display_ops_t *ops;
@@ -333,14 +403,26 @@ void gx_server_present(void)
     int full;
 
     if (!s)
-        return;
+        return -1;
 
-    /* Live cursor first — even if a dirty compose follows. */
-    gx_server_pump_input();
+    /* Nested tick / re-enter: only one frame producer. */
+    if (g_frame_busy)
+        return 0;
 
     ops = display_active();
     if (!ops || !ops->present)
-        return;
+        return -1;
+
+    if (!s->dirty) {
+        gx_server_poll_input();
+        ms = mouse_get();
+        mx = ms ? ms->x : 0;
+        my = ms ? ms->y : 0;
+        flush_cursor_at(s, mx, my);
+        flush_deferred_move(s);
+        merge_pending_into_dirty(s);
+        return 0;
+    }
 
     ms = mouse_get();
     mx = ms ? ms->x : 0;
@@ -349,31 +431,35 @@ void gx_server_present(void)
     bb = s->device.backbuffer;
     scene = s->scene;
 
-    if (s->dirty) {
+    full = s->dirty_full || gx_rect_empty(s->dirty_rect);
+    if (full) {
+        damage = gx_rect_make(0, 0, (int32_t)scene->width, (int32_t)scene->height);
+    } else {
+        damage = gx_rect_intersect(
+            s->dirty_rect,
+            gx_rect_make(0, 0, (int32_t)scene->width, (int32_t)scene->height));
+        if (gx_rect_empty(damage)) {
+            s->dirty = 0;
+            s->dirty_full = 0;
+            flush_cursor_at(s, mx, my);
+            return 0;
+        }
+    }
+
+    /* Snapshot damage, then clear live dirty so mid-frame marks go to pending. */
+    s->dirty = 0;
+    s->dirty_full = 0;
+    s->dirty_rect = gx_rect_make(0, 0, 0, 0);
+
+    g_frame_busy = 1;
+
+    {
         static int s_present_log;
         int li, nvis = 0;
 
-        full = s->dirty_full || gx_rect_empty(s->dirty_rect);
-        if (full) {
-            damage = gx_rect_make(0, 0, (int32_t)scene->width, (int32_t)scene->height);
-        } else {
-            damage = gx_rect_intersect(
-                s->dirty_rect,
-                gx_rect_make(0, 0, (int32_t)scene->width, (int32_t)scene->height));
-            if (gx_rect_empty(damage)) {
-                s->dirty = 0;
-                s->dirty_full = 0;
-                flush_cursor_at(s, mx, my);
-                return;
-            }
-        }
-
-        /* Compose into the cursor-free scene buffer (partial when possible). */
-        g_present_busy = 1;
         gx_compositor_compose_rect(&s->comp, scene, damage);
-        g_present_busy = 0;
 
-        /* Compose can take a long time — drain PS/2 and take latest pointer. */
+        /* Drain PS/2; WM moves stay deferred until frame completes. */
         gx_server_poll_input();
         ms = mouse_get();
         mx = ms ? ms->x : 0;
@@ -413,38 +499,52 @@ void gx_server_present(void)
 
         /* Scene → backbuffer for the damaged region, then overlay cursor. */
         blit_scene_rect_to_bb(s, damage.x, damage.y, damage.w, damage.h);
-        /* Also refresh previous cursor footprint from the new scene. */
         if (s->cursor_x >= 0 && s->cursor_y >= 0)
             blit_scene_rect_to_bb(s, s->cursor_x, s->cursor_y, CURSOR_W, CURSOR_H);
         draw_cursor_on_bb(s, mx, my);
 
         if (full) {
-            present_frame_banded(s, ops, bb, &mx, &my);
+            present_full_frame(s, ops, bb, &mx, &my);
         } else {
             gx_rect pr = damage;
-            /* Include old/new cursor rects so partial present stays tear-free. */
             if (s->cursor_x >= 0 && s->cursor_y >= 0)
                 pr = gx_rect_union(pr, gx_rect_make(s->cursor_x, s->cursor_y,
                                                     CURSOR_W, CURSOR_H));
             pr = gx_rect_union(pr, gx_rect_make(mx, my, CURSOR_W, CURSOR_H));
-            g_present_busy = 1;
             present_rect(s, pr.x, pr.y, pr.w, pr.h);
-            g_present_busy = 0;
         }
 
         s->cursor_x = mx;
         s->cursor_y = my;
-        s->dirty = 0;
-        s->dirty_full = 0;
-        s->dirty_rect = gx_rect_make(0, 0, 0, 0);
-
-        /* Apply any motion that arrived during present. */
-        gx_server_poll_input();
-        ms = mouse_get();
-        if (ms)
-            flush_cursor_at(s, ms->x, ms->y);
-        return;
+        s->frame_seq++;
     }
 
-    flush_cursor_at(s, mx, my);
+    g_frame_busy = 0;
+
+    /* Apply deferred drag + any damage marked during the frame. */
+    flush_deferred_move(s);
+    merge_pending_into_dirty(s);
+
+    gx_server_poll_input();
+    ms = mouse_get();
+    if (ms)
+        flush_cursor_at(s, ms->x, ms->y);
+
+    return 0;
+}
+
+void gx_server_present(void)
+{
+    gx_server *s = gx_server_get();
+    if (!s)
+        return;
+
+    /* Pre-frame input (not busy yet — drag applies immediately). */
+    gx_server_poll_input();
+    gx_server_frame_tick();
+}
+
+uint32_t gx_server_frame_seq(void)
+{
+    return g_server.ready ? g_server.frame_seq : 0;
 }

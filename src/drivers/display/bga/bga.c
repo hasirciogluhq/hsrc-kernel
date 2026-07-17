@@ -18,6 +18,11 @@
 #define VBE_DISPI_INDEX_YRES    0x2
 #define VBE_DISPI_INDEX_BPP     0x3
 #define VBE_DISPI_INDEX_ENABLE  0x4
+#define VBE_DISPI_INDEX_BANK    0x5
+#define VBE_DISPI_INDEX_VIRT_WIDTH  0x6
+#define VBE_DISPI_INDEX_VIRT_HEIGHT 0x7
+#define VBE_DISPI_INDEX_X_OFFSET    0x8
+#define VBE_DISPI_INDEX_Y_OFFSET    0x9
 #define VBE_DISPI_DISABLED      0x00
 #define VBE_DISPI_ENABLED       0x01
 #define VBE_DISPI_LFB_ENABLED   0x40
@@ -29,6 +34,8 @@
 
 static display_mode_t g_mode;
 static int g_ready;
+static int g_flip_ok;          /* virt-height double buffer available */
+static int g_front_page;       /* 0 or 1 — currently scanned out */
 static display_ops_t g_ops;
 
 static void bga_write(uint16_t index, uint16_t value)
@@ -51,10 +58,24 @@ static uint32_t bga_find_lfb(void)
     return 0xE0000000u;
 }
 
+static volatile uint32_t *bga_page_ptr(int page)
+{
+    uint32_t stride = g_mode.pitch / 4u;
+    return (volatile uint32_t *)g_mode.addr +
+           (uint32_t)page * g_mode.height * stride;
+}
+
+static void bga_flip_to(int page)
+{
+    bga_write(VBE_DISPI_INDEX_Y_OFFSET, (uint16_t)(page * g_mode.height));
+    g_front_page = page;
+}
+
 static int bga_set_mode(uint32_t width, uint32_t height, uint32_t bpp)
 {
     uint16_t id = bga_read(VBE_DISPI_INDEX_ID);
     uint32_t lfb;
+    uint16_t virt_h;
 
     if ((id & VBE_DISPI_ID_MASK) != VBE_DISPI_ID_MAGIC)
         return -1;
@@ -63,6 +84,11 @@ static int bga_set_mode(uint32_t width, uint32_t height, uint32_t bpp)
     bga_write(VBE_DISPI_INDEX_XRES, (uint16_t)width);
     bga_write(VBE_DISPI_INDEX_YRES, (uint16_t)height);
     bga_write(VBE_DISPI_INDEX_BPP, (uint16_t)bpp);
+    /* Double-height virtual FB for Y_OFFSET page flip (tear-free present). */
+    bga_write(VBE_DISPI_INDEX_VIRT_WIDTH, (uint16_t)width);
+    bga_write(VBE_DISPI_INDEX_VIRT_HEIGHT, (uint16_t)(height * 2u));
+    bga_write(VBE_DISPI_INDEX_X_OFFSET, 0);
+    bga_write(VBE_DISPI_INDEX_Y_OFFSET, 0);
     bga_write(VBE_DISPI_INDEX_ENABLE, VBE_DISPI_ENABLED | VBE_DISPI_LFB_ENABLED);
 
     lfb = bga_find_lfb();
@@ -76,7 +102,11 @@ static int bga_set_mode(uint32_t width, uint32_t height, uint32_t bpp)
     g_mode.bpp = bpp;
     g_mode.bytes_per_pixel = bpp / 8;
     g_mode.pitch = width * g_mode.bytes_per_pixel;
+    g_front_page = 0;
     g_ready = 1;
+
+    virt_h = bga_read(VBE_DISPI_INDEX_VIRT_HEIGHT);
+    g_flip_ok = (bpp == 32 && virt_h >= (uint16_t)(height * 2u)) ? 1 : 0;
 
     klog("[bga] mode ");
     serial_print_uint(width);
@@ -84,15 +114,20 @@ static int bga_set_mode(uint32_t width, uint32_t height, uint32_t bpp)
     serial_print_uint(height);
     klog(" lfb=");
     serial_print_hex(lfb);
-    klog("\n");
+    klog(g_flip_ok ? " flip=y\n" : " flip=n\n");
 
     /* Avoid pure black after leaving VGA text — proves LFB is alive. */
     if (g_mode.bytes_per_pixel == 4) {
-        volatile uint32_t *px = (volatile uint32_t *)g_mode.addr;
+        volatile uint32_t *px = bga_page_ptr(0);
         uint32_t n = width * height;
         uint32_t i;
         for (i = 0; i < n; i++)
             px[i] = 0xFF305C8Cu; /* desktop-ish blue */
+        if (g_flip_ok) {
+            px = bga_page_ptr(1);
+            for (i = 0; i < n; i++)
+                px[i] = 0xFF305C8Cu;
+        }
     }
     return 0;
 }
@@ -105,20 +140,43 @@ static int bga_get_mode(display_mode_t *out)
     return 0;
 }
 
+static void copy_page_from_src(volatile uint32_t *dst, const uint32_t *src,
+                               uint32_t src_stride_px)
+{
+    uint32_t y, x;
+    uint32_t dst_stride = g_mode.pitch / 4u;
+
+    for (y = 0; y < g_mode.height; y++) {
+        const uint32_t *srow = src + y * src_stride_px;
+        volatile uint32_t *drow = dst + y * dst_stride;
+        if ((y & 7) == 0)
+            ps2_poll();
+        for (x = 0; x < g_mode.width; x++)
+            drow[x] = srow[x];
+    }
+}
+
 static int bga_present(const uint32_t *src, uint32_t src_stride_px)
 {
     uint32_t y, x;
     if (!g_ready || !src)
         return -1;
 
-    /* Volatile dword stores — memcpy to MMIO LFB is unreliable on some QEMU builds. */
+    if (g_mode.bytes_per_pixel == 4 && g_flip_ok) {
+        int back = 1 - g_front_page;
+        copy_page_from_src(bga_page_ptr(back), src, src_stride_px);
+        /* Atomic scanout switch — eliminates tearing vs mid-blit LFB writes. */
+        bga_flip_to(back);
+        return 0;
+    }
+
+    /* Fallback: direct LFB copy (no virt-height flip on this device). */
     if (g_mode.bytes_per_pixel == 4) {
         volatile uint32_t *dst = (volatile uint32_t *)g_mode.addr;
         uint32_t dst_stride = g_mode.pitch / 4u;
         for (y = 0; y < g_mode.height; y++) {
             const uint32_t *srow = src + y * src_stride_px;
             volatile uint32_t *drow = dst + y * dst_stride;
-            /* Full-frame blit is long — keep the PS/2 FIFO from overflowing. */
             if ((y & 7) == 0)
                 ps2_poll();
             for (x = 0; x < g_mode.width; x++)
@@ -156,13 +214,18 @@ static int bga_present_rect(const uint32_t *src, uint32_t src_stride_px,
     if (y + h > g_mode.height)
         h = g_mode.height - y;
 
+    /*
+     * Cursor / partial updates write the *visible* front page so the pointer
+     * stays live between full flips. Full frames use bga_present() + flip.
+     */
     for (row = 0; row < h; row++) {
         const uint32_t *srow = src + (y + row) * src_stride_px + x;
         if (g_mode.bytes_per_pixel == 4) {
-            volatile uint32_t *drow =
-                (volatile uint32_t *)(g_mode.addr + (y + row) * g_mode.pitch + x * 4);
+            volatile uint32_t *base = g_flip_ok ? bga_page_ptr(g_front_page)
+                                                : (volatile uint32_t *)g_mode.addr;
+            uint32_t dst_stride = g_mode.pitch / 4u;
+            volatile uint32_t *drow = base + (y + row) * dst_stride + x;
             uint32_t col = 0;
-            /* Unrolled dword stores — MMIO-safe, better ILP than scalar loop. */
             for (; col + 4 <= w; col += 4) {
                 drow[col] = srow[col];
                 drow[col + 1] = srow[col + 1];

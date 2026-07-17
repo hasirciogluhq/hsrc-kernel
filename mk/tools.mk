@@ -5,7 +5,16 @@ ENV_ASSET := $(BUILD)/environment
 # Source art: assets/os/default-wallpaper.png — regenerate with:
 #   magick assets/os/default-wallpaper.png -resize '1280x720^' -gravity center \
 #     -extent 1280x720 -type TrueColor BMP3:assets/os/wallpaper-default.bmp
-INITRD_ASSETS := assets/os/wallpaper-default.bmp $(ENV_ASSET)
+# Menubar status icons (SVG; rasterized in userspace by hsrc::sdk::SvgIcon).
+STATUS_ICONS := \
+	assets/os/icons/theme-sun.svg \
+	assets/os/icons/theme-moon.svg \
+	assets/os/icons/status-wifi.svg \
+	assets/os/icons/status-wifi-off.svg \
+	assets/os/icons/status-battery.svg \
+	assets/os/icons/status-bolt.svg
+
+INITRD_ASSETS := assets/os/wallpaper-default.bmp $(STATUS_ICONS) $(ENV_ASSET)
 
 $(PACKER): tools/pack_initrd.c
 	@mkdir -p $(dir $@)
