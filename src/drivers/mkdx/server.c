@@ -107,11 +107,80 @@ static void compose_rect_to_bb(gx_server *s, int32_t x, int32_t y, int32_t w, in
     gx_compositor_compose_rect(&s->comp, bb, gx_rect_make(x, y, w, h));
 }
 
+/* During drag, cursor erase must not wallpaper-punch the scene. */
+static gx_color g_cursor_under[CURSOR_W * CURSOR_H];
+static int g_cursor_under_valid;
+static int32_t g_cursor_under_x, g_cursor_under_y;
+
+static void cursor_under_restore(gx_server *s)
+{
+    gx_surface *bb;
+    int32_t y, x, w, h;
+
+    if (!g_cursor_under_valid || !s || !s->device.backbuffer)
+        return;
+    bb = s->device.backbuffer;
+    x = g_cursor_under_x;
+    y = g_cursor_under_y;
+    w = CURSOR_W;
+    h = CURSOR_H;
+    clamp_cursor_rect(&x, &y, &w, &h, bb->width, bb->height);
+    for (int32_t row = 0; row < h; row++) {
+        memcpy(&bb->pixels[(uint32_t)(y + row) * bb->stride + (uint32_t)x],
+               &g_cursor_under[(uint32_t)row * CURSOR_W],
+               (size_t)w * sizeof(gx_color));
+    }
+    g_cursor_under_valid = 0;
+}
+
+static void cursor_under_save(gx_server *s, int32_t mx, int32_t my)
+{
+    gx_surface *bb;
+    int32_t x, y, w, h;
+
+    if (!s || !s->device.backbuffer)
+        return;
+    bb = s->device.backbuffer;
+    x = mx;
+    y = my;
+    w = CURSOR_W;
+    h = CURSOR_H;
+    clamp_cursor_rect(&x, &y, &w, &h, bb->width, bb->height);
+    memset(g_cursor_under, 0, sizeof(g_cursor_under));
+    for (int32_t row = 0; row < h; row++) {
+        memcpy(&g_cursor_under[(uint32_t)row * CURSOR_W],
+               &bb->pixels[(uint32_t)(y + row) * bb->stride + (uint32_t)x],
+               (size_t)w * sizeof(gx_color));
+    }
+    g_cursor_under_x = x;
+    g_cursor_under_y = y;
+    g_cursor_under_valid = 1;
+}
+
 static void draw_cursor_on_bb(gx_server *s, int32_t x, int32_t y)
 {
     if (!s->cursor)
         return;
     gx_accel_blit(s->device.backbuffer, x, y, s->cursor);
+}
+
+/* Must run before drag_slide / underlay capture — never drop valid without restore. */
+static void cursor_erase_from_bb(gx_server *s)
+{
+    if (g_cursor_under_valid)
+        cursor_under_restore(s);
+    if (s) {
+        s->cursor_x = -1;
+        s->cursor_y = -1;
+    }
+}
+
+static void cursor_paint_at(gx_server *s, int32_t mx, int32_t my)
+{
+    cursor_under_save(s, mx, my);
+    draw_cursor_on_bb(s, mx, my);
+    s->cursor_x = mx;
+    s->cursor_y = my;
 }
 
 static void present_rect(gx_server *s, int32_t x, int32_t y, int32_t w, int32_t h)
@@ -172,7 +241,8 @@ void gx_server_mark_dirty(void)
 {
     if (!g_server.ready)
         return;
-    if (g_frame_busy) {
+    /* App repaints during drag stay pending — don't steal the slide frame. */
+    if (g_frame_busy || g_server.wm.drag_id >= 0) {
         pending_mark_full();
         return;
     }
@@ -185,11 +255,11 @@ void gx_server_mark_dirty_rect(gx_rect r)
     gx_rect screen;
     int32_t screen_area;
     int32_t union_area;
-    int dragging = g_server.wm.drag_id >= 0;
 
     if (!g_server.ready)
         return;
-    if (g_frame_busy) {
+    /* Sibling/app damage during drag → pending; release flush restores frost. */
+    if (g_frame_busy || g_server.wm.drag_id >= 0) {
         pending_mark_rect(r);
         return;
     }
@@ -209,16 +279,10 @@ void gx_server_mark_dirty_rect(gx_rect r)
     else
         g_server.dirty_rect = gx_rect_union(g_server.dirty_rect, r);
 
-    /*
-     * Escalate huge unions to a full refresh — but never while dragging.
-     * Live window moves must stay old+new rect only (C03/C14) or they hitch.
-     */
-    if (!dragging) {
-        screen_area = gx_rect_area(screen);
-        union_area = gx_rect_area(g_server.dirty_rect);
-        if (screen_area > 0 && union_area * 5 >= screen_area * 3)
-            g_server.dirty_full = 1;
-    }
+    screen_area = gx_rect_area(screen);
+    union_area = gx_rect_area(g_server.dirty_rect);
+    if (screen_area > 0 && union_area * 5 >= screen_area * 3)
+        g_server.dirty_full = 1;
 
     g_server.dirty = 1;
 }
@@ -246,6 +310,7 @@ void gx_server_mark_drag_move(gx_rect old_r, gx_rect new_r)
 static void flush_cursor_at(gx_server *s, int32_t mx, int32_t my)
 {
     display_ops_t *ops;
+    int32_t rx, ry;
 
     if (!s || !s->device.backbuffer)
         return;
@@ -255,6 +320,21 @@ static void flush_cursor_at(gx_server *s, int32_t mx, int32_t my)
     ops = display_active();
     if (!ops)
         return;
+
+    /* Drag: save/restore bb pixels — compose would erase dock/siblings. */
+    if (s->wm.drag_id >= 0) {
+        if (g_cursor_under_valid) {
+            rx = g_cursor_under_x;
+            ry = g_cursor_under_y;
+            cursor_under_restore(s);
+            present_rect(s, rx, ry, CURSOR_W, CURSOR_H);
+        }
+        cursor_paint_at(s, mx, my);
+        present_rect(s, mx, my, CURSOR_W, CURSOR_H);
+        return;
+    }
+
+    g_cursor_under_valid = 0;
 
     /* Erase old cursor by recomposing under it, then paint at the new spot. */
     if (s->cursor_x >= 0 && s->cursor_y >= 0) {
@@ -299,6 +379,18 @@ static void flush_deferred_btn(gx_server *s)
                        g_deferred_btn_x, g_deferred_btn_y);
 }
 
+static void sync_drag_fast_layer(gx_server *s)
+{
+    wm_window *w;
+
+    if (!s || s->wm.drag_id < 0) {
+        gx_compositor_set_drag_layer(-1);
+        return;
+    }
+    w = wm_get(&s->wm, s->wm.drag_id);
+    gx_compositor_set_drag_layer(w ? w->layer_id : -1);
+}
+
 static void end_drag_if_released(gx_server *s)
 {
     const mouse_state_t *ms;
@@ -307,8 +399,16 @@ static void end_drag_if_released(gx_server *s)
     if (!s || s->wm.drag_id < 0)
         return;
     ms = mouse_get();
-    if (ms && !(ms->buttons & MOUSE_BTN_LEFT))
-        s->wm.drag_id = -1;
+    if (!ms || (ms->buttons & MOUSE_BTN_LEFT))
+        return;
+
+    s->wm.drag_id = -1;
+    cursor_erase_from_bb(s);
+    gx_compositor_drag_end();
+    g_drag_damage = 0;
+    /* Fold stashed app damage + restore frost at the final position. */
+    merge_pending_into_dirty(s);
+    gx_server_mark_dirty();
 }
 
 void gx_server_poll_input(void)
@@ -359,6 +459,7 @@ void gx_server_poll_input(void)
     }
 
     end_drag_if_released(s);
+    sync_drag_fast_layer(s);
 
     while ((ch = keyboard_getchar()) >= 0)
         wm_push_key(&s->wm, (uint8_t)ch);
@@ -447,74 +548,90 @@ static void present_full_frame(gx_server *s, display_ops_t *ops,
 }
 
 /*
- * Live drag: compose old + new as two window-sized rects (not their bbox).
- * Cursor path stays identical to the normal tick — pump_input is untouched.
+ * Live drag: sprite slide with cursor erased from bb before every capture.
+ * Multi-hop catch-up keeps the window glued when the pointer runs ahead.
  */
 static int frame_tick_drag(gx_server *s, display_ops_t *ops)
 {
     const mouse_state_t *ms;
     gx_surface *bb = s->device.backbuffer;
-    gx_rect old_r = g_drag_old;
-    gx_rect new_r = g_drag_new;
+    gx_rect old_r;
+    gx_rect new_r;
+    gx_rect present_old;
+    gx_rect present_new;
+    wm_window *dw;
+    int layer_id = -1;
     int32_t mx, my;
+    int hops;
 
     if (!bb || !ops)
         return -1;
 
-    g_drag_damage = 0;
-    if (!s->dirty_full && gx_rect_empty(s->dirty_rect))
-        s->dirty = 0;
+    sync_drag_fast_layer(s);
+    dw = wm_get(&s->wm, s->wm.drag_id);
+    if (dw)
+        layer_id = dw->layer_id;
 
-    ms = mouse_get();
-    mx = ms ? ms->x : 0;
-    my = ms ? ms->y : 0;
+    /* Cursor off bb before underlay capture — otherwise ghosts bake into drag. */
+    cursor_erase_from_bb(s);
+
+    present_old = gx_rect_make(0, 0, 0, 0);
+    present_new = gx_rect_make(0, 0, 0, 0);
 
     g_frame_busy = 1;
 
-    if (!gx_rect_empty(old_r))
-        gx_compositor_compose_rect(&s->comp, bb, old_r);
-    if (!gx_rect_empty(new_r))
-        gx_compositor_compose_rect(&s->comp, bb, new_r);
+    /*
+     * Hop to the latest pointer: each deferred move coalesces into g_drag_*.
+     * Present only the first old + final new (skip intermediate flash).
+     */
+    for (hops = 0; hops < 8; hops++) {
+        if (!g_drag_damage || layer_id < 0)
+            break;
 
-    gx_server_poll_input();
+        old_r = g_drag_old;
+        new_r = g_drag_new;
+        g_drag_damage = 0;
+
+        if (hops == 0)
+            present_old = old_r;
+        present_new = new_r;
+
+        gx_compositor_drag_slide(&s->comp, bb, old_r, new_r, layer_id);
+
+        /* Drain moves that arrived mid-slide; apply without leaving busy. */
+        g_frame_busy = 0;
+        gx_server_poll_input();
+        flush_deferred_btn(s);
+        flush_deferred_move(s);
+        end_drag_if_released(s);
+        if (s->wm.drag_id < 0)
+            break;
+        g_frame_busy = 1;
+        sync_drag_fast_layer(s);
+        dw = wm_get(&s->wm, s->wm.drag_id);
+        layer_id = dw ? dw->layer_id : -1;
+    }
+
     ms = mouse_get();
     mx = ms ? ms->x : 0;
     my = ms ? ms->y : 0;
+    cursor_paint_at(s, mx, my);
 
-    if (s->cursor_x >= 0 && s->cursor_y >= 0 &&
-        (s->cursor_x != mx || s->cursor_y != my))
-        compose_rect_to_bb(s, s->cursor_x, s->cursor_y, CURSOR_W, CURSOR_H);
-    draw_cursor_on_bb(s, mx, my);
-
-    if (!gx_rect_empty(old_r))
-        present_rect(s, old_r.x, old_r.y, old_r.w, old_r.h);
-    if (!gx_rect_empty(new_r) &&
-        !(new_r.x == old_r.x && new_r.y == old_r.y &&
-          new_r.w == old_r.w && new_r.h == old_r.h))
-        present_rect(s, new_r.x, new_r.y, new_r.w, new_r.h);
-
-    /* Cursor present separately so we never skip flush_cursor / pump path. */
+    if (!gx_rect_empty(present_old))
+        present_rect(s, present_old.x, present_old.y, present_old.w, present_old.h);
+    if (!gx_rect_empty(present_new) &&
+        !(present_new.x == present_old.x && present_new.y == present_old.y &&
+          present_new.w == present_old.w && present_new.h == present_old.h))
+        present_rect(s, present_new.x, present_new.y, present_new.w, present_new.h);
     present_rect(s, mx, my, CURSOR_W, CURSOR_H);
 
-    s->cursor_x = mx;
-    s->cursor_y = my;
     s->frame_seq++;
-
     g_frame_busy = 0;
 
-    flush_deferred_btn(s);
-    flush_deferred_move(s);
-    end_drag_if_released(s);
-    merge_pending_into_dirty(s);
-
-    if (s->wm.drag_id >= 0 && (s->dirty || g_drag_damage) && g_tick_depth <= 3) {
-        int r = gx_server_frame_tick();
-        return r;
-    }
-
+    /* Keep pending app damage parked until drag ends. */
     gx_server_poll_input();
     ms = mouse_get();
-    if (ms)
+    if (ms && (ms->x != mx || ms->y != my))
         flush_cursor_at(s, ms->x, ms->y);
 
     return 0;
@@ -551,11 +668,27 @@ int gx_server_frame_tick(void)
         return -1;
     }
 
-    /* Split drag path — mouse/cursor polling stays on the normal path. */
-    if (g_drag_damage && s->wm.drag_id >= 0) {
-        r = frame_tick_drag(s, ops);
+    /* Live drag owns the frame clock — ignore sibling dirty until release. */
+    if (s->wm.drag_id >= 0) {
+        if (g_drag_damage) {
+            r = frame_tick_drag(s, ops);
+            g_tick_depth--;
+            return r;
+        }
+        gx_server_poll_input();
+        ms = mouse_get();
+        mx = ms ? ms->x : 0;
+        my = ms ? ms->y : 0;
+        flush_cursor_at(s, mx, my);
+        flush_deferred_btn(s);
+        flush_deferred_move(s);
+        if (g_drag_damage && g_tick_depth <= 3) {
+            r = gx_server_frame_tick();
+            g_tick_depth--;
+            return r;
+        }
         g_tick_depth--;
-        return r;
+        return 0;
     }
 
     /* Drag ended with leftover split damage — fold into normal dirty. */
@@ -574,7 +707,7 @@ int gx_server_frame_tick(void)
         flush_deferred_btn(s);
         flush_deferred_move(s);
         merge_pending_into_dirty(s);
-        if (s->wm.drag_id >= 0 && (s->dirty || g_drag_damage) && g_tick_depth <= 3) {
+        if (s->dirty && g_tick_depth <= 3) {
             r = gx_server_frame_tick();
             g_tick_depth--;
             return r;
@@ -692,7 +825,7 @@ int gx_server_frame_tick(void)
     merge_pending_into_dirty(s);
 
     /* Catch pointer hops that arrived mid-compose so drag stays glued. */
-    if (s->wm.drag_id >= 0 && (s->dirty || g_drag_damage) && g_tick_depth <= 3) {
+    if (s->wm.drag_id >= 0 && g_drag_damage && g_tick_depth <= 3) {
         r = gx_server_frame_tick();
         g_tick_depth--;
         return r;

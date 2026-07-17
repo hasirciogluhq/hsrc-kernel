@@ -4,7 +4,7 @@
 #include "device.h"
 #include "surface.h"
 
-#define GX_MAX_LAYERS 32
+#define GX_MAX_LAYERS 40
 
 typedef enum {
     GX_LAYER_OPAQUE = 0,
@@ -57,6 +57,12 @@ int  gx_compositor_add_layer(gx_compositor *c, gx_layer *desc);
 void gx_compositor_remove_layer(gx_compositor *c, int id);
 gx_layer *gx_compositor_layer(gx_compositor *c, int id);
 void gx_compositor_raise(gx_compositor *c, int id);
+/* Live drag: layer paints as opaque memcpy (no acrylic tile rebuild). -1 = off. */
+void gx_compositor_set_drag_layer(int layer_id);
+/* Sprite drag: save underlay, restore old, capture new, blit window. */
+void gx_compositor_drag_slide(gx_compositor *c, gx_surface *dst,
+                              gx_rect old_r, gx_rect new_r, int layer_id);
+void gx_compositor_drag_end(void);
 void gx_compositor_compose(gx_compositor *c);
 /* Compose only inside clip into dst (cursor-free scene). clip empty → no-op. */
 void gx_compositor_compose_rect(gx_compositor *c, gx_surface *dst, gx_rect clip);

@@ -2,6 +2,7 @@
 #include <kernel/env.h>
 #include <kernel/errno.h>
 #include <kernel/heap.h>
+#include <kernel/bootmem.h>
 #include <kernel/string.h>
 #include <kernel/scheduler.h>
 #include <kernel/socket.h>
@@ -397,8 +398,12 @@ void process_snapshot_publish(void)
         now - g_proc_page_last_tick < 16)
         return;
 
-    used_ram = (uint32_t)heap_used();
     free_ram = (uint32_t)heap_free();
+    used_ram = bootmem_total_ram();
+    if (used_ram < free_ram)
+        used_ram = (uint32_t)heap_used();
+    else
+        used_ram -= free_ram;
 
     g_proc_page.seq++; /* odd = write in progress */
     __asm__ volatile("" ::: "memory");
@@ -441,7 +446,7 @@ void process_snapshot_publish(void)
     g_proc_page.idle_ticks = scheduler_idle_ticks();
     g_proc_page.used_ram_bytes = used_ram;
     g_proc_page.free_ram_bytes = free_ram;
-    g_proc_page.total_ram_bytes = used_ram + free_ram;
+    g_proc_page.total_ram_bytes = bootmem_total_ram();
     if (was_dirty) {
         g_proc_page.generation++;
         process_wake_proc_waiters(g_proc_page.generation);
@@ -712,9 +717,12 @@ int process_sysinfo(sys_info_t *out)
     out->uptime_ticks = scheduler_tick_count();
     out->total_cpu_ticks = process_sum_cpu_ticks();
     out->idle_ticks = scheduler_idle_ticks();
-    out->used_ram_bytes = (uint32_t)heap_used();
     out->free_ram_bytes = (uint32_t)heap_free();
-    out->total_ram_bytes = out->used_ram_bytes + out->free_ram_bytes;
+    out->total_ram_bytes = bootmem_total_ram();
+    if (out->total_ram_bytes < out->free_ram_bytes)
+        out->used_ram_bytes = (uint32_t)heap_used();
+    else
+        out->used_ram_bytes = out->total_ram_bytes - out->free_ram_bytes;
 
     for (int i = 0; i < PROC_MAX; i++) {
         if (g_procs[i] && g_procs[i]->state != PROC_UNUSED && !g_procs[i]->is_idle)

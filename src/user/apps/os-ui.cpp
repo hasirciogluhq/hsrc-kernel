@@ -70,6 +70,7 @@ enum AppId {
     APP_TERMINAL,
     APP_FILES,
     APP_SETTINGS,
+    APP_IMGUI,
     APP_COUNT
 };
 
@@ -93,6 +94,8 @@ constexpr AppDef kApps[APP_COUNT] = {
       "/applications/files.mke",            "dock.pin.files",    rgb(255, 190, 60),  true },
     { "settings", "Prefs","System Settings",  "os.settings",
       "/applications/os-settings.mke",      "dock.pin.settings", rgb(150, 150, 160), true },
+    { "imgui",    "ImGui","ImGui Demo",       "imgui.demo",
+      "/applications/imgui-demo.mke",       "dock.pin.imgui",    rgb(90, 140, 220),  true },
 };
 
 struct DockSlot {
@@ -154,9 +157,24 @@ bool g_pinned[APP_COUNT];
 bool g_running[APP_COUNT];
 bool g_minimized[APP_COUNT];
 int  g_win_id[APP_COUNT];
+/* Blocks rapid re-spawn while the first instance is still mapping its window. */
+int  g_spawn_cool[APP_COUNT];
+/* Extra backoff after a spawn that never produced a window (OOM / crash). */
+int  g_spawn_fail[APP_COUNT];
+bool g_spawn_pending[APP_COUNT];
 DockSlot g_slots[kMaxSlots];
 int g_slot_count = 0;
 int g_sep_after = -1; /* index after which separator is drawn; -1 = none */
+constexpr int kSpawnCoolFrames = 90;
+constexpr int kSpawnFailFrames = 240;
+
+void note_spawn_attempt(int app)
+{
+    if (app < 0 || app >= APP_COUNT)
+        return;
+    g_spawn_cool[app] = kSpawnCoolFrames;
+    g_spawn_pending[app] = true;
+}
 
 constexpr int kMenuSettingsX = 92;
 constexpr int kMenuSystemInfoX = 160;
@@ -855,20 +873,34 @@ void dock_activate_slot(int slot_i)
     slot.bounce = kBounceFrames;
 
     if (slot.app == APP_SETTINGS && !slot.running) {
+        if (g_spawn_cool[slot.app] > 0 || g_spawn_fail[slot.app] > 0)
+            return;
+        note_spawn_attempt(slot.app);
         (void)hsrc::sdk::settings::open();
         return;
     }
 
     if (!slot.running || slot.window_id < 0) {
-        if (app.path && app.path[0])
+        if (g_spawn_cool[slot.app] > 0 || g_spawn_fail[slot.app] > 0)
+            return;
+        if (app.path && app.path[0]) {
+            note_spawn_attempt(slot.app);
             (void)hsrc::sdk::process::spawn(app.path);
+        }
         return;
     }
 
     WindowOptions opts;
     if (!hsrc::sdk::window_get(slot.window_id, opts)) {
-        if (app.path && app.path[0])
+        /* Stale cache — rescan soon; do not spawn-storm on GET races. */
+        g_win_id[slot.app] = -1;
+        g_scan_tick = kScanEvery;
+        if (g_spawn_cool[slot.app] > 0 || g_spawn_fail[slot.app] > 0)
+            return;
+        if (app.path && app.path[0]) {
+            note_spawn_attempt(slot.app);
             (void)hsrc::sdk::process::spawn(app.path);
+        }
         return;
     }
 
@@ -1061,6 +1093,13 @@ extern "C" void mke_main(void)
         if (refresh_clock_text())
             dirty_menu = true;
 
+        for (int i = 0; i < APP_COUNT; i++) {
+            if (g_spawn_cool[i] > 0)
+                g_spawn_cool[i]--;
+            if (g_spawn_fail[i] > 0)
+                g_spawn_fail[i]--;
+        }
+
         g_scan_tick++;
         if (g_scan_tick >= kScanEvery) {
             g_scan_tick = 0;
@@ -1074,6 +1113,17 @@ extern "C" void mke_main(void)
             }
             int prev_focus = g_focus_id;
             scan_windows();
+
+            for (int i = 0; i < APP_COUNT; i++) {
+                if (g_running[i]) {
+                    g_spawn_pending[i] = false;
+                    g_spawn_fail[i] = 0;
+                } else if (g_spawn_pending[i] && g_spawn_cool[i] == 0) {
+                    /* Cool expired, still no window → OOM/crash; back off. */
+                    g_spawn_fail[i] = kSpawnFailFrames;
+                    g_spawn_pending[i] = false;
+                }
+            }
 
             g_pin_tick++;
             if (g_pin_tick >= kPinPollEvery / kScanEvery) {

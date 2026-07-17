@@ -31,11 +31,10 @@ typedef struct {
 /* Log only setup-ish GX/WM calls (not per-frame YIELD/DAMAGE/INPUT/GET probes). */
 static int sys_log_interesting(long n)
 {
-    return n == SYS_GX_INFO || n == SYS_GX_PRESENT || n == SYS_WM_CREATE ||
-           n == SYS_WM_SET || n == SYS_WM_CLOSE ||
+    /* Skip present/focus/show — hot path spam stalls serial + BSP. */
+    return n == SYS_GX_INFO || n == SYS_WM_CREATE ||
+           n == SYS_WM_CLOSE ||
            n == SYS_WM_MAP || n == SYS_GX_SET_WALLPAPER || n == SYS_WM_DESTROY ||
-           n == SYS_WM_SHOW || n == SYS_WM_FOCUS || n == SYS_WM_FIND ||
-           n == SYS_WM_FIND_CLASS ||
            n == SYS_SPAWN || n == SYS_KILL || n == SYS_SERVICE_START ||
            n == SYS_SERVICE_STOP || n == SYS_CONSOLE_SHOW;
 }

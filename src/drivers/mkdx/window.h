@@ -5,7 +5,7 @@
 #include "surface.h"
 #include <user/gx.h>
 
-#define WM_MAX_WINDOWS     16
+#define WM_MAX_WINDOWS     32
 #define WM_TITLE_MAX       64
 #define WM_DEFAULT_RADIUS  12
 #define WM_TITLEBAR_H      28

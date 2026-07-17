@@ -1,6 +1,8 @@
 #include "window.h"
 #include "accel.h"
 #include "server.h"
+#include <drivers/serial.h>
+#include <kernel/heap.h>
 #include <kernel/string.h>
 
 static wm_window *slot_by_id(wm_t *wm, int id)
@@ -179,8 +181,12 @@ wm_window *wm_create(wm_t *wm, const ugx_window_opts *opts, int owner_pid)
             break;
         }
     }
-    if (!w)
+    if (!w) {
+        klog("[wm] create failed: no free slot (max=");
+        serial_print_uint(WM_MAX_WINDOWS);
+        klog(")\n");
         return NULL;
+    }
 
     memset(w, 0, sizeof(*w));
     w->used = 1;
@@ -192,6 +198,15 @@ wm_window *wm_create(wm_t *wm, const ugx_window_opts *opts, int owner_pid)
 
     w->surface = gx_surface_create((uint32_t)w->frame.w, (uint32_t)w->frame.h);
     if (!w->surface) {
+        klog("[wm] create failed: surface OOM ");
+        serial_print_uint((uint32_t)w->frame.w);
+        klog("x");
+        serial_print_uint((uint32_t)w->frame.h);
+        klog(" heap_free=");
+        serial_print_uint((uint32_t)heap_free());
+        klog(" heap_used=");
+        serial_print_uint((uint32_t)heap_used());
+        klog("\n");
         w->used = 0;
         return NULL;
     }
@@ -593,7 +608,12 @@ void wm_on_mouse_button(wm_t *wm, uint8_t button, int pressed,
 
     if (!pressed) {
         /* Release ends drag regardless of cursor position (grab started in title). */
-        wm->drag_id = -1;
+        if (wm->drag_id >= 0) {
+            wm->drag_id = -1;
+            gx_compositor_drag_end();
+            /* Final frost/round-rect restore after sprite drag (server also erases cursor). */
+            gx_server_mark_dirty();
+        }
         return;
     }
 
@@ -621,6 +641,8 @@ void wm_on_mouse_button(wm_t *wm, uint8_t button, int pressed,
         wm->drag_id = id;
         wm->drag_off_x = local_x;
         wm->drag_off_y = local_y;
+        /* Skip acrylic tile rebuild while the window slides. */
+        gx_compositor_set_drag_layer(w->layer_id);
     }
 }
 

@@ -6,6 +6,23 @@
 #include "compositor.h"
 #include "server.h"
 
+/* While dragging, this layer skips acrylic rebuild → opaque memcpy blit. */
+static int s_drag_fast_layer = -1;
+/* Pixels under the dragged window (sprite drag — keeps dock/siblings intact). */
+static gx_surface *s_drag_under;
+static int s_drag_under_ready;
+
+void gx_compositor_set_drag_layer(int layer_id)
+{
+    s_drag_fast_layer = layer_id;
+}
+
+void gx_compositor_drag_end(void)
+{
+    s_drag_under_ready = 0;
+    s_drag_fast_layer = -1;
+}
+
 static int alloc_slot(gx_compositor *c)
 {
     for (int i = 0; i < GX_MAX_LAYERS; i++) {
@@ -131,14 +148,14 @@ void gx_compositor_set_wallpaper(gx_compositor *c, gx_surface *wp)
         return;
 
     /*
-     * Pre-blur needs the output surface plus two full-size scratch buffers.
-     * On the bump heap that peak often succeeds for the output then fails the
-     * scratch alloc — or worse, succeeds and leaves no RAM for app windows.
-     * Skip when free heap cannot hold output + 2× scratch + ~2MiB headroom.
+     * Full-screen pre-blur costs ~1× FB permanently plus 2× FB scratch at peak.
+     * Prefer leaving that RAM for app window surfaces; acrylic falls back to
+     * the sharp wallpaper (still tinted). Skip entirely under ~4MiB free or
+     * when the peak would not fit.
      */
     {
         size_t bytes = (size_t)wp->width * (size_t)wp->height * sizeof(gx_color);
-        size_t need = bytes * 3u + (2u * 1024u * 1024u);
+        size_t need = bytes * 3u + (4u * 1024u * 1024u);
         if (heap_free() < need)
             return;
     }
@@ -545,6 +562,156 @@ static void paint_wallpaper_rect(gx_compositor *c, gx_surface *dst, gx_rect clip
     gx_accel_blit_rect(dst, clip.x, clip.y, c->wallpaper, clip);
 }
 
+static void drag_blit_layer(gx_surface *dst, gx_layer *L, gx_rect clip)
+{
+    gx_layer tmp;
+
+    if (!L || !L->surface)
+        return;
+    tmp = *L;
+    tmp.style = GX_LAYER_OPAQUE;
+    tmp.corner_radius = 0;
+    blit_layer(dst, &tmp, 255, clip);
+}
+
+/* compose_rect is defined below; drag begin needs one peek under the window. */
+void gx_compositor_compose_rect(gx_compositor *c, gx_surface *dst, gx_rect clip);
+
+static void copy_rect_from_bb(gx_surface *dst_tile, const gx_surface *bb, gx_rect r)
+{
+    int32_t y;
+    int32_t x0, w;
+
+    if (!dst_tile || !bb || gx_rect_empty(r))
+        return;
+    if ((uint32_t)r.w > dst_tile->width || (uint32_t)r.h > dst_tile->height)
+        return;
+
+    x0 = r.x;
+    w = r.w;
+    if (x0 < 0) {
+        w += x0;
+        x0 = 0;
+    }
+    if (x0 + w > (int32_t)bb->width)
+        w = (int32_t)bb->width - x0;
+    if (w <= 0)
+        return;
+
+    for (y = 0; y < r.h; y++) {
+        int32_t sy = r.y + y;
+        if (sy < 0 || (uint32_t)sy >= bb->height)
+            continue;
+        memcpy(&dst_tile->pixels[(uint32_t)y * dst_tile->stride],
+               &bb->pixels[(uint32_t)sy * bb->stride + (uint32_t)x0],
+               (size_t)w * sizeof(gx_color));
+    }
+}
+
+static void copy_rect_to_bb(gx_surface *bb, gx_rect r, const gx_surface *src_tile)
+{
+    int32_t y;
+    int32_t x0, w;
+
+    if (!bb || !src_tile || gx_rect_empty(r))
+        return;
+    if ((uint32_t)r.w > src_tile->width || (uint32_t)r.h > src_tile->height)
+        return;
+
+    x0 = r.x;
+    w = r.w;
+    if (x0 < 0) {
+        w += x0;
+        x0 = 0;
+    }
+    if (x0 + w > (int32_t)bb->width)
+        w = (int32_t)bb->width - x0;
+    if (w <= 0)
+        return;
+
+    for (y = 0; y < r.h; y++) {
+        int32_t dy = r.y + y;
+        if (dy < 0 || (uint32_t)dy >= bb->height)
+            continue;
+        memcpy(&bb->pixels[(uint32_t)dy * bb->stride + (uint32_t)x0],
+               &src_tile->pixels[(uint32_t)y * src_tile->stride],
+               (size_t)w * sizeof(gx_color));
+    }
+}
+
+static int drag_ensure_underlay(uint32_t w, uint32_t h)
+{
+    if (s_drag_under && s_drag_under->width >= w && s_drag_under->height >= h)
+        return 0;
+    if (s_drag_under) {
+        gx_surface_destroy(s_drag_under);
+        s_drag_under = NULL;
+    }
+    s_drag_under = gx_surface_create(w, h);
+    s_drag_under_ready = 0;
+    return s_drag_under ? 0 : -1;
+}
+
+void gx_compositor_drag_slide(gx_compositor *c, gx_surface *dst,
+                              gx_rect old_r, gx_rect new_r, int layer_id)
+{
+    gx_layer *L;
+    gx_rect screen;
+    int was_vis;
+
+    if (!c || !dst || !dst->pixels)
+        return;
+
+    L = gx_compositor_layer(c, layer_id);
+    if (!L || !L->used)
+        return;
+
+    screen = gx_rect_make(0, 0, (int32_t)dst->width, (int32_t)dst->height);
+    old_r = gx_rect_intersect(old_r, screen);
+    new_r = gx_rect_intersect(new_r, screen);
+    if (gx_rect_empty(new_r))
+        return;
+
+    if (drag_ensure_underlay((uint32_t)new_r.w, (uint32_t)new_r.h) < 0)
+        return;
+
+    /*
+     * Layer bounds already at new_r, but bb still shows the window at old_r.
+     * First tick: compose under old_r (layer hidden) to seed the underlay and
+     * erase the ghost — one correct peek, then pure memcpy slides.
+     */
+    if (!s_drag_under_ready) {
+        if (gx_rect_empty(old_r))
+            old_r = new_r;
+        was_vis = L->visible;
+        L->visible = 0;
+        gx_compositor_compose_rect(c, dst, old_r);
+        copy_rect_from_bb(s_drag_under, dst, old_r);
+        L->visible = was_vis;
+        s_drag_under_ready = 1;
+
+        if (old_r.x == new_r.x && old_r.y == new_r.y &&
+            old_r.w == new_r.w && old_r.h == new_r.h) {
+            drag_blit_layer(dst, L, new_r);
+            return;
+        }
+        /* old already restored by compose — capture dest + paint. */
+        copy_rect_from_bb(s_drag_under, dst, new_r);
+        drag_blit_layer(dst, L, new_r);
+        return;
+    }
+
+    if (old_r.w != new_r.w || old_r.h != new_r.h || gx_rect_empty(old_r)) {
+        s_drag_under_ready = 0;
+        gx_compositor_drag_slide(c, dst, old_r, new_r, layer_id);
+        return;
+    }
+
+    copy_rect_to_bb(dst, old_r, s_drag_under);
+    copy_rect_from_bb(s_drag_under, dst, new_r);
+    drag_blit_layer(dst, L, new_r);
+}
+
 void gx_compositor_compose_rect(gx_compositor *c, gx_surface *dst, gx_rect clip)
 {
     gx_rect screen;
@@ -606,6 +773,16 @@ void gx_compositor_compose_rect(gx_compositor *c, gx_surface *dst, gx_rect clip)
         gx_layer *L = &c->layers[ids[i]];
         if (gx_rect_empty(gx_rect_intersect(L->bounds, clip)))
             continue;
+
+        /* Drag preview: no frost rebuild / round AA — just slide the surface. */
+        if (ids[i] == s_drag_fast_layer) {
+            gx_layer tmp = *L;
+            tmp.style = GX_LAYER_OPAQUE;
+            tmp.corner_radius = 0;
+            blit_layer(dst, &tmp, 255, clip);
+            continue;
+        }
+
         switch (L->style) {
         case GX_LAYER_ACRYLIC:
             paint_acrylic(c, dst, ids[i], L, clip);

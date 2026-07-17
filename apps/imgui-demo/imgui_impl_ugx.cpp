@@ -7,8 +7,6 @@
 #include <user/gx.h>
 #include <drivers/keyboard.h>
 
-using hsrc::sdk::WindowOptions;
-
 namespace {
 
 struct BackendData {
@@ -306,8 +304,39 @@ void ImGui_ImplUgx_Shutdown()
     IM_DELETE(b);
 }
 
+static void feed_key_pulse(ImGuiIO &io, ImGuiKey key)
+{
+    io.AddKeyEvent(key, true);
+    io.AddKeyEvent(key, false);
+}
+
+static void feed_wm_key(ImGuiIO &io, unsigned int ch)
+{
+    switch (ch) {
+    case 8:
+    case 127:
+        feed_key_pulse(io, ImGuiKey_Backspace);
+        return;
+    case 9:
+        feed_key_pulse(io, ImGuiKey_Tab);
+        return;
+    case 10:
+    case 13:
+        feed_key_pulse(io, ImGuiKey_Enter);
+        return;
+    case 27:
+        feed_key_pulse(io, ImGuiKey_Escape);
+        return;
+    default:
+        break;
+    }
+    if (ch >= 32)
+        io.AddInputCharacter(ch);
+}
+
 void ImGui_ImplUgx_NewFrame(hsrc::sdk::Window &win, const hsrc::sdk::Input &in,
-                            uint8_t prev_buttons)
+                            const hsrc::sdk::WindowOptions &opts,
+                            uint8_t prev_buttons, int client_top)
 {
     BackendData *b = bd();
     if (!b)
@@ -316,50 +345,82 @@ void ImGui_ImplUgx_NewFrame(hsrc::sdk::Window &win, const hsrc::sdk::Input &in,
     b->win_id = win.id();
     ImGuiIO &io = ImGui::GetIO();
 
-    WindowOptions opts;
-    int win_x = 0, win_y = 0;
-    if (win.get_options(opts)) {
-        io.DisplaySize = ImVec2((float)opts.w, (float)opts.h);
-        win_x = opts.x;
-        win_y = opts.y;
-    } else if (win.surface().valid()) {
-        io.DisplaySize = ImVec2((float)win.surface().width(), (float)win.surface().height());
-    }
+    if (client_top < 0)
+        client_top = 0;
+
+    const int win_w = opts.w > 0 ? opts.w
+                                 : (win.surface().valid() ? (int)win.surface().width() : 0);
+    const int win_h = opts.h > 0 ? opts.h
+                                 : (win.surface().valid() ? (int)win.surface().height() : 0);
+    int client_h = win_h - client_top;
+    if (client_h < 1)
+        client_h = 1;
+
+    io.DisplaySize = ImVec2((float)win_w, (float)client_h);
+    io.DisplayFramebufferScale = ImVec2(1.0f, 1.0f);
+
+    const int scale = hsrc::sdk::ui_scale();
+    io.FontGlobalScale = scale > 1 ? (float)scale : 1.0f;
 
     b->frame++;
     io.DeltaTime = 1.0f / 60.0f;
 
-    const int lx = in.mouse_x - win_x;
-    const int ly = in.mouse_y - win_y;
-    io.AddMousePosEvent((float)lx, (float)ly);
+    const int lx = in.mouse_x - opts.x;
+    const int ly = in.mouse_y - opts.y;
+    const int client_y = ly - client_top;
 
-    const bool focused = (in.focus_id == win.id());
-    (void)prev_buttons;
-    io.AddMouseButtonEvent(0, focused && (in.buttons & UGX_BTN_LEFT) != 0);
-    io.AddMouseButtonEvent(1, focused && (in.buttons & UGX_BTN_RIGHT) != 0);
-    io.AddMouseButtonEvent(2, focused && (in.buttons & UGX_BTN_MIDDLE) != 0);
+    const bool hit = in.hits(win.id());
+    const bool focused = in.focused(win.id());
+    const bool in_client =
+        hit && lx >= 0 && client_y >= 0 && lx < win_w && client_y < client_h;
+    const bool dragging =
+        (prev_buttons & (UGX_BTN_LEFT | UGX_BTN_RIGHT | UGX_BTN_MIDDLE)) != 0;
+
+    if (in_client || (focused && dragging))
+        io.AddMousePosEvent((float)lx, (float)client_y);
+    else
+        io.AddMousePosEvent(-100000.0f, -100000.0f);
+
+    /* Clicks only when this window is topmost under cursor (or mid-drag). */
+    const bool mouse_ok = focused && (in_client || dragging);
+    io.AddMouseButtonEvent(0, mouse_ok && (in.buttons & UGX_BTN_LEFT) != 0);
+    io.AddMouseButtonEvent(1, mouse_ok && (in.buttons & UGX_BTN_RIGHT) != 0);
+    io.AddMouseButtonEvent(2, mouse_ok && (in.buttons & UGX_BTN_MIDDLE) != 0);
+
+    if (in_client && in.wheel != 0)
+        io.AddMouseWheelEvent(0.0f, (float)in.wheel);
 
     io.AddKeyEvent(ImGuiMod_Shift, (in.mods & KBD_MOD_SHIFT) != 0);
     io.AddKeyEvent(ImGuiMod_Ctrl, (in.mods & KBD_MOD_CTRL) != 0);
     io.AddKeyEvent(ImGuiMod_Alt, (in.mods & KBD_MOD_ALT) != 0);
+    io.AddKeyEvent(ImGuiMod_Super, (in.mods & KBD_MOD_SUPER) != 0);
 
     if (focused) {
         for (;;) {
             long k = hsrc::sdk::syscall1(SYS_WM_POP_KEY, win.id());
             if (k < 0)
                 break;
-            io.AddInputCharacter((unsigned int)k);
+            feed_wm_key(io, (unsigned int)k);
         }
     }
 }
 
-void ImGui_ImplUgx_RenderDrawData(ImDrawData *draw_data, hsrc::sdk::Surface &surf)
+static ImDrawVert offset_vert(ImDrawVert v, int dy)
+{
+    v.pos.y += (float)dy;
+    return v;
+}
+
+void ImGui_ImplUgx_RenderDrawData(ImDrawData *draw_data, hsrc::sdk::Surface &surf,
+                                  int client_top)
 {
     BackendData *b = bd();
     if (!draw_data || !surf.valid() || !b)
         return;
 
-    surf.clear(hsrc::sdk::rgb(30, 30, 34));
+    if (client_top < 0)
+        client_top = 0;
+
     b->tri_budget = 0;
 
     for (int n = 0; n < draw_data->CmdListsCount; n++) {
@@ -375,23 +436,26 @@ void ImGui_ImplUgx_RenderDrawData(ImDrawData *draw_data, hsrc::sdk::Surface &sur
             }
 
             int clip_x0 = (int)pcmd->ClipRect.x;
-            int clip_y0 = (int)pcmd->ClipRect.y;
+            int clip_y0 = (int)pcmd->ClipRect.y + client_top;
             int clip_x1 = (int)pcmd->ClipRect.z;
-            int clip_y1 = (int)pcmd->ClipRect.w;
-            if (clip_x0 < 0) clip_x0 = 0;
-            if (clip_y0 < 0) clip_y0 = 0;
-            if (clip_x1 > (int)surf.width()) clip_x1 = (int)surf.width();
-            if (clip_y1 > (int)surf.height()) clip_y1 = (int)surf.height();
+            int clip_y1 = (int)pcmd->ClipRect.w + client_top;
+            if (clip_x0 < 0)
+                clip_x0 = 0;
+            if (clip_y0 < client_top)
+                clip_y0 = client_top;
+            if (clip_x1 > (int)surf.width())
+                clip_x1 = (int)surf.width();
+            if (clip_y1 > (int)surf.height())
+                clip_y1 = (int)surf.height();
 
             unsigned int i = 0;
             while (i + 6 <= pcmd->ElemCount) {
                 ImDrawVert vs[6];
                 for (int k = 0; k < 6; k++) {
                     const ImDrawIdx id = idx[pcmd->IdxOffset + i + (unsigned)k];
-                    vs[k] = vtx[pcmd->VtxOffset + id];
+                    vs[k] = offset_vert(vtx[pcmd->VtxOffset + id], client_top);
                 }
 
-                /* ImGui PrimRect*: two tris → one axis-aligned textured quad. */
                 ImDrawVert qmin{}, qmax{};
                 if (verts_form_aa_quad(vs, 6, qmin, qmax)) {
                     (void)try_draw_aa_quad(surf, b, qmin, qmax,
@@ -414,9 +478,9 @@ void ImGui_ImplUgx_RenderDrawData(ImDrawData *draw_data, hsrc::sdk::Surface &sur
                 const ImDrawIdx i1 = idx[pcmd->IdxOffset + i + 1];
                 const ImDrawIdx i2 = idx[pcmd->IdxOffset + i + 2];
                 draw_triangle_slow(surf, b,
-                                   vtx[pcmd->VtxOffset + i0],
-                                   vtx[pcmd->VtxOffset + i1],
-                                   vtx[pcmd->VtxOffset + i2],
+                                   offset_vert(vtx[pcmd->VtxOffset + i0], client_top),
+                                   offset_vert(vtx[pcmd->VtxOffset + i1], client_top),
+                                   offset_vert(vtx[pcmd->VtxOffset + i2], client_top),
                                    clip_x0, clip_y0, clip_x1, clip_y1);
                 maybe_yield(b);
             }

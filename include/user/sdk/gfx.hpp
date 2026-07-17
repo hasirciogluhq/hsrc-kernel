@@ -23,6 +23,11 @@ struct Input {
     int32_t focus_id = -1;
     int32_t hit_id  = -1;  /* topmost window under cursor (z-order), or -1 */
     int32_t wheel   = 0;   /* notches since last input(); +up / -down (PS/2) */
+
+    /* Click/hover belongs to this window (z-order topmost under cursor). */
+    bool hits(int window_id) const { return window_id >= 0 && hit_id == window_id; }
+    /* Keyboard focus target for SYS_WM_POP_KEY. */
+    bool focused(int window_id) const { return window_id >= 0 && focus_id == window_id; }
 };
 
 struct WindowOptions {

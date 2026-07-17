@@ -5,6 +5,7 @@
 #include <drivers/pci.h>
 #include <drivers/display.h>
 #include <kernel/heap.h>
+#include <kernel/bootmem.h>
 #include <kernel/errno.h>
 #include <kernel/mm.h>
 #include <kernel/syscall.h>
@@ -27,16 +28,6 @@
 #include <arch/x86/idt.h>
 #include <arch/x86/cpu.h>
 
-/*
- * Do NOT put a huge static heap in .bss. Multiboot loaders may place the
- * initrd inside the kernel's BSS span (filesz..memsz) and then zero BSS,
- * wiping the module image. Use a fixed high physical region instead
- * (below .mke load addresses at 0x02000000+).
- */
-#define HEAP_PHYS 0x01000000u
-/* Grow toward .mke load base (0x02000000); leave 64KiB guard. */
-#define HEAP_SIZE (0x02000000u - HEAP_PHYS - 0x10000u)
-
 static void klog_heap(const char *tag)
 {
     klog(tag);
@@ -49,6 +40,8 @@ static void klog_heap(const char *tag)
 
 void kernel_main(uint32_t magic, multiboot_info_t *mbi)
 {
+    bootmem_layout_t mem;
+
     serial_init();
     vga_init();
     klog("[boot] kernel_main\n");
@@ -60,9 +53,21 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
             __asm__ volatile("hlt");
     }
 
-    heap_init((void *)(uintptr_t)HEAP_PHYS, HEAP_SIZE);
-    klog_hex("[boot] heap_phys=", HEAP_PHYS);
-    klog_uint("[boot] heap_size=", HEAP_SIZE);
+    /*
+     * Heap lives in a Multiboot-discovered available region above the fixed
+     * .mke load window (see bootmem). Avoid a huge .bss heap — loaders may
+     * place the initrd inside the kernel BSS span and then zero it.
+     */
+    if (bootmem_init(mbi, &mem) < 0 || mem.heap_size == 0) {
+        klog("[boot] bootmem_init FAILED\n");
+        vga_print("bootmem_init failed\n");
+        for (;;)
+            __asm__ volatile("hlt");
+    }
+    heap_init((void *)(uintptr_t)mem.heap_phys, mem.heap_size);
+    klog_hex("[boot] heap_phys=", mem.heap_phys);
+    klog_uint("[boot] heap_size=", mem.heap_size);
+    klog_uint("[boot] total_ram=", mem.total_ram_bytes);
     mm_init();
     gdt_init();
     idt_init();

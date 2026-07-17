@@ -18,6 +18,7 @@ ARCH_C   := $(SRC)/arch/x86/idt.c \
 
 KERNEL_C := $(SRC)/kernel/main.c \
             $(SRC)/kernel/heap.c \
+            $(SRC)/kernel/bootmem.c \
             $(SRC)/kernel/mm.c \
             $(SRC)/kernel/process.c \
             $(SRC)/kernel/env.c \
