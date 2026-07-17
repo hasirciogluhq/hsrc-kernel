@@ -20,15 +20,21 @@ typedef struct {
     uint32_t eip, cs, eflags;
 } regs_t;
 
+/* Log only setup-ish GX/WM calls (not per-frame YIELD/DAMAGE/INPUT). */
+static int sys_log_interesting(long n)
+{
+    return n == SYS_GX_INFO || n == SYS_GX_PRESENT || n == SYS_WM_CREATE ||
+           n == SYS_WM_MAP || n == SYS_GX_SET_WALLPAPER || n == SYS_WM_DESTROY ||
+           n == SYS_WM_SHOW || n == SYS_WM_FOCUS || n == SYS_WM_FIND;
+}
+
 void syscall_isr_handler(regs_t *r)
 {
-    static int s_log_left = 48;
+    static int s_log_left = 64;
     long n = (long)r->eax;
+    int log = (s_log_left > 0 && sys_log_interesting(n));
 
-    if (s_log_left > 0 &&
-        (n == SYS_GX_INFO || n == SYS_GX_PRESENT || n == SYS_WM_CREATE ||
-         n == SYS_WM_MAP || n == SYS_GX_SET_WALLPAPER || n == SYS_YIELD ||
-         n == SYS_GX_DAMAGE || n == SYS_INPUT_STATE)) {
+    if (log) {
         process_t *p = process_current();
         klog("[sys] ");
         klog(p && p->name[0] ? p->name : "?");
@@ -37,7 +43,6 @@ void syscall_isr_handler(regs_t *r)
         klog(" a1=");
         serial_print_hex((uint32_t)r->ebx);
         klog("\n");
-        s_log_left--;
     }
 
     r->eax = (uint32_t)syscall_dispatch(
@@ -48,12 +53,11 @@ void syscall_isr_handler(regs_t *r)
         (long)r->esi,
         (long)r->edi);
 
-    if (s_log_left > 0 &&
-        (n == SYS_GX_INFO || n == SYS_GX_PRESENT || n == SYS_WM_CREATE ||
-         n == SYS_WM_MAP || n == SYS_GX_SET_WALLPAPER)) {
+    if (log) {
         klog("[sys] -> ret=");
         serial_print_hex(r->eax);
         klog("\n");
+        s_log_left--;
     }
 }
 
