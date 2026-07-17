@@ -53,6 +53,8 @@ KERNEL_C := $(SRC)/kernel/main.c \
             $(SRC)/kernel/heap.c \
             $(SRC)/kernel/mm.c \
             $(SRC)/kernel/process.c \
+            $(SRC)/kernel/env.c \
+            $(SRC)/kernel/argv.c \
             $(SRC)/kernel/scheduler.c \
             $(SRC)/kernel/syscall.c \
             $(SRC)/kernel/vfs.c \
@@ -60,7 +62,9 @@ KERNEL_C := $(SRC)/kernel/main.c \
             $(SRC)/kernel/block_api.c \
             $(SRC)/kernel/netif.c \
             $(SRC)/kernel/netstack.c \
+            $(SRC)/kernel/dhcp.c \
             $(SRC)/kernel/socket.c \
+            $(SRC)/kernel/service.c \
             $(SRC)/kernel/ksym.c \
             $(SRC)/kernel/module.c \
             $(SRC)/kernel/mkdx_api.c \
@@ -129,6 +133,7 @@ MKDX_SRCS := $(SRC)/drivers/mkdx/surface.c \
              $(SRC)/drivers/mkdx/accel.c \
              $(SRC)/drivers/mkdx/compositor.c \
              $(SRC)/drivers/mkdx/window.c \
+             $(SRC)/drivers/mkdx/console.c \
              $(SRC)/drivers/mkdx/server.c \
              $(SRC)/drivers/mkdx/context.c \
              $(SRC)/drivers/mkdx/render3d.c \
@@ -206,16 +211,28 @@ KMODS := \
 # ---- usermode C++ SDK + apps (.mke) ----
 SDK_SRCS := $(SRC)/user/sdk/syscall.cpp \
             $(SRC)/user/sdk/gfx.cpp \
+            $(SRC)/user/sdk/process.cpp \
+            $(SRC)/user/sdk/settings.cpp \
             $(SRC)/user/string.c
 SDK_OBJS := $(BUILD)/user/sdk/syscall.o \
             $(BUILD)/user/sdk/gfx.o \
+            $(BUILD)/user/sdk/process.o \
+            $(BUILD)/user/sdk/settings.o \
             $(BUILD)/user/string.o
 
 MKE_OSUI := $(USEROUT)/os-ui.mke
 MKE_TERM := $(USEROUT)/terminal.mke
-MKES     := $(MKE_OSUI) $(MKE_TERM)
+MKE_SETTINGS := $(USEROUT)/os-settings.mke
+MKE_FILES := $(USEROUT)/files.mke
+MKE_ACTIVITY := $(USEROUT)/activity-monitor.mke
+MKES     := $(MKE_OSUI) $(MKE_TERM) $(MKE_SETTINGS) $(MKE_FILES) $(MKE_ACTIVITY)
+ENV_ASSET := $(BUILD)/environment
+INITRD_ASSETS := assets/wallpaper-default.bmp $(ENV_ASSET)
 LOAD_OSUI := 0x02000000
 LOAD_TERM := 0x02200000
+LOAD_SETTINGS := 0x02400000
+LOAD_FILES := 0x02600000
+LOAD_ACTIVITY := 0x02800000
 
 .PHONY: all drivers userapps run clean disk disk-reset
 
@@ -264,6 +281,10 @@ $(eval $(call link_kmod,$(KMOD_MKDX),$(MKDX_OBJS)))
 $(PACKER): tools/pack_initrd.c
 	@mkdir -p $(dir $@)
 	$(HOSTCC) -O2 -Wall -Wextra -o $@ $<
+
+$(ENV_ASSET): assets/etc/environment
+	@mkdir -p $(dir $@)
+	cp $< $@
 
 $(PACK_MKE): tools/pack_mke.c
 	@mkdir -p $(dir $@)
@@ -318,8 +339,32 @@ $(USEROUT)/terminal.elf: $(BUILD)/user/apps/terminal.o $(SDK_OBJS) user.ld
 $(MKE_TERM): $(USEROUT)/terminal.elf $(PACK_MKE)
 	$(call pack_mke_from_elf,$<,$(USEROUT)/terminal.bin,$@,$(LOAD_TERM),terminal)
 
-$(INITRD): $(PACKER) $(KMODS) $(MKES)
-	$(PACKER) $@ $(KMODS) $(MKES)
+$(USEROUT)/os-settings.elf: $(BUILD)/user/apps/os-settings.o $(SDK_OBJS) user.ld
+	@mkdir -p $(dir $@)
+	$(LD) $(USERLDFLAGS) --defsym=LOAD_ADDR=$(LOAD_SETTINGS) -o $@ \
+		$(BUILD)/user/apps/os-settings.o $(SDK_OBJS)
+
+$(MKE_SETTINGS): $(USEROUT)/os-settings.elf $(PACK_MKE)
+	$(call pack_mke_from_elf,$<,$(USEROUT)/os-settings.bin,$@,$(LOAD_SETTINGS),os-settings)
+
+$(USEROUT)/files.elf: $(BUILD)/user/apps/files.o $(SDK_OBJS) user.ld
+	@mkdir -p $(dir $@)
+	$(LD) $(USERLDFLAGS) --defsym=LOAD_ADDR=$(LOAD_FILES) -o $@ \
+		$(BUILD)/user/apps/files.o $(SDK_OBJS)
+
+$(MKE_FILES): $(USEROUT)/files.elf $(PACK_MKE)
+	$(call pack_mke_from_elf,$<,$(USEROUT)/files.bin,$@,$(LOAD_FILES),files)
+
+$(USEROUT)/activity-monitor.elf: $(BUILD)/user/apps/activity-monitor.o $(SDK_OBJS) user.ld
+	@mkdir -p $(dir $@)
+	$(LD) $(USERLDFLAGS) --defsym=LOAD_ADDR=$(LOAD_ACTIVITY) -o $@ \
+		$(BUILD)/user/apps/activity-monitor.o $(SDK_OBJS)
+
+$(MKE_ACTIVITY): $(USEROUT)/activity-monitor.elf $(PACK_MKE)
+	$(call pack_mke_from_elf,$<,$(USEROUT)/activity-monitor.bin,$@,$(LOAD_ACTIVITY),activity-monitor)
+
+$(INITRD): $(PACKER) $(KMODS) $(MKES) $(INITRD_ASSETS)
+	$(PACKER) $@ $(KMODS) $(MKES) $(INITRD_ASSETS)
 
 $(BUILD)/%.o: $(SRC)/%.asm
 	@mkdir -p $(dir $@)

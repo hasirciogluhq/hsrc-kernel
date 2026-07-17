@@ -1,7 +1,13 @@
 #include <kernel/mke.h>
+#include <kernel/argv.h>
+#include <kernel/errno.h>
+#include <kernel/heap.h>
 #include <kernel/process.h>
 #include <kernel/string.h>
 #include <kernel/initrd.h>
+#include <kernel/vfs.h>
+#include <kernel/mkdx_api.h>
+#include <kernel/syscall.h>
 #include <drivers/vga.h>
 #include <drivers/serial.h>
 #include <multiboot.h>
@@ -17,7 +23,20 @@ static int name_ends_with_mke(const char *name)
     return strcmp(name + n - 4, ".mke") == 0;
 }
 
-int mke_spawn(const void *blob, size_t size)
+static void mke_attach_console(pid_t pid, const char *name, uint32_t spawn_flags)
+{
+    const mkdx_api_t *api = mkdx_api_get();
+    int visible;
+
+    if (!api || !api->console_alloc || pid <= 0)
+        return;
+
+    visible = (spawn_flags & SPAWN_CONSOLE_VISIBLE) ? 1 : 0;
+    (void)api->console_alloc((int)pid, name, visible);
+}
+
+int mke_spawn_flags(const void *blob, size_t size, uint32_t spawn_flags,
+                    const char *const *argv, int argc)
 {
     const mke_header_t *hdr;
     const uint8_t *img;
@@ -94,6 +113,14 @@ int mke_spawn(const void *blob, size_t size)
         return -1;
     }
 
+    if (argv && argc > 0) {
+        process_t *child = process_get(pid);
+        if (child && argv_proc_set(child, argv, argc) < 0) {
+            (void)process_kill(pid);
+            return -EINVAL;
+        }
+    }
+
     klog("[mke] spawned ");
     klog(hdr->name);
     klog(" pid=");
@@ -101,7 +128,75 @@ int mke_spawn(const void *blob, size_t size)
     klog(" entry=");
     serial_print_hex((uint32_t)(uintptr_t)entry);
     klog("\n");
-    return 0;
+
+    mke_attach_console(pid, hdr->name[0] ? hdr->name : "mke", spawn_flags);
+    return pid;
+}
+
+int mke_spawn(const void *blob, size_t size)
+{
+    return mke_spawn_flags(blob, size, SPAWN_CONSOLE_HIDDEN, NULL, 0);
+}
+
+int mke_spawn_path_flags(const char *path, uint32_t spawn_flags,
+                         const char *const *argv, int argc)
+{
+    int fd;
+    off_t end;
+    ssize_t total = 0;
+    int rc;
+    uint8_t *blob;
+
+    if (!path || !path[0])
+        return -EINVAL;
+
+    fd = vfs_open(path, O_RDONLY);
+    if (fd < 0)
+        return fd;
+
+    end = vfs_lseek(fd, 0, SEEK_END);
+    if (end <= 0) {
+        (void)vfs_close(fd);
+        return end < 0 ? (int)end : -ENOEXEC;
+    }
+    if (vfs_lseek(fd, 0, SEEK_SET) < 0) {
+        (void)vfs_close(fd);
+        return -EIO;
+    }
+
+    blob = (uint8_t *)kmalloc((size_t)end);
+    if (!blob) {
+        (void)vfs_close(fd);
+        return -ENOMEM;
+    }
+
+    while (total < end) {
+        ssize_t n = vfs_read(fd, blob + total, (size_t)(end - total));
+        if (n < 0) {
+            rc = (int)n;
+            (void)vfs_close(fd);
+            kfree(blob);
+            return rc;
+        }
+        if (n == 0)
+            break;
+        total += n;
+    }
+
+    (void)vfs_close(fd);
+    if (total != end) {
+        kfree(blob);
+        return -EIO;
+    }
+
+    rc = mke_spawn_flags(blob, (size_t)end, spawn_flags, argv, argc);
+    kfree(blob);
+    return rc;
+}
+
+int mke_spawn_path(const char *path)
+{
+    return mke_spawn_path_flags(path, SPAWN_CONSOLE_HIDDEN, NULL, 0);
 }
 
 int mke_spawn_from_initrd(const void *data, size_t size)

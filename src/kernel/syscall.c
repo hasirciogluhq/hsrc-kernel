@@ -1,12 +1,17 @@
 #include <kernel/syscall.h>
 #include <kernel/process.h>
+#include <kernel/env.h>
+#include <kernel/argv.h>
+#include <kernel/service.h>
 #include <kernel/scheduler.h>
 #include <kernel/vfs.h>
 #include <kernel/vfs_api.h>
 #include <kernel/errno.h>
 #include <kernel/mm.h>
 #include <kernel/module.h>
+#include <kernel/mke.h>
 #include <kernel/mkdx_api.h>
+#include <kernel/netif.h>
 #include <kernel/socket.h>
 #include <kernel/uaccess.h>
 #include <kernel/string.h>
@@ -24,8 +29,11 @@ typedef struct {
 static int sys_log_interesting(long n)
 {
     return n == SYS_GX_INFO || n == SYS_GX_PRESENT || n == SYS_WM_CREATE ||
+           n == SYS_WM_SET || n == SYS_WM_GET || n == SYS_WM_CLOSE ||
            n == SYS_WM_MAP || n == SYS_GX_SET_WALLPAPER || n == SYS_WM_DESTROY ||
-           n == SYS_WM_SHOW || n == SYS_WM_FOCUS || n == SYS_WM_FIND;
+           n == SYS_WM_SHOW || n == SYS_WM_FOCUS || n == SYS_WM_FIND ||
+           n == SYS_SPAWN || n == SYS_KILL || n == SYS_SERVICE_START ||
+           n == SYS_SERVICE_STOP || n == SYS_CONSOLE_SHOW;
 }
 
 static const char *fs_proc_name(void)
@@ -308,6 +316,11 @@ static long do_write(long fd, long buf, long count)
             fs_log_ret("write", ret);
             return ret;
         }
+        if (n > 0 && ((int)fd == STDOUT_FILENO || (int)fd == STDERR_FILENO)) {
+            const mkdx_api_t *api = mkdx_api_get();
+            if (api && api->console_write)
+                (void)api->console_write((int)p->pid, tmp, (size_t)n);
+        }
         total += n;
         if ((size_t)n < chunk)
             break;
@@ -399,9 +412,213 @@ static long do_getpid(void)
     return p ? (long)p->pid : -1;
 }
 
+static long do_getppid(void)
+{
+    return (long)process_getppid();
+}
+
 static long do_yield(void)
 {
     schedule();
+    return 0;
+}
+
+static long do_waitpid(long pid, long status_ptr, long options)
+{
+    int status = 0;
+    pid_t waited = process_waitpid((pid_t)pid, status_ptr ? &status : NULL, (int)options);
+    if (waited > 0 && status_ptr) {
+        if (copy_to_user((void *)status_ptr, &status, sizeof(status)) < 0)
+            return -EFAULT;
+    }
+    return (long)waited;
+}
+
+static long do_spawn(long path_ptr, long flags, long argv_ptr, long argc)
+{
+    process_t *p = process_current();
+    char user_path[VFS_PATH_MAX];
+    char full_path[VFS_PATH_MAX];
+    char argv_storage[PROC_ARGC_MAX][PROC_ARGV_MAX];
+    const char *kargv[PROC_ARGC_MAX + 1];
+    uint32_t spawn_flags;
+    int len;
+    int copied_argc = 0;
+
+    if (!p)
+        return -ESRCH;
+
+    len = user_strlen((const char *)path_ptr, sizeof(user_path));
+    if (len < 0)
+        return -EFAULT;
+    if (copy_from_user(user_path, (const void *)path_ptr, (size_t)len + 1) < 0)
+        return -EFAULT;
+    if (resolve_path(p, user_path, full_path, sizeof(full_path)) < 0)
+        return -EINVAL;
+
+    if (argv_ptr) {
+        copied_argc = argv_copy_from_user(argv_storage, kargv, (int)argc, argv_ptr);
+        if (copied_argc < 0)
+            return copied_argc;
+    }
+
+    spawn_flags = (uint32_t)flags;
+    if (spawn_flags == 0)
+        spawn_flags = SPAWN_CONSOLE_HIDDEN;
+    return (long)mke_spawn_path_flags(full_path, spawn_flags,
+                                      copied_argc > 0 ? kargv : NULL, copied_argc);
+}
+
+static long do_console_show(long pid, long visible)
+{
+    const mkdx_api_t *api = mkdx_api_get();
+    if (!api || !api->console_show)
+        return -ENOSYS;
+    return (long)api->console_show((int)pid, visible ? 1 : 0);
+}
+
+static long do_kill(long pid)
+{
+    return (long)process_kill((pid_t)pid);
+}
+
+static long do_getargc(void)
+{
+    process_t *p = process_current();
+    return (long)argv_proc_count(p);
+}
+
+static long do_getargv(long index, long buf_ptr, long buflen)
+{
+    process_t *p = process_current();
+    char kbuf[PROC_ARGV_MAX];
+    int len;
+
+    if (!p)
+        return -ESRCH;
+    if (buflen <= 0 || buflen > (long)PROC_ARGV_MAX)
+        return -EINVAL;
+
+    len = argv_proc_get(p, (int)index, kbuf, (size_t)buflen);
+    if (len < 0)
+        return len;
+    if (copy_to_user((void *)buf_ptr, kbuf, (size_t)len + 1) < 0)
+        return -EFAULT;
+    return len;
+}
+
+static long do_getenv(long name_ptr, long buf_ptr, long buflen)
+{
+    process_t *p = process_current();
+    char key[ENV_KEY_MAX];
+    char val[ENV_VAL_MAX];
+    int len;
+    int rc;
+
+    if (!p)
+        return -ESRCH;
+    if (buflen <= 0)
+        return -EINVAL;
+
+    len = user_strlen((const char *)name_ptr, sizeof(key));
+    if (len < 0)
+        return -EFAULT;
+    if (copy_from_user(key, (const void *)name_ptr, (size_t)len + 1) < 0)
+        return -EFAULT;
+
+    rc = env_get(p, key, val, sizeof(val));
+    if (rc < 0)
+        return rc;
+    if ((size_t)rc >= (size_t)buflen)
+        return -ERANGE;
+    if (copy_to_user((void *)buf_ptr, val, (size_t)rc + 1) < 0)
+        return -EFAULT;
+    return rc;
+}
+
+static long do_setenv(long name_ptr, long val_ptr, long global_flag)
+{
+    process_t *p = process_current();
+    char key[ENV_KEY_MAX];
+    char val[ENV_VAL_MAX];
+    int len;
+
+    if (!p)
+        return -ESRCH;
+
+    len = user_strlen((const char *)name_ptr, sizeof(key));
+    if (len < 0)
+        return -EFAULT;
+    if (copy_from_user(key, (const void *)name_ptr, (size_t)len + 1) < 0)
+        return -EFAULT;
+
+    if (!val_ptr)
+        return (long)env_unset(p, key, global_flag != 0);
+
+    len = user_strlen((const char *)val_ptr, sizeof(val));
+    if (len < 0)
+        return -EFAULT;
+    if (copy_from_user(val, (const void *)val_ptr, (size_t)len + 1) < 0)
+        return -EFAULT;
+
+    return (long)env_set(p, key, val, global_flag != 0);
+}
+
+static long do_proc_list(long outp, long max_entries)
+{
+    proc_list_entry_t entries[PROC_MAX];
+    int total;
+    int copied;
+
+    if (max_entries < 0)
+        return -EINVAL;
+
+    total = process_list(NULL, 0);
+    if (!outp || max_entries == 0)
+        return total;
+
+    copied = total;
+    if (copied > PROC_MAX)
+        copied = PROC_MAX;
+    if ((long)copied > max_entries)
+        copied = (int)max_entries;
+
+    if (copied > 0) {
+        (void)process_list(entries, (size_t)copied);
+        if (copy_to_user((void *)outp, entries, (size_t)copied * sizeof(entries[0])) < 0)
+            return -EFAULT;
+    }
+
+    return copied;
+}
+
+static long do_proc_stat(long pid, long outp)
+{
+    proc_stat_t st;
+    int rc;
+
+    if (!outp)
+        return -EFAULT;
+    rc = process_stat((pid_t)pid, &st);
+    if (rc < 0)
+        return rc;
+    if (copy_to_user((void *)outp, &st, sizeof(st)) < 0)
+        return -EFAULT;
+    return 0;
+}
+
+static long do_sysinfo(long outp)
+{
+    sys_info_t info;
+    int rc;
+
+    if (!outp)
+        return -EFAULT;
+    rc = process_sysinfo(&info);
+    if (rc < 0)
+        return rc;
+    if (copy_to_user((void *)outp, &info, sizeof(info)) < 0)
+        return -EFAULT;
     return 0;
 }
 
@@ -621,7 +838,7 @@ static long do_gx_present(void)
 
 static long do_wm_create(long argp)
 {
-    ugx_win_create args;
+    ugx_window_opts args;
     const mkdx_api_t *api = mkdx();
     process_t *p = process_current();
     if (!api || !api->wm_create)
@@ -629,6 +846,42 @@ static long do_wm_create(long argp)
     if (copy_from_user(&args, (const void *)argp, sizeof(args)) < 0)
         return -1;
     return api->wm_create(&args, p ? (uint32_t)p->pid : 0);
+}
+
+static long do_wm_set(long id, long optsp)
+{
+    ugx_window_opts args;
+    const mkdx_api_t *api = mkdx();
+    if (!api || !api->wm_set)
+        return -1;
+    if (copy_from_user(&args, (const void *)optsp, sizeof(args)) < 0)
+        return -1;
+    return api->wm_set((int)id, &args);
+}
+
+static long do_wm_get(long id, long outp)
+{
+    ugx_window_opts args;
+    const mkdx_api_t *api = mkdx();
+    if (!api || !api->wm_get)
+        return -1;
+    if (api->wm_get((int)id, &args) < 0)
+        return -1;
+    if (copy_to_user((void *)outp, &args, sizeof(args)) < 0)
+        return -1;
+    return 0;
+}
+
+static long do_wm_close(long id)
+{
+    const mkdx_api_t *api = mkdx();
+    if (!api)
+        return -1;
+    if (api->wm_close)
+        return api->wm_close((int)id);
+    if (api->wm_destroy)
+        return api->wm_destroy((int)id);
+    return -1;
 }
 
 static long do_wm_destroy(long id)
@@ -779,6 +1032,179 @@ static long do_wm_find(long titlep)
     if (copy_from_user(title, (const void *)titlep, (size_t)len + 1) < 0)
         return -1;
     return api->wm_find(title);
+}
+
+static int copy_netif_name(long namep, char name[NETIF_NAME_MAX])
+{
+    int len;
+    if (!namep) {
+        name[0] = 0;
+        return 0;
+    }
+    len = user_strlen((const char *)namep, NETIF_NAME_MAX);
+    if (len < 0)
+        return -EFAULT;
+    if (copy_from_user(name, (const void *)namep, (size_t)len + 1) < 0)
+        return -EFAULT;
+    return 0;
+}
+
+static long do_netif_get(long namep, long outp)
+{
+    netif_info_t info;
+    char name[NETIF_NAME_MAX];
+    int rc;
+
+    if (!outp)
+        return -EFAULT;
+    rc = copy_netif_name(namep, name);
+    if (rc < 0)
+        return rc;
+    rc = netif_get_info(name[0] ? name : NULL, &info);
+    if (rc < 0)
+        return rc;
+    if (copy_to_user((void *)outp, &info, sizeof(info)) < 0)
+        return -EFAULT;
+    return 0;
+}
+
+static long do_netif_set(long namep, long infop)
+{
+    netif_info_t info;
+    char name[NETIF_NAME_MAX];
+    int rc;
+
+    if (!infop)
+        return -EFAULT;
+    rc = copy_netif_name(namep, name);
+    if (rc < 0)
+        return rc;
+    if (copy_from_user(&info, (const void *)infop, sizeof(info)) < 0)
+        return -EFAULT;
+    return netif_set_info(name[0] ? name : NULL, &info);
+}
+
+static long do_dhcp_renew(long namep)
+{
+    char name[NETIF_NAME_MAX];
+    int rc = copy_netif_name(namep, name);
+    if (rc < 0)
+        return rc;
+    return netif_dhcp_renew(name[0] ? name : NULL);
+}
+
+static long do_listen(long fd, long backlog)
+{
+    process_t *p = process_current();
+    int enc;
+    if (!p)
+        return -ESRCH;
+    enc = process_lookup_fd(p, (int)fd);
+    if (enc < 0 || !PROC_FD_IS_SOCK(enc))
+        return -ENOTSOCK;
+    return sock_listen(PROC_FD_SOCK_ID(enc), (int)backlog);
+}
+
+static long do_accept(long fd, long outp)
+{
+    process_t *p = process_current();
+    sockaddr_in_t addr;
+    int enc, sid, ufd;
+    if (!p)
+        return -ESRCH;
+    enc = process_lookup_fd(p, (int)fd);
+    if (enc < 0 || !PROC_FD_IS_SOCK(enc))
+        return -ENOTSOCK;
+    sid = sock_accept(PROC_FD_SOCK_ID(enc), outp ? &addr : NULL);
+    if (sid < 0)
+        return sid;
+    ufd = process_alloc_sock_fd(p, sid);
+    if (ufd < 0) {
+        sock_close(sid);
+        return -EMFILE;
+    }
+    if (outp && copy_to_user((void *)outp, &addr, sizeof(addr)) < 0) {
+        process_free_fd(p, ufd);
+        sock_close(sid);
+        return -EFAULT;
+    }
+    return ufd;
+}
+
+static long do_send(long fd, long buf, long len)
+{
+    process_t *p = process_current();
+    char kbuf[1024];
+    int enc;
+    size_t want, sent = 0;
+    if (!p)
+        return -ESRCH;
+    if (len < 0)
+        return -EINVAL;
+    enc = process_lookup_fd(p, (int)fd);
+    if (enc < 0 || !PROC_FD_IS_SOCK(enc))
+        return -ENOTSOCK;
+    want = (size_t)len;
+    while (sent < want) {
+        size_t chunk = want - sent;
+        ssize_t n;
+        if (chunk > sizeof(kbuf))
+            chunk = sizeof(kbuf);
+        if (copy_from_user(kbuf, (const void *)(buf + sent), chunk) < 0)
+            return sent > 0 ? (long)sent : -EFAULT;
+        n = sock_send(PROC_FD_SOCK_ID(enc), kbuf, chunk, 0);
+        if (n < 0)
+            return sent > 0 ? (long)sent : n;
+        sent += (size_t)n;
+        if ((size_t)n < chunk)
+            break;
+    }
+    return (long)sent;
+}
+
+static long do_recv(long fd, long buf, long len)
+{
+    process_t *p = process_current();
+    char kbuf[1024];
+    int enc;
+    size_t want, got = 0;
+    if (!p)
+        return -ESRCH;
+    if (len < 0)
+        return -EINVAL;
+    enc = process_lookup_fd(p, (int)fd);
+    if (enc < 0 || !PROC_FD_IS_SOCK(enc))
+        return -ENOTSOCK;
+    want = (size_t)len;
+    while (got < want) {
+        size_t chunk = want - got;
+        ssize_t n;
+        if (chunk > sizeof(kbuf))
+            chunk = sizeof(kbuf);
+        n = sock_recv(PROC_FD_SOCK_ID(enc), kbuf, chunk, 0);
+        if (n < 0)
+            return got > 0 ? (long)got : n;
+        if (n == 0)
+            break;
+        if (copy_to_user((void *)(buf + got), kbuf, (size_t)n) < 0)
+            return got > 0 ? (long)got : -EFAULT;
+        got += (size_t)n;
+        if ((size_t)n < chunk)
+            break;
+    }
+    return (long)got;
+}
+
+static long do_shutdown(long fd, long how)
+{
+    process_t *p = process_current();
+    int enc;
+    if (!p)
+        return -ESRCH;
+    enc = process_lookup_fd(p, (int)fd);
+    if (enc < 0 || !PROC_FD_IS_SOCK(enc))
+        return -ENOTSOCK;
+    return sock_shutdown(PROC_FD_SOCK_ID(enc), (int)how);
 }
 
 long syscall_dispatch(long n, long a1, long a2, long a3, long a4, long a5)
@@ -1051,13 +1477,64 @@ long syscall_dispatch(long n, long a1, long a2, long a3, long a4, long a5)
             return -EFAULT;
         return n;
     }
+    case SYS_NETIF_GET:
+        return do_netif_get(a1, a2);
+    case SYS_NETIF_SET:
+        return do_netif_set(a1, a2);
+    case SYS_DHCP_RENEW:
+        return do_dhcp_renew(a1);
+    case SYS_LISTEN:
+        return do_listen(a1, a2);
+    case SYS_ACCEPT:
+        return do_accept(a1, a2);
+    case SYS_SEND:
+        return do_send(a1, a2, a3);
+    case SYS_RECV:
+        return do_recv(a1, a2, a3);
+    case SYS_SHUTDOWN:
+        return do_shutdown(a1, a2);
+    case SYS_SPAWN:
+        return do_spawn(a1, a2, a3, a4);
+    case SYS_WAITPID:
+        return do_waitpid(a1, a2, a3);
+    case SYS_KILL:
+        return do_kill(a1);
+    case SYS_PROC_LIST:
+        return do_proc_list(a1, a2);
+    case SYS_PROC_STAT:
+        return do_proc_stat(a1, a2);
+    case SYS_SYSINFO:
+        return do_sysinfo(a1);
+    /* Service supervisor syscalls (Wave M). */
+    case SYS_SERVICE_LIST:
+        return service_syscall_list(a1, a2, a3);
+    case SYS_SERVICE_START:
+        return service_syscall_start(a1);
+    case SYS_SERVICE_STOP:
+        return service_syscall_stop(a1);
+    case SYS_SERVICE_STATUS:
+        return service_syscall_status(a1, a2);
+    case SYS_GETENV:
+        return do_getenv(a1, a2, a3);
+    case SYS_SETENV:
+        return do_setenv(a1, a2, a3);
+    case SYS_CONSOLE_SHOW:
+        return do_console_show(a1, a2);
+    case SYS_GETARGC:
+        return do_getargc();
+    case SYS_GETARGV:
+        return do_getargv(a1, a2, a3);
     case SYS_GETPID: return do_getpid();
+    case SYS_GETPPID: return do_getppid();
     case SYS_YIELD:  return do_yield();
     case SYS_FORK:   return -1;
 
     case SYS_GX_INFO:          return do_gx_info(a1);
     case SYS_GX_PRESENT:       return do_gx_present();
     case SYS_WM_CREATE:        return do_wm_create(a1);
+    case SYS_WM_SET:           return do_wm_set(a1, a2);
+    case SYS_WM_GET:           return do_wm_get(a1, a2);
+    case SYS_WM_CLOSE:         return do_wm_close(a1);
     case SYS_WM_DESTROY:       return do_wm_destroy(a1);
     case SYS_WM_MAP:           return do_wm_map(a1, a2);
     case SYS_WM_MOVE:          return do_wm_move(a1, a2, a3);

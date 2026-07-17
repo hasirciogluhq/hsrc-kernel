@@ -1,4 +1,5 @@
 #include "server.h"
+#include "console.h"
 #include <drivers/driver.h>
 #include <drivers/display.h>
 #include <drivers/keyboard.h>
@@ -172,6 +173,8 @@ int gx_server_init(void)
     if (gx_compositor_init(&g_server.comp, &g_server.device) < 0)
         return -1;
     if (wm_init(&g_server.wm, &g_server.comp) < 0)
+        return -1;
+    if (proc_console_init() < 0)
         return -1;
 
     g_server.scene = gx_surface_create(g_server.device.mode.width,

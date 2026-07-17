@@ -13,6 +13,9 @@ typedef struct mkdx_api {
     void (*mark_dirty)(void);
 
     long (*wm_create)(const void *args, uint32_t owner_pid);
+    int  (*wm_set)(int id, const void *opts);
+    int  (*wm_get)(int id, void *out);
+    int  (*wm_close)(int id);
     int  (*wm_destroy)(int id);
     int  (*wm_map)(int id, void *out);
     int  (*wm_move)(int id, int32_t x, int32_t y);
@@ -27,6 +30,12 @@ typedef struct mkdx_api {
     int  (*fill)(const void *args, int rounded);
     int  (*set_wallpaper)(const void *args);
     int  (*input_state)(void *out);
+
+    /* Per-process console (Wave O). */
+    int     (*console_alloc)(int pid, const char *name, int visible);
+    void    (*console_free)(int pid);
+    ssize_t (*console_write)(int pid, const void *buf, size_t len);
+    int     (*console_show)(int pid, int visible);
 } mkdx_api_t;
 
 void              mkdx_api_register(const mkdx_api_t *api);

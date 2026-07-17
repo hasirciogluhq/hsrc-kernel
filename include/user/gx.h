@@ -4,14 +4,6 @@
 #include <kernel/types.h>
 #include <kernel/syscall.h>
 
-#define UGX_STYLE_OPAQUE     0
-#define UGX_STYLE_ACRYLIC    (1u << 0)
-#define UGX_STYLE_ROUNDED    (1u << 1)
-#define UGX_STYLE_ALPHA      (1u << 2)
-#define UGX_STYLE_BACKGROUND (1u << 3)
-#define UGX_STYLE_NO_DRAG    (1u << 4)
-#define UGX_STYLE_NO_TITLE   (1u << 5)
-
 #define UGX_BTN_LEFT   0x01
 #define UGX_BTN_RIGHT  0x02
 #define UGX_BTN_MIDDLE 0x04
@@ -22,12 +14,42 @@ typedef struct ugx_info {
     uint32_t bpp;
 } ugx_info;
 
-typedef struct ugx_win_create {
+typedef struct ugx_window_opts {
     int32_t  x, y, w, h;
-    uint32_t style;
+    int32_t  min_w, min_h, max_w, max_h; /* 0 = unlimited */
     int32_t  radius;
+    uint8_t  opacity;                    /* 0..255 */
     char     title[64];
-} ugx_win_create;
+    char     class_name[32];
+    int32_t  owner_id;                   /* -1 = none */
+    int32_t  parent_id;                  /* -1 = none */
+
+    uint8_t  acrylic;
+    uint8_t  rounded;
+    uint8_t  alpha;
+    uint8_t  background;
+    uint8_t  no_drag;
+    uint8_t  no_title;
+    uint8_t  topmost;
+    uint8_t  always_on_bottom;
+    uint8_t  resizable;
+    uint8_t  fullscreen;
+    uint8_t  framed;
+    uint8_t  shadow;
+
+    uint8_t  visible;
+    uint8_t  minimized;
+    uint8_t  maximized;
+    uint8_t  closable;
+    uint8_t  can_minimize;
+    uint8_t  can_maximize;
+    uint8_t  accept_focus;
+    uint8_t  modal;
+
+    uint8_t  capture_keys;
+    uint8_t  capture_mouse;
+    uint8_t  mouse_passthrough;
+} ugx_window_opts;
 
 typedef struct ugx_frame {
     int32_t x, y, w, h;
@@ -73,13 +95,13 @@ typedef struct ugx_input_state {
 
 int  ugx_info_get(ugx_info *out);
 int  ugx_present(void);
-int  ugx_wm_create(const ugx_win_create *args);
+int  ugx_wm_create(const ugx_window_opts *opts);
+int  ugx_wm_set(int win, const ugx_window_opts *opts);
+int  ugx_wm_get(int win, ugx_window_opts *out);
+int  ugx_wm_close(int win);
 int  ugx_wm_destroy(int win);
 int  ugx_wm_map(int win, ugx_map *out);
-int  ugx_wm_move(int win, int x, int y);
-int  ugx_wm_resize(int win, int w, int h);
 int  ugx_wm_focus(int win);
-int  ugx_wm_show(int win, int visible);
 int  ugx_wm_get_frame(int win, ugx_frame *out);
 int  ugx_wm_find(const char *title);
 int  ugx_fill(int win, int x, int y, int w, int h, uint32_t color);

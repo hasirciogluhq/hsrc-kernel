@@ -26,6 +26,11 @@ typedef struct mke_header {
 
 /* Validate + copy image to load_addr, zero BSS, create ring-3 process. */
 int mke_spawn(const void *blob, size_t size);
+int mke_spawn_flags(const void *blob, size_t size, uint32_t spawn_flags,
+                    const char *const *argv, int argc);
+int mke_spawn_path(const char *path);
+int mke_spawn_path_flags(const char *path, uint32_t spawn_flags,
+                         const char *const *argv, int argc);
 
 /* Scan multiboot modules / initrd for MKE1 blobs and spawn each. */
 int mke_spawn_from_mbi(multiboot_info_t *mbi);

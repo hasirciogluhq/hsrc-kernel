@@ -1,10 +1,18 @@
 #include <kernel/netif.h>
+#include <kernel/dhcp.h>
 #include <kernel/netstack.h>
 #include <kernel/errno.h>
 #include <kernel/string.h>
 
 static netif_t *g_ifs[NETIF_MAX];
 static int      g_nifs;
+
+static netif_t *netif_lookup(const char *name)
+{
+    if (name && name[0])
+        return netif_by_name(name);
+    return netif_default();
+}
 
 void netif_init(void)
 {
@@ -15,6 +23,7 @@ void netif_init(void)
 
 int netif_register(netif_t *nif)
 {
+    int rc;
     if (!nif || !nif->tx || g_nifs >= NETIF_MAX)
         return -EINVAL;
     if (!nif->name[0])
@@ -23,6 +32,8 @@ int netif_register(netif_t *nif)
         nif->mtu = 1500;
     nif->up = 1;
     g_ifs[g_nifs++] = nif;
+    rc = dhcp_configure(nif);
+    (void)rc;
     return 0;
 }
 
@@ -50,6 +61,58 @@ void netif_set_addr(netif_t *nif, uint32_t ip, uint32_t netmask, uint32_t gatewa
     nif->ip = ip;
     nif->netmask = netmask;
     nif->gateway = gateway;
+}
+
+void netif_set_dns(netif_t *nif, uint32_t dns1, uint32_t dns2)
+{
+    if (!nif)
+        return;
+    nif->dns1 = dns1;
+    nif->dns2 = dns2;
+}
+
+int netif_get_info(const char *name, netif_info_t *out)
+{
+    netif_t *nif = netif_lookup(name);
+    if (!out)
+        return -EINVAL;
+    if (!nif)
+        return -ENODEV;
+    memset(out, 0, sizeof(*out));
+    strncpy(out->name, nif->name, sizeof(out->name) - 1);
+    memcpy(out->mac, nif->mac, ETH_ALEN);
+    out->ip = nif->ip;
+    out->netmask = nif->netmask;
+    out->gateway = nif->gateway;
+    out->dns1 = nif->dns1;
+    out->dns2 = nif->dns2;
+    out->mtu = nif->mtu;
+    out->up = nif->up;
+    return 0;
+}
+
+int netif_set_info(const char *name, const netif_info_t *cfg)
+{
+    netif_t *nif = netif_lookup(name);
+    if (!cfg)
+        return -EINVAL;
+    if (!nif)
+        return -ENODEV;
+    netif_set_addr(nif, cfg->ip, cfg->netmask, cfg->gateway);
+    netif_set_dns(nif, cfg->dns1, cfg->dns2);
+    if (cfg->mtu > 0)
+        nif->mtu = cfg->mtu;
+    nif->up = cfg->up ? 1 : 0;
+    netstack_reset_arp();
+    return 0;
+}
+
+int netif_dhcp_renew(const char *name)
+{
+    netif_t *nif = netif_lookup(name);
+    if (!nif)
+        return -ENODEV;
+    return dhcp_configure(nif);
 }
 
 void netif_input(netif_t *nif, const void *frame, size_t len)

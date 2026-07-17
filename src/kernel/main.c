@@ -5,6 +5,7 @@
 #include <drivers/pci.h>
 #include <drivers/display.h>
 #include <kernel/heap.h>
+#include <kernel/errno.h>
 #include <kernel/mm.h>
 #include <kernel/syscall.h>
 #include <kernel/vfs.h>
@@ -14,6 +15,8 @@
 #include <kernel/module.h>
 #include <kernel/mkdx_api.h>
 #include <kernel/process.h>
+#include <kernel/env.h>
+#include <kernel/service.h>
 #include <kernel/scheduler.h>
 #include <kernel/mke.h>
 #include <arch/x86/gdt.h>
@@ -64,6 +67,8 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     socket_init();
     ksym_init();
     process_init();
+    env_init();
+    service_init();
     scheduler_init();
     klog("[boot] core init done\n");
 
@@ -92,6 +97,20 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     klog("[boot] modules loaded\n");
     klog_heap("[boot]");
 
+    if (env_load_initrd() < 0)
+        klog("[boot] env_load_initrd failed (using defaults)\n");
+    if (env_load_file("/etc/environment") < 0)
+        klog("[boot] no /etc/environment on disk\n");
+
+    {
+        int rc = vfs_mkdir("/applications", 0755);
+        if (rc < 0 && rc != -EEXIST)
+            klog("[boot] mkdir /applications failed\n");
+        rc = vfs_mount("initrd", "/applications", "initrdfs", MS_RDONLY, NULL);
+        if (rc < 0)
+            klog("[boot] mount /applications initrdfs failed\n");
+    }
+
     if (!display_active()) {
         klog("[boot] no active display\n");
         vga_print("no active display\n");
@@ -109,6 +128,8 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     klog("[boot] mkdx ready\n");
     klog_heap("[boot]");
 
+    service_register_builtin_defaults();
+
     klog("[boot] spawning .mke apps...\n");
     if (mke_spawn_from_mbi(mbi) < 0) {
         klog("[boot] mke_spawn_from_mbi FAILED (no apps)\n");
@@ -117,6 +138,8 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
             __asm__ volatile("hlt");
     }
     klog("[boot] mke spawn done\n");
+    service_bind_existing_processes();
+    service_start_critical();
     klog_heap("[boot]");
 
     {

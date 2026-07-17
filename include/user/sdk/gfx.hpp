@@ -23,6 +23,53 @@ struct Input {
     int32_t focus_id = -1;
 };
 
+struct WindowOptions {
+    int32_t x = 0;
+    int32_t y = 0;
+    int32_t w = 640;
+    int32_t h = 480;
+    int32_t min_w = 0;
+    int32_t min_h = 0;
+    int32_t max_w = 0;
+    int32_t max_h = 0;
+    int32_t radius = 0;
+    uint8_t opacity = 255;
+    char title[64]{};
+    char class_name[32]{};
+    int32_t owner_id = -1;
+    int32_t parent_id = -1;
+
+    bool acrylic = false;
+    bool rounded = false;
+    bool alpha = false;
+    bool background = false;
+    bool no_drag = false;
+    bool no_title = false;
+    bool topmost = false;
+    bool always_on_bottom = false;
+    bool resizable = true;
+    bool fullscreen = false;
+    bool framed = true;
+    bool shadow = false;
+
+    bool visible = true;
+    bool minimized = false;
+    bool maximized = false;
+    bool closable = true;
+    bool can_minimize = true;
+    bool can_maximize = true;
+    bool accept_focus = true;
+    bool modal = false;
+
+    bool capture_keys = false;
+    bool capture_mouse = false;
+    bool mouse_passthrough = false;
+
+    WindowOptions();
+    void set_title(const char *s);
+    void set_class_name(const char *s);
+};
+
 /* Mapped window pixel buffer (kernel-backed). */
 class Surface {
 public:
@@ -52,13 +99,15 @@ private:
 class Window {
 public:
     Window() = default;
-    ~Window() = default; /* no atexit / static dtor — call destroy() if needed */
+    ~Window() = default; /* no atexit / static dtor — call close() if needed */
 
     Window(const Window &) = delete;
     Window &operator=(const Window &) = delete;
 
-    bool create(int x, int y, int w, int h, uint32_t style, int radius,
-                const char *title);
+    bool create(const WindowOptions &opts);
+    bool set_options(const WindowOptions &opts);
+    bool get_options(WindowOptions &out) const;
+    bool close();
     void destroy();
 
     int id() const { return id_; }
@@ -69,18 +118,28 @@ public:
     void fill(int x, int y, int w, int h, Color c);
     void fill_round(int x, int y, int w, int h, int radius, Color c);
     void show(bool visible);
+    void hide();
     void focus();
+    bool maximize();
+    bool restore();
     void damage();
 
 private:
+    bool remap_surface();
+
     int id_ = -1;
     Surface surf_;
 };
 
 bool screen_info(ScreenInfo &out);
 bool present();
+bool set_wallpaper(const Color *pixels, uint32_t width, uint32_t height, uint32_t stride);
+bool set_wallpaper_default();
 bool set_wallpaper_color(Color c);
 bool input(Input &out);
+bool window_set(int id, const WindowOptions &opts);
+bool window_get(int id, WindowOptions &out);
+bool window_close(int id);
 void damage();
 
 } // namespace hsrc::sdk

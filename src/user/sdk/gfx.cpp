@@ -41,7 +41,118 @@ const uint8_t *glyph(uint8_t ch)
     return ugx_font['?' - 32];
 }
 
+void copy_cstr(char *dst, size_t dst_size, const char *src)
+{
+    if (!dst || dst_size == 0)
+        return;
+    dst[0] = 0;
+    if (!src)
+        return;
+    strncpy(dst, src, dst_size - 1);
+    dst[dst_size - 1] = 0;
+}
+
+ugx_window_opts to_ugx(const WindowOptions &opts)
+{
+    ugx_window_opts raw{};
+    raw.x = opts.x;
+    raw.y = opts.y;
+    raw.w = opts.w;
+    raw.h = opts.h;
+    raw.min_w = opts.min_w;
+    raw.min_h = opts.min_h;
+    raw.max_w = opts.max_w;
+    raw.max_h = opts.max_h;
+    raw.radius = opts.radius;
+    raw.opacity = opts.opacity;
+    copy_cstr(raw.title, sizeof(raw.title), opts.title);
+    copy_cstr(raw.class_name, sizeof(raw.class_name), opts.class_name);
+    raw.owner_id = opts.owner_id;
+    raw.parent_id = opts.parent_id;
+    raw.acrylic = opts.acrylic ? 1 : 0;
+    raw.rounded = opts.rounded ? 1 : 0;
+    raw.alpha = opts.alpha ? 1 : 0;
+    raw.background = opts.background ? 1 : 0;
+    raw.no_drag = opts.no_drag ? 1 : 0;
+    raw.no_title = opts.no_title ? 1 : 0;
+    raw.topmost = opts.topmost ? 1 : 0;
+    raw.always_on_bottom = opts.always_on_bottom ? 1 : 0;
+    raw.resizable = opts.resizable ? 1 : 0;
+    raw.fullscreen = opts.fullscreen ? 1 : 0;
+    raw.framed = opts.framed ? 1 : 0;
+    raw.shadow = opts.shadow ? 1 : 0;
+    raw.visible = opts.visible ? 1 : 0;
+    raw.minimized = opts.minimized ? 1 : 0;
+    raw.maximized = opts.maximized ? 1 : 0;
+    raw.closable = opts.closable ? 1 : 0;
+    raw.can_minimize = opts.can_minimize ? 1 : 0;
+    raw.can_maximize = opts.can_maximize ? 1 : 0;
+    raw.accept_focus = opts.accept_focus ? 1 : 0;
+    raw.modal = opts.modal ? 1 : 0;
+    raw.capture_keys = opts.capture_keys ? 1 : 0;
+    raw.capture_mouse = opts.capture_mouse ? 1 : 0;
+    raw.mouse_passthrough = opts.mouse_passthrough ? 1 : 0;
+    return raw;
+}
+
+void from_ugx(WindowOptions &out, const ugx_window_opts &raw)
+{
+    out.x = raw.x;
+    out.y = raw.y;
+    out.w = raw.w;
+    out.h = raw.h;
+    out.min_w = raw.min_w;
+    out.min_h = raw.min_h;
+    out.max_w = raw.max_w;
+    out.max_h = raw.max_h;
+    out.radius = raw.radius;
+    out.opacity = raw.opacity;
+    copy_cstr(out.title, sizeof(out.title), raw.title);
+    copy_cstr(out.class_name, sizeof(out.class_name), raw.class_name);
+    out.owner_id = raw.owner_id;
+    out.parent_id = raw.parent_id;
+    out.acrylic = raw.acrylic != 0;
+    out.rounded = raw.rounded != 0;
+    out.alpha = raw.alpha != 0;
+    out.background = raw.background != 0;
+    out.no_drag = raw.no_drag != 0;
+    out.no_title = raw.no_title != 0;
+    out.topmost = raw.topmost != 0;
+    out.always_on_bottom = raw.always_on_bottom != 0;
+    out.resizable = raw.resizable != 0;
+    out.fullscreen = raw.fullscreen != 0;
+    out.framed = raw.framed != 0;
+    out.shadow = raw.shadow != 0;
+    out.visible = raw.visible != 0;
+    out.minimized = raw.minimized != 0;
+    out.maximized = raw.maximized != 0;
+    out.closable = raw.closable != 0;
+    out.can_minimize = raw.can_minimize != 0;
+    out.can_maximize = raw.can_maximize != 0;
+    out.accept_focus = raw.accept_focus != 0;
+    out.modal = raw.modal != 0;
+    out.capture_keys = raw.capture_keys != 0;
+    out.capture_mouse = raw.capture_mouse != 0;
+    out.mouse_passthrough = raw.mouse_passthrough != 0;
+}
+
 } // namespace
+
+WindowOptions::WindowOptions()
+{
+    title[0] = 0;
+    class_name[0] = 0;
+}
+
+void WindowOptions::set_title(const char *s)
+{
+    copy_cstr(title, sizeof(title), s);
+}
+
+void WindowOptions::set_class_name(const char *s)
+{
+    copy_cstr(class_name, sizeof(class_name), s);
+}
 
 void Surface::clear(Color c)
 {
@@ -129,41 +240,69 @@ void Surface::text_centered(int cx, int cy, const char *s, Color c, int scale)
     text(cx - tw / 2, cy - th / 2, s, c, scale);
 }
 
-bool Window::create(int x, int y, int w, int h, uint32_t style, int radius,
-                    const char *title)
+bool Window::remap_surface()
 {
-    destroy();
-
-    ugx_win_create a{};
-    a.x = x;
-    a.y = y;
-    a.w = w;
-    a.h = h;
-    a.style = style;
-    a.radius = radius;
-    if (title)
-        strncpy(a.title, title, sizeof(a.title) - 1);
-
-    id_ = (int)syscall1(SYS_WM_CREATE, (long)&a);
     if (id_ < 0)
         return false;
 
     ugx_map map{};
     if (syscall2(SYS_WM_MAP, id_, (long)&map) < 0) {
-        destroy();
         return false;
     }
     surf_ = Surface(map);
     return surf_.valid();
 }
 
-void Window::destroy()
+bool Window::create(const WindowOptions &opts)
+{
+    destroy();
+
+    ugx_window_opts raw = to_ugx(opts);
+    id_ = (int)syscall1(SYS_WM_CREATE, (long)&raw);
+    if (id_ < 0)
+        return false;
+    if (remap_surface())
+        return true;
+    (void)syscall1(SYS_WM_CLOSE, id_);
+    id_ = -1;
+    return false;
+}
+
+bool Window::set_options(const WindowOptions &opts)
+{
+    if (id_ < 0)
+        return false;
+    ugx_window_opts raw = to_ugx(opts);
+    if (syscall2(SYS_WM_SET, id_, (long)&raw) < 0)
+        return false;
+    return remap_surface();
+}
+
+bool Window::get_options(WindowOptions &out) const
+{
+    if (id_ < 0)
+        return false;
+    ugx_window_opts raw{};
+    if (syscall2(SYS_WM_GET, id_, (long)&raw) < 0)
+        return false;
+    from_ugx(out, raw);
+    return true;
+}
+
+bool Window::close()
 {
     if (id_ >= 0) {
-        (void)syscall1(SYS_WM_DESTROY, id_);
+        if (syscall1(SYS_WM_CLOSE, id_) < 0)
+            return false;
         id_ = -1;
     }
     surf_ = Surface();
+    return true;
+}
+
+void Window::destroy()
+{
+    (void)close();
 }
 
 void Window::fill(int x, int y, int w, int h, Color c)
@@ -194,12 +333,45 @@ void Window::fill_round(int x, int y, int w, int h, int radius, Color c)
 
 void Window::show(bool visible)
 {
-    (void)syscall2(SYS_WM_SHOW, id_, visible ? 1 : 0);
+    WindowOptions opts;
+    if (!get_options(opts))
+        return;
+    opts.visible = visible;
+    if (visible)
+        opts.minimized = false;
+    (void)set_options(opts);
+}
+
+void Window::hide()
+{
+    show(false);
 }
 
 void Window::focus()
 {
     (void)syscall1(SYS_WM_FOCUS, id_);
+}
+
+bool Window::maximize()
+{
+    WindowOptions opts;
+    if (!get_options(opts))
+        return false;
+    opts.maximized = true;
+    opts.minimized = false;
+    opts.visible = true;
+    return set_options(opts);
+}
+
+bool Window::restore()
+{
+    WindowOptions opts;
+    if (!get_options(opts))
+        return false;
+    opts.maximized = false;
+    opts.minimized = false;
+    opts.visible = true;
+    return set_options(opts);
 }
 
 void Window::damage()
@@ -223,14 +395,24 @@ bool present()
     return syscall1(SYS_GX_PRESENT, 0) == 0;
 }
 
-bool set_wallpaper_color(Color c)
+bool set_wallpaper(const Color *pixels, uint32_t width, uint32_t height, uint32_t stride)
 {
     ugx_wallpaper args{};
-    args.pixels = &c;
-    args.width = 1;
-    args.height = 1;
-    args.stride = 1;
+    args.pixels = pixels;
+    args.width = width;
+    args.height = height;
+    args.stride = stride;
     return syscall1(SYS_GX_SET_WALLPAPER, (long)&args) == 0;
+}
+
+bool set_wallpaper_default()
+{
+    return set_wallpaper(nullptr, 0, 0, 0);
+}
+
+bool set_wallpaper_color(Color c)
+{
+    return set_wallpaper(&c, 1, 1, 1);
 }
 
 bool input(Input &out)
@@ -244,6 +426,26 @@ bool input(Input &out)
     out.mods = st.mods;
     out.focus_id = st.focus_id;
     return true;
+}
+
+bool window_set(int id, const WindowOptions &opts)
+{
+    ugx_window_opts raw = to_ugx(opts);
+    return syscall2(SYS_WM_SET, id, (long)&raw) == 0;
+}
+
+bool window_get(int id, WindowOptions &out)
+{
+    ugx_window_opts raw{};
+    if (syscall2(SYS_WM_GET, id, (long)&raw) < 0)
+        return false;
+    from_ugx(out, raw);
+    return true;
+}
+
+bool window_close(int id)
+{
+    return syscall1(SYS_WM_CLOSE, id) == 0;
 }
 
 void damage()

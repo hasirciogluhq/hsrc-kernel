@@ -4,6 +4,8 @@
 #include <kernel/types.h>
 #include <kernel/vfs.h>
 #include <kernel/mm.h>
+#include <kernel/env.h>
+#include <kernel/argv.h>
 
 #define PROC_MAX         16
 #define PROC_KSTACK_SIZE 8192
@@ -24,8 +26,41 @@ typedef enum {
     PROC_ZOMBIE
 } proc_state_t;
 
+typedef struct proc_list_entry {
+    pid_t    pid;
+    pid_t    ppid;
+    uint32_t state;
+    uint32_t is_user;
+    uint64_t cpu_ticks;
+    uint64_t uptime_ticks;
+    uint32_t mem_bytes;
+    char     name[PROC_NAME_MAX];
+} proc_list_entry_t;
+
+typedef struct proc_stat {
+    pid_t    pid;
+    pid_t    ppid;
+    uint32_t state;
+    uint32_t is_user;
+    uint64_t cpu_ticks;
+    uint64_t start_ticks;
+    uint64_t uptime_ticks;
+    uint32_t mem_bytes;
+    char     name[PROC_NAME_MAX];
+} proc_stat_t;
+
+typedef struct sys_info {
+    uint64_t uptime_ticks;
+    uint64_t total_cpu_ticks;
+    uint32_t total_ram_bytes;
+    uint32_t used_ram_bytes;
+    uint32_t free_ram_bytes;
+    uint32_t process_count;
+} sys_info_t;
+
 typedef struct process {
     pid_t        pid;
+    pid_t        ppid;
     proc_state_t state;
     char         name[PROC_NAME_MAX];
     int          is_user;      /* 1 = ring-3 userspace */
@@ -38,8 +73,12 @@ typedef struct process {
     uint32_t    *esp;          /* saved kernel stack pointer */
     void       (*user_entry)(void);
     int          exit_code;
+    uint64_t     cpu_ticks;
+    uint64_t     start_ticks;
     int          fds[VFS_MAX_FD];
     vma_t        vmas[VMA_MAX];
+    proc_env_t   env;
+    proc_argv_t  argv;
 } process_t;
 
 void       process_init(void);
@@ -50,8 +89,14 @@ process_t *process_get(pid_t pid);
 
 pid_t process_create(const char *name, void (*entry)(void));
 pid_t process_create_user(const char *name, void (*entry)(void));
+pid_t process_getppid(void);
+pid_t process_waitpid(pid_t pid, int *status_out, int options);
 void  process_exit(int code);
 int   process_kill(pid_t pid);
+int   process_list(proc_list_entry_t *out, size_t max_entries);
+int   process_stat(pid_t pid, proc_stat_t *out);
+int   process_sysinfo(sys_info_t *out);
+void  process_account_tick(process_t *p);
 
 int  process_alloc_fd(process_t *p, int vfs_fd);
 int  process_alloc_sock_fd(process_t *p, int sock_id);

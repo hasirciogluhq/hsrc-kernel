@@ -21,16 +21,41 @@ inline long connect(int fd, const sockaddr_in_t *addr)
     return syscall2(SYS_CONNECT, fd, (long)addr);
 }
 
+inline long listen(int fd, int backlog)
+{
+    return syscall2(SYS_LISTEN, fd, backlog);
+}
+
+inline long accept(int fd, sockaddr_in_t *addr)
+{
+    return syscall2(SYS_ACCEPT, fd, (long)addr);
+}
+
 /* dest may be null if the socket is connected. */
 inline long sendto(int fd, const void *buf, size_t len, const sockaddr_in_t *dest)
 {
     return syscall4(SYS_SENDTO, fd, (long)buf, (long)len, (long)dest);
 }
 
+inline long send(int fd, const void *buf, size_t len)
+{
+    return syscall3(SYS_SEND, fd, (long)buf, (long)len);
+}
+
 /* src may be null if peer address is not needed. */
 inline long recvfrom(int fd, void *buf, size_t len, sockaddr_in_t *src)
 {
     return syscall4(SYS_RECVFROM, fd, (long)buf, (long)len, (long)src);
+}
+
+inline long recv(int fd, void *buf, size_t len)
+{
+    return syscall3(SYS_RECV, fd, (long)buf, (long)len);
+}
+
+inline long shutdown(int fd, int how)
+{
+    return syscall2(SYS_SHUTDOWN, fd, how);
 }
 
 inline int inet_aton(const char *s, uint32_t *out_host)

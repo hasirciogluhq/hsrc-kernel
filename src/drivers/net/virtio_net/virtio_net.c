@@ -68,6 +68,7 @@ typedef struct {
     vused_t *used;
     void *mem;
     uint16_t size;
+    uint16_t queue_index;
     uint16_t free_head;
     uint16_t num_free;
     uint16_t last_used;
@@ -84,8 +85,12 @@ typedef struct {
     vq_t rxq;
     vq_t txq;
     uint8_t *rx_bufs[RX_BUFS];
+    int8_t rx_desc_slot[VQ_MAX];
     virtio_net_hdr_t tx_hdr;
     uint8_t tx_pkt[PKT_MAX];
+    uint8_t tx_pending;
+    uint8_t tx_warned;
+    uint8_t rx_warned;
     netif_t nif;
 } vnet_t;
 
@@ -187,7 +192,7 @@ static void free_chain(vq_t *q, uint16_t head)
 static void vq_notify(vnet_t *vd, vq_t *q)
 {
     uint32_t mult = vd->notify_mult ? vd->notify_mult : 1;
-    mmio_w16(vd->notify + q->notify_off * mult, 0);
+    mmio_w16(vd->notify + q->notify_off * mult, q->queue_index);
 }
 
 static int setup_queue(vnet_t *vd, vq_t *q, uint16_t index)
@@ -203,6 +208,7 @@ static int setup_queue(vnet_t *vd, vq_t *q, uint16_t index)
     if (qsz > VQ_MAX)
         qsz = VQ_MAX;
     q->size = qsz;
+    q->queue_index = index;
     q->notify_off = mmio_r16(vd->common + 30);
 
     desc_sz = sizeof(vdesc_t) * qsz;
@@ -240,6 +246,7 @@ static void tx_drain(vnet_t *vd)
     vq_t *q = &vd->txq;
     while (q->last_used != q->used->idx) {
         free_chain(q, (uint16_t)q->used->ring[q->last_used % q->size].id);
+        vd->tx_pending = 0;
         q->last_used++;
     }
     if (vd->isr)
@@ -249,13 +256,17 @@ static void tx_drain(vnet_t *vd)
 static int rx_post(vnet_t *vd, int slot)
 {
     vq_t *q = &vd->rxq;
-    int d = alloc_desc(q);
+    int d;
+    if (slot < 0 || slot >= RX_BUFS)
+        return -1;
+    d = alloc_desc(q);
     if (d < 0)
         return -1;
     q->desc[d].addr = (uint64_t)(uintptr_t)vd->rx_bufs[slot];
     q->desc[d].len = NET_HDR_SIZE + PKT_MAX;
     q->desc[d].flags = VRING_DESC_F_WRITE;
     q->desc[d].next = 0;
+    vd->rx_desc_slot[d] = (int8_t)slot;
     q->avail->ring[q->avail->idx % q->size] = (uint16_t)d;
     __asm__ volatile("" ::: "memory");
     q->avail->idx++;
@@ -275,12 +286,18 @@ static int vnet_tx(netif_t *nif, const void *frame, size_t len)
         return -EINVAL;
     q = &vd->txq;
     tx_drain(vd);
-    while (q->num_free < 2 && spins++ < 10000)
+    while ((vd->tx_pending || q->num_free < 2) && spins++ < 10000)
         tx_drain(vd);
-    h0 = alloc_desc(q);
-    h1 = alloc_desc(q);
-    if (h0 < 0 || h1 < 0)
+    if (vd->tx_pending || q->num_free < 2)
         return -EAGAIN;
+    h0 = alloc_desc(q);
+    if (h0 < 0)
+        return -EAGAIN;
+    h1 = alloc_desc(q);
+    if (h1 < 0) {
+        free_desc(q, (uint16_t)h0);
+        return -EAGAIN;
+    }
 
     memset(&vd->tx_hdr, 0, sizeof(vd->tx_hdr));
     memcpy(vd->tx_pkt, frame, len);
@@ -298,11 +315,19 @@ static int vnet_tx(netif_t *nif, const void *frame, size_t len)
     __asm__ volatile("" ::: "memory");
     q->avail->idx++;
     __asm__ volatile("" ::: "memory");
+    vd->tx_pending = 1;
     vq_notify(vd, q);
 
     spins = 0;
     while (q->last_used == q->used->idx && spins++ < 20000)
-        ;
+        tx_drain(vd);
+    if (q->last_used == q->used->idx) {
+        if (!vd->tx_warned) {
+            vga_print("virtio-net: tx completion timeout\n");
+            vd->tx_warned = 1;
+        }
+        return -EAGAIN;
+    }
     tx_drain(vd);
     return 0;
 }
@@ -314,19 +339,19 @@ static void rx_poll(vnet_t *vd)
         vused_elem_t *ue = &q->used->ring[q->last_used % q->size];
         uint16_t id = (uint16_t)ue->id;
         uint8_t *buf = (uint8_t *)(uintptr_t)q->desc[id].addr;
-        int slot = -1, i;
+        int slot = (id < VQ_MAX) ? vd->rx_desc_slot[id] : -1;
         if (ue->len > NET_HDR_SIZE)
             netif_input(&vd->nif, buf + NET_HDR_SIZE, ue->len - NET_HDR_SIZE);
+        if (id < VQ_MAX)
+            vd->rx_desc_slot[id] = -1;
         free_desc(q, id);
-        for (i = 0; i < RX_BUFS; i++) {
-            if (vd->rx_bufs[i] == buf) {
-                slot = i;
-                break;
+        q->last_used++;
+        if (slot >= 0) {
+            if (rx_post(vd, slot) < 0 && !vd->rx_warned) {
+                vga_print("virtio-net: rx refill failed\n");
+                vd->rx_warned = 1;
             }
         }
-        q->last_used++;
-        if (slot >= 0)
-            (void)rx_post(vd, slot);
     }
     if (vd->isr)
         (void)mmio_r8(vd->isr);
@@ -387,10 +412,14 @@ static int vnet_init_device(pci_device_t *pci)
     vd->nif.ip = (10u << 24) | (2u << 8) | 15u;
     vd->nif.netmask = 0xFFFFFF00u;
     vd->nif.gateway = (10u << 24) | (2u << 8) | 2u;
+    vd->nif.dns1 = (10u << 24) | (2u << 8) | 3u;
+    vd->nif.dns2 = 0;
     vd->nif.mtu = 1500;
     vd->nif.tx = vnet_tx;
     vd->nif.poll = vnet_poll;
     vd->nif.priv = vd;
+    for (i = 0; i < VQ_MAX; i++)
+        vd->rx_desc_slot[i] = -1;
 
     if (setup_queue(vd, &vd->rxq, 0) < 0 || setup_queue(vd, &vd->txq, 1) < 0)
         return -ENOMEM;
@@ -412,7 +441,7 @@ static int vnet_init_device(pci_device_t *pci)
         return -EIO;
 
     g_vnet = vd;
-    vga_print("virtio-net: eth0 10.0.2.15 up\n");
+    vga_print("virtio-net: eth0 10.0.2.15/24 gw 10.0.2.2 up\n");
     return 0;
 }
 

@@ -64,6 +64,39 @@
 #define SYS_GX_DAMAGE        214
 #define SYS_WM_GET_FRAME     215
 #define SYS_WM_FIND          216
+#define SYS_WM_SET           217
+#define SYS_WM_GET           218
+#define SYS_WM_CLOSE         219
+
+/* Networking control syscalls (Wave F2) */
+#define SYS_NETIF_GET        246
+#define SYS_NETIF_SET        247
+#define SYS_DHCP_RENEW       248
+#define SYS_LISTEN           249
+#define SYS_ACCEPT           250
+#define SYS_SEND             251
+#define SYS_RECV             252
+#define SYS_SHUTDOWN         253
+#define SYS_SPAWN           254
+#define SYS_WAITPID         255
+#define SYS_GETPPID         256
+#define SYS_PROC_LIST       257
+#define SYS_PROC_STAT       258
+#define SYS_SYSINFO         259
+#define SYS_KILL            260
+#define SYS_SERVICE_LIST    261
+#define SYS_SERVICE_START   262
+#define SYS_SERVICE_STOP    263
+#define SYS_SERVICE_STATUS  264
+#define SYS_GETENV          265
+#define SYS_SETENV          266
+#define SYS_CONSOLE_SHOW    267
+#define SYS_GETARGC         268
+#define SYS_GETARGV         269
+
+/* SYS_SPAWN flags (Wave O). */
+#define SPAWN_CONSOLE_VISIBLE  0x01u
+#define SPAWN_CONSOLE_HIDDEN   0x02u
 
 #define STDIN_FILENO  0
 #define STDOUT_FILENO 1

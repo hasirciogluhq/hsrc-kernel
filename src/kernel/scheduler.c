@@ -1,8 +1,10 @@
 #include <kernel/scheduler.h>
 #include <kernel/process.h>
+#include <kernel/service.h>
 #include <arch/x86/gdt.h>
 
 static uint32_t *bootstrap_esp;
+static uint64_t g_scheduler_ticks;
 
 static process_t *pick_next(process_t *cur)
 {
@@ -35,12 +37,20 @@ static process_t *pick_next(process_t *cur)
 void scheduler_init(void)
 {
     bootstrap_esp = NULL;
+    g_scheduler_ticks = 0;
 }
 
 void schedule(void)
 {
     process_t *cur = process_current();
+
+    service_reap_dead();
     process_t *next = pick_next(cur);
+
+    if (cur && cur->state != PROC_UNUSED && cur->state != PROC_ZOMBIE) {
+        process_account_tick(cur);
+        g_scheduler_ticks++;
+    }
 
     if (!next) {
         for (;;)
@@ -70,6 +80,11 @@ void schedule(void)
 void scheduler_on_exit(process_t *p)
 {
     (void)p;
+}
+
+uint64_t scheduler_tick_count(void)
+{
+    return g_scheduler_ticks;
 }
 
 void scheduler_start(void)

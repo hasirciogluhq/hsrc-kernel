@@ -1,5 +1,4 @@
 #include "accel.h"
-#include "draw.h"
 #include "blur.h"
 #include <kernel/string.h>
 #include "compositor.h"
@@ -113,13 +112,13 @@ void gx_compositor_set_wallpaper(gx_compositor *c, gx_surface *wp)
     if (wp->width <= 1 || wp->height <= 1)
         return;
 
-    /* Real box-blur once at wallpaper set (acrylic sampling). */
+    /* Pre-blur once so thin shell chrome can sample a stable frosted backdrop. */
     c->wallpaper_blurred = gx_surface_create(wp->width, wp->height);
     if (!c->wallpaper_blurred)
         return;
     if (gx_blur_copy(wp,
                      gx_rect_make(0, 0, (int32_t)wp->width, (int32_t)wp->height),
-                     c->wallpaper_blurred, 6) < 0) {
+                     c->wallpaper_blurred, 10) < 0) {
         gx_surface_destroy(c->wallpaper_blurred);
         c->wallpaper_blurred = NULL;
     }

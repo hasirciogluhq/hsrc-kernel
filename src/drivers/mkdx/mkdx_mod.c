@@ -1,4 +1,7 @@
 #include "mkdx.h"
+#include "console.h"
+#include <kernel/initrd.h>
+#include <kernel/initrd_store.h>
 #include <kernel/mkdx_api.h>
 #include <kernel/string.h>
 #include <user/gx.h>
@@ -9,6 +12,157 @@
 #include <drivers/serial.h>
 
 static mkdx_gpu g_gpu;
+
+static uint16_t rd16le(const uint8_t *p)
+{
+    return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
+}
+
+static uint32_t rd32le(const uint8_t *p)
+{
+    return (uint32_t)p[0] |
+           ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) |
+           ((uint32_t)p[3] << 24);
+}
+
+static int32_t rd32les(const uint8_t *p)
+{
+    return (int32_t)rd32le(p);
+}
+
+static const uint8_t *initrd_find_blob(const char *name, size_t *blob_size)
+{
+    size_t size = 0;
+    const initrd_header_t *hdr = (const initrd_header_t *)initrd_store_get(&size);
+    size_t table_bytes;
+
+    if (blob_size)
+        *blob_size = 0;
+    if (!hdr || size < sizeof(uint32_t) * 2 || hdr->magic != INITRD_MAGIC ||
+        hdr->count == 0 || hdr->count > INITRD_MAX_FILES)
+        return NULL;
+
+    table_bytes = sizeof(uint32_t) * 2 + (size_t)hdr->count * sizeof(initrd_file_t);
+    if (size < table_bytes)
+        return NULL;
+
+    for (uint32_t i = 0; i < hdr->count; i++) {
+        const initrd_file_t *f = &hdr->files[i];
+        if (f->size == 0 || f->offset > size || f->size > size - f->offset)
+            continue;
+        if (strcmp(f->name, name) != 0)
+            continue;
+        if (blob_size)
+            *blob_size = f->size;
+        return (const uint8_t *)hdr + f->offset;
+    }
+    return NULL;
+}
+
+static gx_surface *decode_bmp_cover(const uint8_t *bmp, size_t size,
+                                    uint32_t dst_w, uint32_t dst_h)
+{
+    uint32_t pixel_off, dib_size, compression, row_bytes, vis_w, vis_h, crop_x, crop_y;
+    int32_t src_w_s, src_h_s;
+    uint32_t src_w, src_h;
+    uint16_t bpp, planes;
+    int top_down;
+    gx_surface *dst;
+
+    if (!bmp || size < 54 || dst_w == 0 || dst_h == 0)
+        return NULL;
+    if (bmp[0] != 'B' || bmp[1] != 'M')
+        return NULL;
+
+    pixel_off = rd32le(bmp + 10);
+    dib_size = rd32le(bmp + 14);
+    src_w_s = rd32les(bmp + 18);
+    src_h_s = rd32les(bmp + 22);
+    planes = rd16le(bmp + 26);
+    bpp = rd16le(bmp + 28);
+    compression = rd32le(bmp + 30);
+
+    if (dib_size < 40 || src_w_s <= 0 || src_h_s == 0 || planes != 1 || compression != 0)
+        return NULL;
+    if (bpp != 24 && bpp != 32)
+        return NULL;
+
+    top_down = src_h_s < 0;
+    src_w = (uint32_t)src_w_s;
+    src_h = (uint32_t)(top_down ? -src_h_s : src_h_s);
+    if (src_w == 0 || src_h == 0)
+        return NULL;
+
+    row_bytes = ((src_w * (uint32_t)bpp + 31u) / 32u) * 4u;
+    if (pixel_off >= size || row_bytes == 0)
+        return NULL;
+    if ((uint64_t)row_bytes * (uint64_t)src_h > (uint64_t)(size - pixel_off))
+        return NULL;
+
+    if ((uint64_t)src_w * (uint64_t)dst_h > (uint64_t)src_h * (uint64_t)dst_w) {
+        vis_h = src_h;
+        vis_w = (uint32_t)(((uint64_t)src_h * (uint64_t)dst_w) / (uint64_t)dst_h);
+        if (vis_w == 0 || vis_w > src_w)
+            vis_w = src_w;
+        crop_x = (src_w - vis_w) / 2u;
+        crop_y = 0;
+    } else {
+        vis_w = src_w;
+        vis_h = (uint32_t)(((uint64_t)src_w * (uint64_t)dst_h) / (uint64_t)dst_w);
+        if (vis_h == 0 || vis_h > src_h)
+            vis_h = src_h;
+        crop_x = 0;
+        crop_y = (src_h - vis_h) / 2u;
+    }
+
+    dst = gx_surface_create(dst_w, dst_h);
+    if (!dst)
+        return NULL;
+
+    for (uint32_t y = 0; y < dst_h; y++) {
+        uint32_t sy = crop_y + (uint32_t)(((uint64_t)y * (uint64_t)vis_h) / (uint64_t)dst_h);
+        uint32_t src_row = top_down ? sy : (src_h - 1u - sy);
+        const uint8_t *row = bmp + pixel_off + (size_t)src_row * row_bytes;
+        for (uint32_t x = 0; x < dst_w; x++) {
+            uint32_t sx = crop_x + (uint32_t)(((uint64_t)x * (uint64_t)vis_w) / (uint64_t)dst_w);
+            const uint8_t *px = row + (size_t)sx * (size_t)(bpp / 8u);
+            uint8_t b = px[0];
+            uint8_t g = px[1];
+            uint8_t r = px[2];
+            uint8_t a = (bpp == 32) ? px[3] : 255u;
+            dst->pixels[y * dst->stride + x] = GX_RGBA(r, g, b, a);
+        }
+    }
+
+    return dst;
+}
+
+static gx_surface *load_default_wallpaper(gx_server *s)
+{
+    static const char *const kCandidates[] = {
+        "wallpaper-default.bmp",
+        "default-wallpaper.bmp",
+        "default.bmp",
+    };
+
+    if (!s)
+        return NULL;
+
+    for (uint32_t i = 0; i < (uint32_t)(sizeof(kCandidates) / sizeof(kCandidates[0])); i++) {
+        size_t blob_size = 0;
+        const uint8_t *blob = initrd_find_blob(kCandidates[i], &blob_size);
+        gx_surface *wallpaper;
+
+        if (!blob)
+            continue;
+        wallpaper = decode_bmp_cover(blob, blob_size,
+                                     s->device.mode.width, s->device.mode.height);
+        if (wallpaper)
+            return wallpaper;
+    }
+    return NULL;
+}
 
 int mkdx_get_screen_size(uint32_t *w, uint32_t *h, uint32_t *bpp)
 {
@@ -49,23 +203,38 @@ static void api_mark_dirty(void)
 
 static long api_wm_create(const void *args, uint32_t owner_pid)
 {
-    const ugx_win_create *a = (const ugx_win_create *)args;
+    const ugx_window_opts *a = (const ugx_window_opts *)args;
     gx_server *s = gx_server_get();
-    wm_create_args wa;
     wm_window *w;
 
     if (!a || !s)
         return -1;
-    memset(&wa, 0, sizeof(wa));
-    wa.x = a->x;
-    wa.y = a->y;
-    wa.w = a->w;
-    wa.h = a->h;
-    wa.style = a->style;
-    wa.radius = a->radius;
-    strncpy(wa.title, a->title, WM_TITLE_MAX - 1);
-    w = wm_create(&s->wm, &wa, (int)owner_pid);
+    w = wm_create(&s->wm, a, (int)owner_pid);
     return w ? (long)w->id : -1;
+}
+
+static int api_wm_set(int id, const void *opts)
+{
+    gx_server *s = gx_server_get();
+    if (!s || !opts)
+        return -1;
+    return wm_apply_opts(&s->wm, id, (const ugx_window_opts *)opts);
+}
+
+static int api_wm_get(int id, void *out)
+{
+    gx_server *s = gx_server_get();
+    if (!s || !out)
+        return -1;
+    return wm_get_opts(&s->wm, id, (ugx_window_opts *)out);
+}
+
+static int api_wm_close(int id)
+{
+    gx_server *s = gx_server_get();
+    if (!s)
+        return -1;
+    return wm_close(&s->wm, id);
 }
 
 static int api_wm_destroy(int id)
@@ -196,33 +365,37 @@ static int api_set_wallpaper(const void *args)
 {
     const ugx_wallpaper *a = (const ugx_wallpaper *)args;
     gx_server *s = gx_server_get();
-    uint32_t tw, th;
+    gx_surface *next = NULL;
 
-    if (!a || !a->pixels || !s || a->width == 0 || a->height == 0)
+    if (!a || !s)
+        return -1;
+
+    if (!a->pixels || a->width == 0 || a->height == 0) {
+        next = load_default_wallpaper(s);
+    } else {
+        /* Keep solid colors as 1x1 — expanding to fullscreen OOMs the bump heap. */
+        next = gx_surface_create(a->width, a->height);
+        if (!next)
+            return -1;
+
+        if (a->width == 1 && a->height == 1) {
+            next->pixels[0] = a->pixels[0];
+        } else {
+            for (uint32_t y = 0; y < a->height; y++) {
+                for (uint32_t x = 0; x < a->width; x++) {
+                    next->pixels[y * next->stride + x] =
+                    a->pixels[y * a->stride + x];
+                }
+            }
+        }
+    }
+
+    if (!next)
         return -1;
 
     if (s->wallpaper)
         gx_surface_destroy(s->wallpaper);
-
-    /* Keep solid colors as 1x1 — expanding to fullscreen OOMs the bump heap. */
-    tw = a->width;
-    th = a->height;
-
-    s->wallpaper = gx_surface_create(tw, th);
-    if (!s->wallpaper)
-        return -1;
-
-    if (a->width == 1 && a->height == 1) {
-        s->wallpaper->pixels[0] = a->pixels[0];
-    } else {
-        uint32_t y, x;
-        for (y = 0; y < a->height && y < th; y++) {
-            for (x = 0; x < a->width && x < tw; x++) {
-                s->wallpaper->pixels[y * s->wallpaper->stride + x] =
-                    a->pixels[y * a->stride + x];
-            }
-        }
-    }
+    s->wallpaper = next;
 
     gx_compositor_set_wallpaper(&s->comp, s->wallpaper);
     gx_server_mark_dirty();
@@ -244,11 +417,37 @@ static int api_input_state(void *out)
     return 0;
 }
 
+static int api_console_alloc(int pid, const char *name, int visible)
+{
+    gx_server *s = gx_server_get();
+    if (!s)
+        return -1;
+    return proc_console_alloc(&s->wm, pid, name, visible);
+}
+
+static void api_console_free(int pid)
+{
+    proc_console_free(pid);
+}
+
+static ssize_t api_console_write(int pid, const void *buf, size_t len)
+{
+    return proc_console_write(pid, buf, len);
+}
+
+static int api_console_show(int pid, int visible)
+{
+    return proc_console_show(pid, visible);
+}
+
 static const mkdx_api_t g_api = {
     .info = api_info,
     .present = api_present,
     .mark_dirty = api_mark_dirty,
     .wm_create = api_wm_create,
+    .wm_set = api_wm_set,
+    .wm_get = api_wm_get,
+    .wm_close = api_wm_close,
     .wm_destroy = api_wm_destroy,
     .wm_map = api_wm_map,
     .wm_move = api_wm_move,
@@ -262,6 +461,10 @@ static const mkdx_api_t g_api = {
     .fill = api_fill,
     .set_wallpaper = api_set_wallpaper,
     .input_state = api_input_state,
+    .console_alloc = api_console_alloc,
+    .console_free = api_console_free,
+    .console_write = api_console_write,
+    .console_show = api_console_show,
 };
 
 static int mkdx_drv_probe(driver_t *drv, void *ctx)

@@ -1,8 +1,13 @@
 #include <kernel/process.h>
+#include <kernel/env.h>
+#include <kernel/errno.h>
+#include <kernel/heap.h>
 #include <kernel/string.h>
 #include <kernel/scheduler.h>
+#include <kernel/socket.h>
 #include <kernel/syscall.h>
 #include <kernel/vfs.h>
+#include <kernel/mkdx_api.h>
 #include <drivers/serial.h>
 #include <arch/x86/gdt.h>
 
@@ -11,6 +16,67 @@ static uint32_t  kstacks[PROC_MAX][PROC_KSTACK_SIZE / sizeof(uint32_t)];
 static uint32_t  ustacks[PROC_MAX][PROC_USTACK_SIZE / sizeof(uint32_t)];
 static pid_t     next_pid = 1;
 static process_t *current;
+
+static void process_clear_slot(process_t *p)
+{
+    if (!p)
+        return;
+    memset(p, 0, sizeof(*p));
+    p->state = PROC_UNUSED;
+    for (int fd = 0; fd < VFS_MAX_FD; fd++)
+        p->fds[fd] = -1;
+}
+
+static uint32_t process_mem_bytes(const process_t *p)
+{
+    uint32_t total = 0;
+
+    if (!p || p->state == PROC_UNUSED)
+        return 0;
+
+    total += PROC_KSTACK_SIZE;
+    if (p->is_user)
+        total += PROC_USTACK_SIZE;
+
+    for (int i = 0; i < VMA_MAX; i++) {
+        if (!p->vmas[i].used)
+            continue;
+        total += (uint32_t)(p->vmas[i].npages * PAGE_SIZE);
+    }
+
+    return total;
+}
+
+static uint64_t process_uptime_ticks(const process_t *p, uint64_t now_ticks)
+{
+    if (!p || now_ticks < p->start_ticks)
+        return 0;
+    return now_ticks - p->start_ticks;
+}
+
+static void process_free_console(pid_t pid)
+{
+    const mkdx_api_t *api = mkdx_api_get();
+    if (api && api->console_free)
+        api->console_free((int)pid);
+}
+
+static void process_release_fds(process_t *p)
+{
+    if (!p)
+        return;
+
+    for (int i = 0; i < VFS_MAX_FD; i++) {
+        int fd = p->fds[i];
+        if (fd < 0)
+            continue;
+        if (PROC_FD_IS_SOCK(fd))
+            (void)sock_close(PROC_FD_SOCK_ID(fd));
+        else
+            (void)vfs_close(fd);
+        p->fds[i] = -1;
+    }
+}
 
 static void process_trampoline(void (*entry)(void))
 {
@@ -57,18 +123,28 @@ static process_t *alloc_process(const char *name)
 
     memset(p, 0, sizeof(*p));
     p->pid = next_pid++;
+    p->ppid = current ? current->pid : 0;
     p->state = PROC_READY;
     strncpy(p->name, name, PROC_NAME_MAX - 1);
     p->kstack_base = kstacks[idx];
     p->kstack_top = (uint32_t)(kstacks[idx] + (PROC_KSTACK_SIZE / sizeof(uint32_t)));
     p->ustack_top = (uint32_t)(ustacks[idx] + (PROC_USTACK_SIZE / sizeof(uint32_t)));
+    p->start_ticks = scheduler_tick_count();
     for (int f = 0; f < VFS_MAX_FD; f++)
         p->fds[f] = -1;
 
-    /* Default credentials: root. Shell / desktop spawn with full rights. */
-    p->uid = 0;
-    p->euid = 0;
-    strcpy(p->cwd, "/");
+    if (current) {
+        p->uid = current->uid;
+        p->euid = current->euid;
+        strncpy(p->cwd, current->cwd, sizeof(p->cwd) - 1);
+    } else {
+        /* Default credentials: root. Shell / desktop spawn with full rights. */
+        p->uid = 0;
+        p->euid = 0;
+        strcpy(p->cwd, "/");
+    }
+
+    env_inherit(p, current);
 
     int cfd = vfs_open("/dev/console", O_RDWR);
     if (cfd >= 0) {
@@ -139,12 +215,58 @@ pid_t process_create_user(const char *name, void (*entry)(void))
     return p->pid;
 }
 
+pid_t process_getppid(void)
+{
+    return current ? current->ppid : 0;
+}
+
+pid_t process_waitpid(pid_t pid, int *status_out, int options)
+{
+    int found_child = 0;
+    (void)options;
+
+    if (!current)
+        return -ESRCH;
+
+    for (int i = 0; i < PROC_MAX; i++) {
+        process_t *p = &processes[i];
+        pid_t child_pid;
+
+        if (p->state == PROC_UNUSED || p->ppid != current->pid)
+            continue;
+        if (pid > 0 && p->pid != pid)
+            continue;
+
+        found_child = 1;
+        if (p->state != PROC_ZOMBIE)
+            continue;
+
+        child_pid = p->pid;
+        if (status_out)
+            *status_out = p->exit_code;
+        process_release_fds(p);
+        process_clear_slot(p);
+        return child_pid;
+    }
+
+    if (!found_child)
+        return -ECHILD;
+    return 0;
+}
+
 void process_exit(int code)
 {
+    pid_t pid;
     if (!current)
         return;
+    pid = current->pid;
+    process_release_fds(current);
+    process_free_console(pid);
     current->exit_code = code;
-    current->state = PROC_ZOMBIE;
+    if (current->ppid == 0)
+        process_clear_slot(current);
+    else
+        current->state = PROC_ZOMBIE;
     scheduler_on_exit(current);
     schedule();
     for (;;)
@@ -155,13 +277,98 @@ int process_kill(pid_t pid)
 {
     process_t *p = process_get(pid);
     if (!p || p->state == PROC_UNUSED || p->state == PROC_ZOMBIE)
-        return -1;
+        return -ESRCH;
     if (!p->is_user)
-        return -1; /* kernel threads only exit themselves */
+        return -EPERM; /* kernel threads only exit themselves */
     if (p == current)
         process_exit(137);
-    p->state = PROC_ZOMBIE;
+    process_release_fds(p);
+    process_free_console(p->pid);
     p->exit_code = 137;
+    if (p->ppid == 0)
+        process_clear_slot(p);
+    else
+        p->state = PROC_ZOMBIE;
+    return 0;
+}
+
+void process_account_tick(process_t *p)
+{
+    if (!p || p->state == PROC_UNUSED)
+        return;
+    p->cpu_ticks++;
+}
+
+int process_list(proc_list_entry_t *out, size_t max_entries)
+{
+    uint64_t now_ticks = scheduler_tick_count();
+    size_t count = 0;
+
+    for (int i = 0; i < PROC_MAX; i++) {
+        process_t *p = &processes[i];
+
+        if (p->state == PROC_UNUSED)
+            continue;
+        if (out && count < max_entries) {
+            proc_list_entry_t *dst = &out[count];
+            memset(dst, 0, sizeof(*dst));
+            dst->pid = p->pid;
+            dst->ppid = p->ppid;
+            dst->state = (uint32_t)p->state;
+            dst->is_user = (uint32_t)p->is_user;
+            dst->cpu_ticks = p->cpu_ticks;
+            dst->uptime_ticks = process_uptime_ticks(p, now_ticks);
+            dst->mem_bytes = process_mem_bytes(p);
+            strncpy(dst->name, p->name, sizeof(dst->name) - 1);
+        }
+        count++;
+    }
+
+    return (int)count;
+}
+
+int process_stat(pid_t pid, proc_stat_t *out)
+{
+    process_t *p;
+    uint64_t now_ticks = scheduler_tick_count();
+
+    if (!out)
+        return -EFAULT;
+
+    p = pid > 0 ? process_get(pid) : process_current();
+    if (!p || p->state == PROC_UNUSED)
+        return -ESRCH;
+
+    memset(out, 0, sizeof(*out));
+    out->pid = p->pid;
+    out->ppid = p->ppid;
+    out->state = (uint32_t)p->state;
+    out->is_user = (uint32_t)p->is_user;
+    out->cpu_ticks = p->cpu_ticks;
+    out->start_ticks = p->start_ticks;
+    out->uptime_ticks = process_uptime_ticks(p, now_ticks);
+    out->mem_bytes = process_mem_bytes(p);
+    strncpy(out->name, p->name, sizeof(out->name) - 1);
+    return 0;
+}
+
+int process_sysinfo(sys_info_t *out)
+{
+    if (!out)
+        return -EFAULT;
+
+    memset(out, 0, sizeof(*out));
+    out->uptime_ticks = scheduler_tick_count();
+    out->total_cpu_ticks = out->uptime_ticks;
+    out->used_ram_bytes = (uint32_t)heap_used();
+    out->free_ram_bytes = (uint32_t)heap_free();
+    out->total_ram_bytes = out->used_ram_bytes + out->free_ram_bytes;
+
+    for (int i = 0; i < PROC_MAX; i++) {
+        if (processes[i].state != PROC_UNUSED)
+            out->process_count++;
+    }
+
     return 0;
 }
 

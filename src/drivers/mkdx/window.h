@@ -3,6 +3,7 @@
 
 #include "compositor.h"
 #include "surface.h"
+#include <user/gx.h>
 
 #define WM_MAX_WINDOWS     16
 #define WM_TITLE_MAX       64
@@ -10,28 +11,17 @@
 #define WM_TITLEBAR_H      28
 #define WM_KEYBUF_SIZE     64
 
-typedef enum {
-    WM_STYLE_OPAQUE     = 0,
-    WM_STYLE_ACRYLIC    = 1 << 0,
-    WM_STYLE_ROUNDED    = 1 << 1,
-    WM_STYLE_ALPHA      = 1 << 2,
-    WM_STYLE_BACKGROUND = 1 << 3, /* wallpaper — no focus / no drag */
-    WM_STYLE_NO_DRAG    = 1 << 4, /* dock etc. */
-    WM_STYLE_NO_TITLE   = 1 << 5  /* no titlebar hit zone */
-} wm_style_flags;
-
 /* Client-drawn window: userspace owns all pixels (no kernel chrome). */
 typedef struct wm_window {
     int         used;
     int         id;
     int         layer_id;
-    char        title[WM_TITLE_MAX];
     gx_rect     frame;
+    gx_rect     restore_frame;
     gx_surface *surface;   /* mapped to userspace via SYS_WM_MAP */
-    uint32_t    style;
-    int32_t     radius;
+    ugx_window_opts opts;
     int         focused;
-    int         visible;
+    int         has_restore_frame;
     int         owner_pid;
     /* per-window keyboard input queue (ISO-8859-9 bytes) */
     uint8_t     keybuf[WM_KEYBUF_SIZE];
@@ -49,13 +39,6 @@ typedef struct wm {
     int32_t        drag_off_y;
 } wm_t;
 
-typedef struct wm_create_args {
-    int32_t  x, y, w, h;
-    uint32_t style;
-    int32_t  radius;
-    char     title[WM_TITLE_MAX];
-} wm_create_args;
-
 typedef struct wm_map_info {
     uint32_t *pixels;
     uint32_t  width;
@@ -65,9 +48,12 @@ typedef struct wm_map_info {
 
 int        wm_init(wm_t *wm, gx_compositor *comp);
 void       wm_shutdown(wm_t *wm);
-wm_window *wm_create(wm_t *wm, const wm_create_args *args, int owner_pid);
+wm_window *wm_create(wm_t *wm, const ugx_window_opts *opts, int owner_pid);
 void       wm_destroy(wm_t *wm, int id);
+int        wm_close(wm_t *wm, int id);
 wm_window *wm_get(wm_t *wm, int id);
+int        wm_apply_opts(wm_t *wm, int id, const ugx_window_opts *opts);
+int        wm_get_opts(wm_t *wm, int id, ugx_window_opts *out);
 int        wm_find_by_title(wm_t *wm, const char *title);
 int        wm_map(wm_t *wm, int id, wm_map_info *out);
 void       wm_move(wm_t *wm, int id, int32_t x, int32_t y);

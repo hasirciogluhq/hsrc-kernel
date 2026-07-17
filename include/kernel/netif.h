@@ -8,6 +8,19 @@
 #define ETH_ALEN       6
 
 typedef struct netif netif_t;
+typedef struct netif_info netif_info_t;
+
+struct netif_info {
+    char     name[NETIF_NAME_MAX];
+    uint8_t  mac[ETH_ALEN];
+    uint32_t ip;      /* host byte order */
+    uint32_t netmask; /* host byte order */
+    uint32_t gateway; /* host byte order */
+    uint32_t dns1;    /* host byte order */
+    uint32_t dns2;    /* host byte order */
+    int      mtu;
+    int      up;
+};
 
 struct netif {
     char     name[NETIF_NAME_MAX];
@@ -15,6 +28,8 @@ struct netif {
     uint32_t ip;      /* host byte order */
     uint32_t netmask; /* host byte order */
     uint32_t gateway; /* host byte order */
+    uint32_t dns1;    /* host byte order */
+    uint32_t dns2;    /* host byte order */
     int      mtu;
     int      up;
 
@@ -30,6 +45,10 @@ int      netif_register(netif_t *nif);
 netif_t *netif_default(void);
 netif_t *netif_by_name(const char *name);
 void     netif_set_addr(netif_t *nif, uint32_t ip, uint32_t netmask, uint32_t gateway);
+void     netif_set_dns(netif_t *nif, uint32_t dns1, uint32_t dns2);
+int      netif_get_info(const char *name, netif_info_t *out);
+int      netif_set_info(const char *name, const netif_info_t *cfg);
+int      netif_dhcp_renew(const char *name);
 
 /* Driver RX path — feeds Ethernet frames into the IP stack. */
 void netif_input(netif_t *nif, const void *frame, size_t len);
