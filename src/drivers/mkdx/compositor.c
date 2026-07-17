@@ -604,8 +604,6 @@ void gx_compositor_compose_rect(gx_compositor *c, gx_surface *dst, gx_rect clip)
 
     for (i = start; i < n; i++) {
         gx_layer *L = &c->layers[ids[i]];
-        /* Drain mouse/keyboard between layers so compose doesn't starve input. */
-        gx_server_poll_input();
         if (gx_rect_empty(gx_rect_intersect(L->bounds, clip)))
             continue;
         switch (L->style) {

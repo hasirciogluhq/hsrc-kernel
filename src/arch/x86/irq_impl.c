@@ -1,6 +1,7 @@
 #include <arch/x86/irq.h>
 #include <arch/x86/idt.h>
 #include <kernel/scheduler.h>
+#include <kernel/mkdx_api.h>
 #include <drivers/driver.h>
 #include <arch/x86/io.h>
 
@@ -102,11 +103,21 @@ uint64_t irq_idle_ticks(void)
 void irq_dispatch(uint32_t irq)
 {
     if (irq == IRQ_TIMER) {
+        const mkdx_api_t *api;
+
         g_timer_ticks++;
         scheduler_wake_sleepers(g_timer_ticks);
         if (scheduler_current_is_idle() || !scheduler_has_runnable_apps())
             g_idle_ticks++;
         drivers_poll();
+        /*
+         * Keep cursor/WM alive when apps sleep (os-ui yield(N)). Without this,
+         * only a busy yield(0) app (e.g. settings) paced input — close it and
+         * the desktop feels dead.
+         */
+        api = mkdx_api_get();
+        if (api && api->pump_input)
+            api->pump_input();
         scheduler_on_timer();
         timer_eoi();
         return;

@@ -19,6 +19,7 @@ static gx_server g_server;
  *  - new damage accumulates into pending_* (never cleared with this frame)
  */
 static int g_frame_busy;
+static int g_tick_depth;
 static int g_pending_dirty;
 static int g_pending_full;
 static gx_rect g_pending_rect;
@@ -180,6 +181,7 @@ void gx_server_mark_dirty_rect(gx_rect r)
     gx_rect screen;
     int32_t screen_area;
     int32_t union_area;
+    int dragging = g_server.wm.drag_id >= 0;
 
     if (!g_server.ready)
         return;
@@ -203,11 +205,15 @@ void gx_server_mark_dirty_rect(gx_rect r)
     else
         g_server.dirty_rect = gx_rect_union(g_server.dirty_rect, r);
 
-    /* Escalate huge unions to a full refresh — cheaper than fragmented work. */
-    screen_area = gx_rect_area(screen);
-    union_area = gx_rect_area(g_server.dirty_rect);
-    if (screen_area > 0 && union_area * 5 >= screen_area * 3) {
-        g_server.dirty_full = 1;
+    /*
+     * Escalate huge unions to a full refresh — but never while dragging.
+     * Live window moves must stay old+new rect only (C03/C14) or they hitch.
+     */
+    if (!dragging) {
+        screen_area = gx_rect_area(screen);
+        union_area = gx_rect_area(g_server.dirty_rect);
+        if (screen_area > 0 && union_area * 5 >= screen_area * 3)
+            g_server.dirty_full = 1;
     }
 
     g_server.dirty = 1;
@@ -435,12 +441,16 @@ int gx_server_frame_tick(void)
         return -1;
 
     /* Nested tick / re-enter: only one frame producer. */
-    if (g_frame_busy)
+    if (g_frame_busy || g_tick_depth > 3)
         return 0;
 
+    g_tick_depth++;
+
     ops = display_active();
-    if (!ops || !ops->present)
+    if (!ops || !ops->present) {
+        g_tick_depth--;
         return -1;
+    }
 
     if (!s->dirty) {
         gx_server_poll_input();
@@ -451,6 +461,12 @@ int gx_server_frame_tick(void)
         flush_deferred_btn(s);
         flush_deferred_move(s);
         merge_pending_into_dirty(s);
+        if (s->wm.drag_id >= 0 && s->dirty && g_tick_depth <= 3) {
+            int r = gx_server_frame_tick();
+            g_tick_depth--;
+            return r;
+        }
+        g_tick_depth--;
         return 0;
     }
 
@@ -459,8 +475,10 @@ int gx_server_frame_tick(void)
     my = ms ? ms->y : 0;
 
     bb = s->device.backbuffer;
-    if (!bb)
+    if (!bb) {
+        g_tick_depth--;
         return -1;
+    }
 
     full = s->dirty_full || gx_rect_empty(s->dirty_rect);
     if (full) {
@@ -473,6 +491,7 @@ int gx_server_frame_tick(void)
             s->dirty = 0;
             s->dirty_full = 0;
             flush_cursor_at(s, mx, my);
+            g_tick_depth--;
             return 0;
         }
     }
@@ -559,11 +578,19 @@ int gx_server_frame_tick(void)
     end_drag_if_released(s);
     merge_pending_into_dirty(s);
 
+    /* Catch pointer hops that arrived mid-compose so drag stays glued. */
+    if (s->wm.drag_id >= 0 && s->dirty && g_tick_depth <= 3) {
+        int r = gx_server_frame_tick();
+        g_tick_depth--;
+        return r;
+    }
+
     gx_server_poll_input();
     ms = mouse_get();
     if (ms)
         flush_cursor_at(s, ms->x, ms->y);
 
+    g_tick_depth--;
     return 0;
 }
 

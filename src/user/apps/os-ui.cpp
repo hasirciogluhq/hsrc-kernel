@@ -1177,7 +1177,14 @@ extern "C" void mke_main(void)
         if (did_work)
             (void)hsrc::sdk::present();
 
-        /* Never busy-spin on mag frames — keep cursor/WM path schedulable. */
-        hsrc::sdk::yield(did_work ? 1u : 4u);
+        /*
+         * Stay hot while the pointer is on shell chrome or dock is animating.
+         * Long sleeps here made the desktop lag whenever no yield(0) app
+         * (settings) was open to pace input/compose.
+         */
+        const bool shell_hot = animating() || g_hover >= 0 ||
+                               g_menu_hover >= 0 || g_status_hover >= 0 ||
+                               did_work;
+        hsrc::sdk::yield(shell_hot ? 0u : 1u);
     }
 }

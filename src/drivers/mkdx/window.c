@@ -420,6 +420,8 @@ void wm_move(wm_t *wm, int id, int32_t x, int32_t y)
     wm_window *w = slot_by_id(wm, id);
     gx_layer *L;
     gx_rect old;
+    gx_rect screen;
+    int32_t max_x, max_y;
 
     if (!w)
         return;
@@ -433,6 +435,22 @@ void wm_move(wm_t *wm, int id, int32_t x, int32_t y)
         opts.y = y;
         (void)wm_apply_opts(wm, id, &opts);
         return;
+    }
+
+    /* Keep a strip of the titlebar on-screen so the window can't be lost. */
+    if (wm->comp && wm->comp->device) {
+        screen = gx_rect_make(0, 0, (int32_t)wm->comp->device->mode.width,
+                              (int32_t)wm->comp->device->mode.height);
+        max_x = screen.w - 48;
+        max_y = screen.h - WM_TITLEBAR_H;
+        if (x > max_x)
+            x = max_x;
+        if (y > max_y)
+            y = max_y;
+        if (x + w->frame.w < 48)
+            x = 48 - w->frame.w;
+        if (y < 0)
+            y = 0;
     }
 
     if (w->frame.x == x && w->frame.y == y)
