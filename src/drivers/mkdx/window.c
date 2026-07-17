@@ -244,6 +244,17 @@ int wm_close(wm_t *wm, int id)
     return 0;
 }
 
+void wm_destroy_by_pid(wm_t *wm, int pid)
+{
+    if (!wm || pid <= 0)
+        return;
+    for (int i = 0; i < WM_MAX_WINDOWS; i++) {
+        wm_window *w = &wm->windows[i];
+        if (w->used && w->owner_pid == pid)
+            wm_destroy(wm, w->id);
+    }
+}
+
 wm_window *wm_get(wm_t *wm, int id)
 {
     return slot_by_id(wm, id);

@@ -246,6 +246,14 @@ static int api_wm_destroy(int id)
     return 0;
 }
 
+static void api_wm_destroy_by_pid(int pid)
+{
+    gx_server *s = gx_server_get();
+    if (!s)
+        return;
+    wm_destroy_by_pid(&s->wm, pid);
+}
+
 static int api_wm_map(int id, void *out)
 {
     gx_server *s = gx_server_get();
@@ -449,6 +457,7 @@ static const mkdx_api_t g_api = {
     .wm_get = api_wm_get,
     .wm_close = api_wm_close,
     .wm_destroy = api_wm_destroy,
+    .wm_destroy_by_pid = api_wm_destroy_by_pid,
     .wm_map = api_wm_map,
     .wm_move = api_wm_move,
     .wm_resize = api_wm_resize,

@@ -298,8 +298,9 @@ extern "C" void mke_main(void)
                         (void)hsrc::sdk::process::spawn(kMonPath);
                     }
                 } else if (g_hover == 1) {
-                    /* Term dock icon → focus existing Terminal window */
-                    long tid = hsrc::sdk::syscall1(SYS_WM_FIND, (long)"Terminal");
+                    constexpr const char *kTermTitle = "Terminal";
+                    constexpr const char *kTermPath = "/applications/terminal.mke";
+                    long tid = hsrc::sdk::syscall1(SYS_WM_FIND, (long)kTermTitle);
                     if (tid >= 0) {
                         WindowOptions opts;
                         if (hsrc::sdk::window_get((int)tid, opts)) {
@@ -308,6 +309,8 @@ extern "C" void mke_main(void)
                             (void)hsrc::sdk::window_set((int)tid, opts);
                         }
                         (void)hsrc::sdk::syscall1(SYS_WM_FOCUS, tid);
+                    } else {
+                        (void)hsrc::sdk::process::spawn(kTermPath);
                     }
                 } else if (g_hover == 2) {
                     constexpr const char *kFilesTitle = "Files";

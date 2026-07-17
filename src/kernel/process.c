@@ -61,6 +61,13 @@ static void process_free_console(pid_t pid)
         api->console_free((int)pid);
 }
 
+static void process_free_windows(pid_t pid)
+{
+    const mkdx_api_t *api = mkdx_api_get();
+    if (api && api->wm_destroy_by_pid)
+        api->wm_destroy_by_pid((int)pid);
+}
+
 static void process_release_fds(process_t *p)
 {
     if (!p)
@@ -261,6 +268,7 @@ void process_exit(int code)
         return;
     pid = current->pid;
     process_release_fds(current);
+    process_free_windows(pid);
     process_free_console(pid);
     current->exit_code = code;
     if (current->ppid == 0)
@@ -283,6 +291,7 @@ int process_kill(pid_t pid)
     if (p == current)
         process_exit(137);
     process_release_fds(p);
+    process_free_windows(p->pid);
     process_free_console(p->pid);
     p->exit_code = 137;
     if (p->ppid == 0)

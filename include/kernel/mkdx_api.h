@@ -17,6 +17,7 @@ typedef struct mkdx_api {
     int  (*wm_get)(int id, void *out);
     int  (*wm_close)(int id);
     int  (*wm_destroy)(int id);
+    void (*wm_destroy_by_pid)(int pid);
     int  (*wm_map)(int id, void *out);
     int  (*wm_move)(int id, int32_t x, int32_t y);
     int  (*wm_resize)(int id, int32_t w, int32_t h);

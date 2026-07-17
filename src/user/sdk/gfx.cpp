@@ -350,13 +350,14 @@ bool Window::get_options(WindowOptions &out) const
 
 bool Window::close()
 {
-    if (id_ >= 0) {
-        if (syscall1(SYS_WM_CLOSE, id_) < 0)
-            return false;
-        id_ = -1;
-    }
+    int id = id_;
+    /* Always clear local state — CRT-less globals may start as id_=0 (BSS),
+     * and a failed WM_CLOSE must not leave a stale id that blocks recreate. */
+    id_ = -1;
     surf_ = Surface();
-    return true;
+    if (id < 0)
+        return true;
+    return syscall1(SYS_WM_CLOSE, id) == 0;
 }
 
 void Window::destroy()

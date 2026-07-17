@@ -53,6 +53,7 @@ void       wm_shutdown(wm_t *wm);
 wm_window *wm_create(wm_t *wm, const ugx_window_opts *opts, int owner_pid);
 void       wm_destroy(wm_t *wm, int id);
 int        wm_close(wm_t *wm, int id);
+void       wm_destroy_by_pid(wm_t *wm, int pid);
 wm_window *wm_get(wm_t *wm, int id);
 int        wm_apply_opts(wm_t *wm, int id, const ugx_window_opts *opts);
 int        wm_get_opts(wm_t *wm, int id, ugx_window_opts *out);

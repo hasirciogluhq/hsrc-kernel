@@ -35,7 +35,7 @@ struct AppTask {
         void unhandled_exception() noexcept
         {
             for (;;)
-                ;
+                hsrc::sdk::yield();
         }
     };
 
@@ -73,6 +73,10 @@ AppTask run_demo()
         }
     }
 
+    /* Yield early so os-ui keeps painting while we set up. */
+    co_await FrameAwaiter{};
+    hsrc::sdk::yield();
+
     WindowOptions opts;
     opts.w = 640;
     opts.h = 420;
@@ -94,9 +98,27 @@ AppTask run_demo()
         }
     }
 
+    co_await FrameAwaiter{};
+    hsrc::sdk::yield();
+
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::StyleColorsDark();
+
+    /* Fewer triangles → soft-float software backend stays interactive. */
+    ImGuiStyle &style = ImGui::GetStyle();
+    style.AntiAliasedLines = false;
+    style.AntiAliasedFill = false;
+    style.WindowRounding = 0.0f;
+    style.ChildRounding = 0.0f;
+    style.FrameRounding = 0.0f;
+    style.PopupRounding = 0.0f;
+    style.ScrollbarRounding = 0.0f;
+    style.GrabRounding = 0.0f;
+    style.TabRounding = 0.0f;
+
+    co_await FrameAwaiter{};
+    hsrc::sdk::yield();
 
     if (!ImGui_ImplUgx_Init()) {
         for (;;) {
@@ -104,6 +126,9 @@ AppTask run_demo()
             hsrc::sdk::yield();
         }
     }
+
+    co_await FrameAwaiter{};
+    hsrc::sdk::yield();
 
     for (;;) {
         Input in{};

@@ -3,16 +3,76 @@
 #include <stdarg.h>
 
 #include "mykernel_imconfig.h"
+#include <user/sdk/syscall.hpp>
 
 namespace {
 
 constexpr size_t kHeapBytes = 2u * 1024u * 1024u;
 alignas(16) uint8_t g_heap[kHeapBytes];
-size_t g_heap_used = 0;
 
-struct AllocHeader {
-    size_t size;
+/* First-fit freelist: ImGui font atlas / draw lists realloc heavily; a bump
+ * allocator (free=no-op) exhausts 2MB and then abort() freezes the OS. */
+struct FreeNode {
+    size_t size; /* usable payload bytes */
+    FreeNode *next;
 };
+
+FreeNode *g_free = nullptr;
+bool g_heap_ready = false;
+
+void heap_init_once()
+{
+    if (g_heap_ready)
+        return;
+    g_free = reinterpret_cast<FreeNode *>(g_heap);
+    g_free->size = kHeapBytes - sizeof(FreeNode);
+    g_free->next = nullptr;
+    g_heap_ready = true;
+}
+
+size_t align16(size_t n)
+{
+    return (n + 15u) & ~15u;
+}
+
+void freelist_insert(FreeNode *node)
+{
+    node->next = g_free;
+    g_free = node;
+}
+
+void free_merge_insert(FreeNode *node)
+{
+    /* Merge with any adjacent free blocks, then push. */
+    for (;;) {
+        bool merged = false;
+        FreeNode **pp = &g_free;
+        while (*pp) {
+            FreeNode *b = *pp;
+            uint8_t *node_end =
+                reinterpret_cast<uint8_t *>(node) + sizeof(FreeNode) + node->size;
+            uint8_t *b_end =
+                reinterpret_cast<uint8_t *>(b) + sizeof(FreeNode) + b->size;
+            if (reinterpret_cast<uint8_t *>(b) == node_end) {
+                *pp = b->next;
+                node->size += sizeof(FreeNode) + b->size;
+                merged = true;
+                break;
+            }
+            if (reinterpret_cast<uint8_t *>(node) == b_end) {
+                *pp = b->next;
+                b->size += sizeof(FreeNode) + node->size;
+                node = b;
+                merged = true;
+                break;
+            }
+            pp = &(*pp)->next;
+        }
+        if (!merged)
+            break;
+    }
+    freelist_insert(node);
+}
 
 float expf_approx(float x)
 {
@@ -72,20 +132,39 @@ extern "C" {
 
 void *malloc(size_t n)
 {
+    heap_init_once();
     if (n == 0)
         n = 1;
-    size_t total = sizeof(AllocHeader) + ((n + 15u) & ~15u);
-    if (g_heap_used + total > kHeapBytes)
-        return nullptr;
-    auto *h = reinterpret_cast<AllocHeader *>(g_heap + g_heap_used);
-    h->size = n;
-    g_heap_used += total;
-    return h + 1;
+    n = align16(n);
+
+    FreeNode **pp = &g_free;
+    while (*pp) {
+        FreeNode *node = *pp;
+        if (node->size >= n) {
+            *pp = node->next;
+            const size_t remain = node->size - n;
+            if (remain >= sizeof(FreeNode) + 32u) {
+                FreeNode *split = reinterpret_cast<FreeNode *>(
+                    reinterpret_cast<uint8_t *>(node) + sizeof(FreeNode) + n);
+                split->size = remain - sizeof(FreeNode);
+                freelist_insert(split);
+                node->size = n;
+            }
+            return reinterpret_cast<uint8_t *>(node) + sizeof(FreeNode);
+        }
+        pp = &node->next;
+    }
+    return nullptr;
 }
 
 void free(void *p)
 {
-    (void)p;
+    if (!p)
+        return;
+    heap_init_once();
+    FreeNode *node = reinterpret_cast<FreeNode *>(
+        static_cast<uint8_t *>(p) - sizeof(FreeNode));
+    free_merge_insert(node);
 }
 
 void *realloc(void *p, size_t n)
@@ -96,15 +175,16 @@ void *realloc(void *p, size_t n)
         free(p);
         return nullptr;
     }
-    auto *h = reinterpret_cast<AllocHeader *>(p) - 1;
-    if (n <= h->size)
+    FreeNode *node = reinterpret_cast<FreeNode *>(
+        static_cast<uint8_t *>(p) - sizeof(FreeNode));
+    if (align16(n) <= node->size)
         return p;
     void *q = malloc(n);
     if (!q)
         return nullptr;
     uint8_t *dst = static_cast<uint8_t *>(q);
     uint8_t *src = static_cast<uint8_t *>(p);
-    for (size_t i = 0; i < h->size; i++)
+    for (size_t i = 0; i < node->size && i < n; i++)
         dst[i] = src[i];
     free(p);
     return q;
@@ -112,8 +192,9 @@ void *realloc(void *p, size_t n)
 
 void abort(void)
 {
+    /* Never busy-spin: cooperative scheduler would freeze the whole OS. */
     for (;;)
-        ;
+        hsrc::sdk::yield();
 }
 
 char *strchr(const char *s, int c)
@@ -283,9 +364,15 @@ float imgui_cosf(float x)
 {
     constexpr float kPi = 3.14159265f;
     constexpr float kTwoPi = 6.2831853f;
-    while (x > kPi)
+    /* Avoid infinite loops on NaN / huge values (font bake soft-float). */
+    if (!(x == x))
+        return 1.0f;
+    if (x > 1.0e6f || x < -1.0e6f)
+        return 1.0f;
+    x = x - kTwoPi * (float)(int)(x / kTwoPi);
+    if (x > kPi)
         x -= kTwoPi;
-    while (x < -kPi)
+    if (x < -kPi)
         x += kTwoPi;
     float x2 = x * x;
     return 1.0f - x2 / 2.0f + x2 * x2 / 24.0f - x2 * x2 * x2 / 720.0f;

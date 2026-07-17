@@ -13,15 +13,26 @@ namespace {
 
 struct BackendData {
     int      win_id = -1;
-    uint8_t *font_pixels = nullptr;
+    uint8_t *font_pixels = nullptr; /* Alpha8 atlas */
     int      font_w = 0;
     int      font_h = 0;
     uint32_t frame = 0;
+    uint32_t tri_budget = 0;
 };
 
 BackendData *bd()
 {
     return reinterpret_cast<BackendData *>(ImGui::GetIO().BackendRendererUserData);
+}
+
+/* Cooperative scheduler: never burn the CPU for a full frame without yielding. */
+void maybe_yield(BackendData *b)
+{
+    if (!b)
+        return;
+    b->tri_budget++;
+    if ((b->tri_budget & 63u) == 0u)
+        hsrc::sdk::yield();
 }
 
 uint32_t blend_argb(uint32_t dst, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
@@ -41,43 +52,141 @@ uint32_t blend_argb(uint32_t dst, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
     return (255u << 24) | (or_ << 16) | (og << 8) | ob;
 }
 
-void put_pixel(hsrc::sdk::Surface &surf, int x, int y, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
+uint8_t sample_font_a(BackendData *b, float u, float v)
 {
-    if (!surf.valid() || x < 0 || y < 0 ||
-        (uint32_t)x >= surf.width() || (uint32_t)y >= surf.height())
-        return;
-    uint32_t *p = reinterpret_cast<uint32_t *>(surf.pixels());
-    uint32_t &dst = p[(uint32_t)y * surf.stride() + (uint32_t)x];
-    dst = blend_argb(dst, r, g, b, a);
-}
-
-void sample_font(BackendData *bd, float u, float v, uint8_t &r, uint8_t &g, uint8_t &bl, uint8_t &a)
-{
-    if (!bd || !bd->font_pixels || bd->font_w <= 0 || bd->font_h <= 0) {
-        r = g = bl = a = 255;
-        return;
-    }
-    int x = (int)(u * (float)bd->font_w);
-    int y = (int)(v * (float)bd->font_h);
+    if (!b || !b->font_pixels || b->font_w <= 0 || b->font_h <= 0)
+        return 255;
+    int x = (int)(u * (float)b->font_w);
+    int y = (int)(v * (float)b->font_h);
     if (x < 0)
         x = 0;
     if (y < 0)
         y = 0;
-    if (x >= bd->font_w)
-        x = bd->font_w - 1;
-    if (y >= bd->font_h)
-        y = bd->font_h - 1;
-    /* RGBA32 atlas */
-    const uint8_t *px = bd->font_pixels + ((size_t)y * (size_t)bd->font_w + (size_t)x) * 4u;
-    r = px[0];
-    g = px[1];
-    bl = px[2];
-    a = px[3];
+    if (x >= b->font_w)
+        x = b->font_w - 1;
+    if (y >= b->font_h)
+        y = b->font_h - 1;
+    return b->font_pixels[(size_t)y * (size_t)b->font_w + (size_t)x];
 }
 
-void draw_triangle(hsrc::sdk::Surface &surf, BackendData *b,
-                   const ImDrawVert &v0, const ImDrawVert &v1, const ImDrawVert &v2,
-                   int clip_x0, int clip_y0, int clip_x1, int clip_y1)
+void unpack_col(ImU32 c, uint8_t &r, uint8_t &g, uint8_t &b, uint8_t &a)
+{
+    r = (uint8_t)((c >> IM_COL32_R_SHIFT) & 0xFFu);
+    g = (uint8_t)((c >> IM_COL32_G_SHIFT) & 0xFFu);
+    b = (uint8_t)((c >> IM_COL32_B_SHIFT) & 0xFFu);
+    a = (uint8_t)((c >> IM_COL32_A_SHIFT) & 0xFFu);
+}
+
+bool nearly_eq(float a, float b)
+{
+    float d = a - b;
+    if (d < 0.0f)
+        d = -d;
+    return d < 0.5f;
+}
+
+/* Most ImGui geometry is axis-aligned textured quads (2 triangles). */
+bool try_draw_aa_quad(hsrc::sdk::Surface &surf, BackendData *b,
+                      const ImDrawVert &a, const ImDrawVert &c,
+                      int clip_x0, int clip_y0, int clip_x1, int clip_y1)
+{
+    /* a = min corner, c = max corner of an AA rect (from two tris). */
+    float min_x = a.pos.x < c.pos.x ? a.pos.x : c.pos.x;
+    float max_x = a.pos.x > c.pos.x ? a.pos.x : c.pos.x;
+    float min_y = a.pos.y < c.pos.y ? a.pos.y : c.pos.y;
+    float max_y = a.pos.y > c.pos.y ? a.pos.y : c.pos.y;
+
+    int x0 = (int)min_x;
+    int y0 = (int)min_y;
+    int x1 = (int)max_x;
+    int y1 = (int)max_y;
+    if (x0 < clip_x0) x0 = clip_x0;
+    if (y0 < clip_y0) y0 = clip_y0;
+    if (x1 > clip_x1) x1 = clip_x1;
+    if (y1 > clip_y1) y1 = clip_y1;
+    if (x0 >= x1 || y0 >= y1)
+        return true;
+
+    const float du = c.uv.x - a.uv.x;
+    const float dv = c.uv.y - a.uv.y;
+    const float dw = max_x - min_x;
+    const float dh = max_y - min_y;
+    if (dw <= 0.0f || dh <= 0.0f)
+        return true;
+
+    uint8_t cr, cg, cb, ca;
+    unpack_col(a.col, cr, cg, cb, ca);
+
+    uint32_t *pixels = reinterpret_cast<uint32_t *>(surf.pixels());
+    const uint32_t stride = surf.stride();
+    const bool solid_uv = nearly_eq(a.uv.x, c.uv.x) && nearly_eq(a.uv.y, c.uv.y);
+
+    for (int y = y0; y < y1; y++) {
+        const float fy = ((float)y + 0.5f - min_y) / dh;
+        const float v = a.uv.y + dv * fy;
+        uint32_t *row = pixels + (uint32_t)y * stride;
+        for (int x = x0; x < x1; x++) {
+            uint8_t ta = 255;
+            if (!solid_uv) {
+                const float fx = ((float)x + 0.5f - min_x) / dw;
+                const float u = a.uv.x + du * fx;
+                ta = sample_font_a(b, u, v);
+            }
+            const uint8_t out_a = (uint8_t)((ca * ta) / 255u);
+            if (out_a == 0)
+                continue;
+            row[x] = blend_argb(row[x], cr, cg, cb, out_a);
+        }
+    }
+    return true;
+}
+
+bool verts_form_aa_quad(const ImDrawVert *vs, int count,
+                        ImDrawVert &out_min, ImDrawVert &out_max)
+{
+    if (!vs || count < 3)
+        return false;
+
+    float min_x = vs[0].pos.x, max_x = vs[0].pos.x;
+    float min_y = vs[0].pos.y, max_y = vs[0].pos.y;
+    ImU32 col = vs[0].col;
+    for (int i = 1; i < count; i++) {
+        if (vs[i].col != col)
+            return false;
+        if (vs[i].pos.x < min_x) min_x = vs[i].pos.x;
+        if (vs[i].pos.x > max_x) max_x = vs[i].pos.x;
+        if (vs[i].pos.y < min_y) min_y = vs[i].pos.y;
+        if (vs[i].pos.y > max_y) max_y = vs[i].pos.y;
+    }
+
+    const ImDrawVert *vmin = nullptr;
+    const ImDrawVert *vmax = nullptr;
+    for (int i = 0; i < count; i++) {
+        const bool on_x = nearly_eq(vs[i].pos.x, min_x) || nearly_eq(vs[i].pos.x, max_x);
+        const bool on_y = nearly_eq(vs[i].pos.y, min_y) || nearly_eq(vs[i].pos.y, max_y);
+        if (!on_x || !on_y)
+            return false;
+        if (nearly_eq(vs[i].pos.x, min_x) && nearly_eq(vs[i].pos.y, min_y))
+            vmin = &vs[i];
+        if (nearly_eq(vs[i].pos.x, max_x) && nearly_eq(vs[i].pos.y, max_y))
+            vmax = &vs[i];
+    }
+    if (!vmin || !vmax)
+        return false;
+
+    out_min = *vmin;
+    out_max = *vmax;
+    out_min.pos.x = min_x;
+    out_min.pos.y = min_y;
+    out_max.pos.x = max_x;
+    out_max.pos.y = max_y;
+    return true;
+}
+
+/* Slow path: only for rare non-AA triangles (kept cheap — skip tiny / clipped). */
+void draw_triangle_slow(hsrc::sdk::Surface &surf, BackendData *b,
+                        const ImDrawVert &v0, const ImDrawVert &v1, const ImDrawVert &v2,
+                        int clip_x0, int clip_y0, int clip_x1, int clip_y1)
 {
     float min_x = v0.pos.x, max_x = v0.pos.x;
     float min_y = v0.pos.y, max_y = v0.pos.y;
@@ -100,6 +209,9 @@ void draw_triangle(hsrc::sdk::Surface &surf, BackendData *b,
     if (y1 > clip_y1) y1 = clip_y1;
     if (x0 >= x1 || y0 >= y1)
         return;
+    /* Skip huge slow fills — AA path should have handled real UI quads. */
+    if ((x1 - x0) * (y1 - y0) > 4096)
+        return;
 
     const float area =
         (v1.pos.x - v0.pos.x) * (v2.pos.y - v0.pos.y) -
@@ -107,6 +219,14 @@ void draw_triangle(hsrc::sdk::Surface &surf, BackendData *b,
     if (area == 0.0f)
         return;
     const float inv = 1.0f / area;
+
+    uint32_t *pixels = reinterpret_cast<uint32_t *>(surf.pixels());
+    const uint32_t stride = surf.stride();
+
+    uint8_t r0, g0, b0, a0, r1, g1, b1, a1, r2, g2, b2, a2;
+    unpack_col(v0.col, r0, g0, b0, a0);
+    unpack_col(v1.col, r1, g1, b1, a1);
+    unpack_col(v2.col, r2, g2, b2, a2);
 
     for (int y = y0; y < y1; y++) {
         for (int x = x0; x < x1; x++) {
@@ -120,31 +240,17 @@ void draw_triangle(hsrc::sdk::Surface &surf, BackendData *b,
 
             float u = w0 * v0.uv.x + w1 * v1.uv.x + w2 * v2.uv.x;
             float v = w0 * v0.uv.y + w1 * v1.uv.y + w2 * v2.uv.y;
+            uint8_t ta = sample_font_a(b, u, v);
 
-            auto unpack = [](ImU32 c, float &r, float &g, float &b, float &a) {
-                r = (float)((c >> IM_COL32_R_SHIFT) & 0xFFu);
-                g = (float)((c >> IM_COL32_G_SHIFT) & 0xFFu);
-                b = (float)((c >> IM_COL32_B_SHIFT) & 0xFFu);
-                a = (float)((c >> IM_COL32_A_SHIFT) & 0xFFu);
-            };
-            float r0, g0, b0, a0, r1, g1, b1, a1, r2, g2, b2, a2;
-            unpack(v0.col, r0, g0, b0, a0);
-            unpack(v1.col, r1, g1, b1, a1);
-            unpack(v2.col, r2, g2, b2, a2);
-
-            float cr = w0 * r0 + w1 * r1 + w2 * r2;
-            float cg = w0 * g0 + w1 * g1 + w2 * g2;
-            float cb = w0 * b0 + w1 * b1 + w2 * b2;
-            float ca = w0 * a0 + w1 * a1 + w2 * a2;
-
-            uint8_t tr, tg, tb, ta;
-            sample_font(b, u, v, tr, tg, tb, ta);
-
-            uint8_t out_r = (uint8_t)((cr * (float)tr) / 255.0f);
-            uint8_t out_g = (uint8_t)((cg * (float)tg) / 255.0f);
-            uint8_t out_b = (uint8_t)((cb * (float)tb) / 255.0f);
-            uint8_t out_a = (uint8_t)((ca * (float)ta) / 255.0f);
-            put_pixel(surf, x, y, out_r, out_g, out_b, out_a);
+            uint8_t cr = (uint8_t)(w0 * r0 + w1 * r1 + w2 * r2);
+            uint8_t cg = (uint8_t)(w0 * g0 + w1 * g1 + w2 * g2);
+            uint8_t cb = (uint8_t)(w0 * b0 + w1 * b1 + w2 * b2);
+            uint8_t ca = (uint8_t)(w0 * a0 + w1 * a1 + w2 * a2);
+            uint8_t out_a = (uint8_t)((ca * ta) / 255u);
+            if (out_a == 0)
+                continue;
+            uint32_t &dst = pixels[(uint32_t)y * stride + (uint32_t)x];
+            dst = blend_argb(dst, cr, cg, cb, out_a);
         }
     }
 }
@@ -163,14 +269,17 @@ bool ImGui_ImplUgx_Init()
     io.IniFilename = nullptr;
     io.LogFilename = nullptr;
 
+    /* Alpha8 avoids a second 512x512x4 atlas alloc on the bump/freelist heap. */
     unsigned char *pixels = nullptr;
     int w = 0, h = 0;
-    io.Fonts->GetTexDataAsRGBA32(&pixels, &w, &h);
+    io.Fonts->GetTexDataAsAlpha8(&pixels, &w, &h);
     b->font_pixels = pixels;
     b->font_w = w;
     b->font_h = h;
     io.Fonts->SetTexID((ImTextureID)(uintptr_t)1);
-    return true;
+
+    hsrc::sdk::yield();
+    return pixels != nullptr && w > 0 && h > 0;
 }
 
 void ImGui_ImplUgx_Shutdown()
@@ -239,6 +348,7 @@ void ImGui_ImplUgx_RenderDrawData(ImDrawData *draw_data, hsrc::sdk::Surface &sur
         return;
 
     surf.clear(hsrc::sdk::rgb(30, 30, 34));
+    b->tri_budget = 0;
 
     for (int n = 0; n < draw_data->CmdListsCount; n++) {
         const ImDrawList *cmd_list = draw_data->CmdLists[n];
@@ -261,15 +371,42 @@ void ImGui_ImplUgx_RenderDrawData(ImDrawData *draw_data, hsrc::sdk::Surface &sur
             if (clip_x1 > (int)surf.width()) clip_x1 = (int)surf.width();
             if (clip_y1 > (int)surf.height()) clip_y1 = (int)surf.height();
 
-            for (unsigned int i = 0; i < pcmd->ElemCount; i += 3) {
+            unsigned int i = 0;
+            while (i + 6 <= pcmd->ElemCount) {
+                ImDrawVert vs[6];
+                for (int k = 0; k < 6; k++) {
+                    const ImDrawIdx id = idx[pcmd->IdxOffset + i + (unsigned)k];
+                    vs[k] = vtx[pcmd->VtxOffset + id];
+                }
+
+                /* ImGui PrimRect*: two tris → one axis-aligned textured quad. */
+                ImDrawVert qmin{}, qmax{};
+                if (verts_form_aa_quad(vs, 6, qmin, qmax)) {
+                    (void)try_draw_aa_quad(surf, b, qmin, qmax,
+                                           clip_x0, clip_y0, clip_x1, clip_y1);
+                    maybe_yield(b);
+                    i += 6;
+                    continue;
+                }
+
+                draw_triangle_slow(surf, b, vs[0], vs[1], vs[2],
+                                   clip_x0, clip_y0, clip_x1, clip_y1);
+                draw_triangle_slow(surf, b, vs[3], vs[4], vs[5],
+                                   clip_x0, clip_y0, clip_x1, clip_y1);
+                maybe_yield(b);
+                i += 6;
+            }
+
+            for (; i + 3 <= pcmd->ElemCount; i += 3) {
                 const ImDrawIdx i0 = idx[pcmd->IdxOffset + i + 0];
                 const ImDrawIdx i1 = idx[pcmd->IdxOffset + i + 1];
                 const ImDrawIdx i2 = idx[pcmd->IdxOffset + i + 2];
-                draw_triangle(surf, b,
-                              vtx[pcmd->VtxOffset + i0],
-                              vtx[pcmd->VtxOffset + i1],
-                              vtx[pcmd->VtxOffset + i2],
-                              clip_x0, clip_y0, clip_x1, clip_y1);
+                draw_triangle_slow(surf, b,
+                                   vtx[pcmd->VtxOffset + i0],
+                                   vtx[pcmd->VtxOffset + i1],
+                                   vtx[pcmd->VtxOffset + i2],
+                                   clip_x0, clip_y0, clip_x1, clip_y1);
+                maybe_yield(b);
             }
         }
     }

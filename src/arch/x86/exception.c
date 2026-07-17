@@ -34,6 +34,13 @@ void exc_dispatch(exc_regs_t *r)
     klog(p && p->name[0] ? p->name : "(none)");
     klog("\n");
 
+    /* User fault: tear down the process and keep the rest of the OS alive.
+     * Kernel faults still halt — those are not recoverable here. */
+    if (p && p->is_user && (r->cs & 3) == 3) {
+        klog("[exc] killing user process\n");
+        process_exit(139);
+    }
+
     for (;;)
         __asm__ volatile("hlt");
 }

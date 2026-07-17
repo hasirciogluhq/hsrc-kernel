@@ -499,9 +499,9 @@ void handle_click(const Input &in)
     ChromeHit chrome = g_win.hit_chrome(lx, ly, g_win_opts);
     if (chrome != ChromeHit::None) {
         if (chrome == ChromeHit::Close) {
-            g_win.handle_chrome_hit(chrome);
-            g_running = false;
-            return;
+            (void)g_win.close();
+            /* Never return from mke_main — usermode has no return address (eip→junk/#UD). */
+            hsrc::sdk::exit(0);
         }
         if (chrome == ChromeHit::Minimize) {
             (void)g_win.minimize();
@@ -584,6 +584,10 @@ bool build_ui()
 
 extern "C" void mke_main(void)
 {
+    /* Explicit — do not rely on CRT dynamic/static init for globals. */
+    g_running = true;
+    g_dirty = true;
+
     if (!hsrc::sdk::screen_info(g_screen) || g_screen.width == 0 || g_screen.height == 0) {
         for (;;)
             hsrc::sdk::yield();
@@ -604,8 +608,10 @@ extern "C" void mke_main(void)
     (void)hsrc::sdk::present();
 
     for (;;) {
-        if (!g_running || !g_win.ok())
-            return;
+        if (!g_running || !g_win.ok()) {
+            (void)g_win.close();
+            hsrc::sdk::exit(0);
+        }
 
         Input in{};
         if (hsrc::sdk::input(in)) {
