@@ -2,6 +2,7 @@
 #include <kernel/syscall.h>
 #include <user/sdk/fs.hpp>
 #include <user/sdk/gfx.hpp>
+#include <user/sdk/settings.hpp>
 #include <user/sdk/syscall.hpp>
 #include <user/string.h>
 
@@ -15,8 +16,8 @@ using hsrc::sdk::Surface;
 using hsrc::sdk::Window;
 using hsrc::sdk::WindowOptions;
 using hsrc::sdk::kChromeTitleH;
-using hsrc::sdk::rgb;
-using hsrc::sdk::rgba;
+using hsrc::sdk::settings::theme;
+using hsrc::sdk::settings::refresh_theme;
 
 constexpr int kWinW = 860;
 constexpr int kWinH = 520;
@@ -31,15 +32,7 @@ constexpr int kContentX = kSidebarW + 24;
 constexpr int kContentW = kWinW - kContentX - 24;
 constexpr int kRowsStartY = 92;
 
-constexpr Color kBg = rgb(255, 255, 255);
-constexpr Color kSidebarBg = rgb(247, 247, 245);
-constexpr Color kBorder = rgba(55, 53, 47, 22);
-constexpr Color kText = rgb(50, 48, 44);
-constexpr Color kTextDim = rgb(115, 114, 110);
-constexpr Color kAccent = rgb(35, 131, 226);
-constexpr Color kAccentSoft = rgba(35, 131, 226, 28);
-constexpr Color kWhite = rgb(255, 255, 255);
-constexpr Color kChromeBg = rgb(250, 250, 248);
+constexpr int kThemePollEvery = 32;
 
 constexpr const char *kIniDir = "/etc";
 constexpr const char *kIniPath = "/etc/os-settings.ini";
@@ -143,6 +136,7 @@ WindowOptions g_win_opts;
 ScreenInfo g_screen{};
 Input g_prev_input{};
 bool g_dirty = true;
+int g_theme_poll = 0;
 bool g_running = true;
 int g_active_category = CAT_GENERAL;
 int g_hover_sidebar = -1;
@@ -221,28 +215,24 @@ void make_color_depth_text(char *out, size_t out_size)
 
 void draw_row(Surface &s, int y, const char *label, const char *value, bool interactive, bool hover)
 {
-    Color row_bg = rgb(249, 249, 247);
-    if (interactive) {
-        if (hover)
-            row_bg = rgba(35, 131, 226, 48);
-        else
-            row_bg = kAccentSoft;
-    }
+    const auto &t = theme();
+    Color row_bg = interactive ? t.accent_soft : t.card;
     s.fill_round(kContentX, y, kContentW, kRowH, 8, row_bg);
-    s.rect(kContentX, y, kContentW, kRowH, hover ? kAccent : kBorder, hover ? 2 : 1);
-    s.text(kContentX + 14, y + 12, label, kText, 1);
+    s.rect(kContentX, y, kContentW, kRowH, hover ? t.accent : t.border, hover ? 2 : 1);
+    s.text(kContentX + 14, y + 12, label, t.text, 1);
     int value_x = kContentX + kContentW - 14 - text_width(value, 1);
     if (value_x < kContentX + 220)
         value_x = kContentX + 220;
-    s.text(value_x, y + 12, value, interactive ? kAccent : kTextDim, 1);
+    s.text(value_x, y + 12, value, interactive ? t.accent : t.text_dim, 1);
 }
 
 int draw_section_header(Surface &s, int y, const char *title, bool open, bool register_hit)
 {
+    const auto &t = theme();
     const char *mark = open ? "v " : "> ";
-    s.fill_round(kContentX, y, kContentW, kSectionH, 8, rgb(242, 241, 238));
-    s.text(kContentX + 12, y + 8, mark, kTextDim, 1);
-    s.text(kContentX + 28, y + 8, title, kText, 1);
+    s.fill_round(kContentX, y, kContentW, kSectionH, 8, t.hover);
+    s.text(kContentX + 12, y + 8, mark, t.text_dim, 1);
+    s.text(kContentX + 28, y + 8, title, t.text, 1);
     if (register_hit)
         register_target(y, kSectionH, TARGET_SECTION, g_active_category);
     return y + kSectionH + 8;
@@ -401,33 +391,35 @@ void cycle_setting(int idx)
     if (g_settings[idx].current >= g_settings[idx].choice_count)
         g_settings[idx].current = 0;
     save_settings();
+    (void)refresh_theme();
     g_dirty = true;
 }
 
 void draw_sidebar(Surface &s)
 {
-    s.fill(0, kChromeTitleH, kSidebarW, kWinH - kChromeTitleH, kSidebarBg);
-    s.fill(kSidebarW - 1, kChromeTitleH, 1, kWinH - kChromeTitleH, kBorder);
-    s.text(18, kChromeTitleH + 14, "System Settings", kText, 1);
-    s.text(18, kChromeTitleH + 32, "Ring-3 control center", kTextDim, 1);
+    const auto &t = theme();
+    s.fill(0, kChromeTitleH, kSidebarW, kWinH - kChromeTitleH, t.sidebar);
+    s.fill(kSidebarW - 1, kChromeTitleH, 1, kWinH - kChromeTitleH, t.border);
+    s.text(18, kChromeTitleH + 14, "System Settings", t.text, 1);
+    s.text(18, kChromeTitleH + 32, "Ring-3 control center", t.text_dim, 1);
 
     for (int i = 0; i < CAT_COUNT; i++) {
         int y = kSidebarTop + i * kSidebarItemH;
         bool selected = (i == g_active_category);
         bool hover = (i == g_hover_sidebar);
         if (selected)
-            s.fill_round(10, y + 2, kSidebarW - 20, kSidebarItemH - 4, 8, kAccentSoft);
+            s.fill_round(10, y + 2, kSidebarW - 20, kSidebarItemH - 4, 8, t.accent_soft);
         else if (hover)
-            s.fill_round(10, y + 2, kSidebarW - 20, kSidebarItemH - 4, 8, rgb(242, 241, 238));
-        Color label = selected ? kAccent : kText;
+            s.fill_round(10, y + 2, kSidebarW - 20, kSidebarItemH - 4, 8, t.hover);
+        Color label = selected ? t.accent : t.text;
         s.text(24, y + 10, kCategories[i].label, label, 1);
     }
 }
 
 void draw_page_title(Surface &s, const char *subtitle)
 {
-    s.text(kContentX, 48, kCategories[g_active_category].label, kText, 1);
-    s.text(kContentX, 68, subtitle, kTextDim, 1);
+    s.text(kContentX, 48, kCategories[g_active_category].label, theme().text, 1);
+    s.text(kContentX, 68, subtitle, theme().text_dim, 1);
 }
 
 void draw_cycle_page(Surface &s, const char *subtitle, const char *section_title)
@@ -526,11 +518,11 @@ void paint()
         return;
 
     Surface &s = g_win.surface();
-    s.clear(kBg);
-    s.draw_window_chrome(kWinW, g_win_opts.title, g_win_opts, kChromeBg, kText, kBorder);
+    s.clear(theme().bg);
+    s.draw_window_chrome(kWinW, g_win_opts.title, g_win_opts, theme().chrome, theme().text, theme().border);
     draw_sidebar(s);
-    s.fill(kSidebarW, kChromeTitleH, kWinW - kSidebarW, kHeaderH, kWhite);
-    s.fill(kSidebarW, kChromeTitleH + kHeaderH - 1, kWinW - kSidebarW, 1, kBorder);
+    s.fill(kSidebarW, kChromeTitleH, kWinW - kSidebarW, kHeaderH, theme().panel);
+    s.fill(kSidebarW, kChromeTitleH + kHeaderH - 1, kWinW - kSidebarW, 1, theme().border);
 
     switch (g_active_category) {
     case CAT_GENERAL:
@@ -628,27 +620,10 @@ void handle_click(const Input &in)
 
     ChromeHit chrome = g_win.hit_chrome(lx, ly, g_win_opts);
     if (chrome != ChromeHit::None) {
-        if (chrome == ChromeHit::Close) {
-            (void)g_win.close();
-            /* Never return from mke_main — usermode has no return address (eip→junk/#UD). */
-            hsrc::sdk::exit(0);
-        }
-        if (chrome == ChromeHit::Minimize) {
-            (void)g_win.minimize();
-            return;
-        }
-        if (chrome == ChromeHit::Maximize) {
-            /* Green button: maximize; Shift+click would be nice — use fullscreen via double max. */
-            if (g_win_opts.fullscreen)
-                (void)g_win.set_fullscreen(false);
-            else if (g_win_opts.maximized)
-                (void)g_win.set_fullscreen(true);
-            else
-                (void)g_win.maximize();
-            (void)refresh_window_options();
-            g_dirty = true;
-            return;
-        }
+        (void)g_win.handle_chrome_hit(chrome);
+        (void)refresh_window_options();
+        g_dirty = true;
+        return;
     }
 
     if (lx >= kContentX) {
@@ -695,6 +670,7 @@ extern "C" void mke_main(void)
         g_section_open[i] = true;
 
     load_settings();
+    (void)refresh_theme();
 
     if (!build_ui()) {
         for (;;)
@@ -714,6 +690,13 @@ extern "C" void mke_main(void)
         }
 
         poll_deeplink();
+
+        g_theme_poll++;
+        if (g_theme_poll >= kThemePollEvery) {
+            g_theme_poll = 0;
+            if (refresh_theme())
+                g_dirty = true;
+        }
 
         Input in{};
         if (hsrc::sdk::input(in)) {

@@ -77,12 +77,24 @@ void unpack_col(ImU32 c, uint8_t &r, uint8_t &g, uint8_t &b, uint8_t &a)
     a = (uint8_t)((c >> IM_COL32_A_SHIFT) & 0xFFu);
 }
 
-bool nearly_eq(float a, float b)
+bool nearly_eq(float a, float b, float eps)
 {
     float d = a - b;
     if (d < 0.0f)
         d = -d;
-    return d < 0.5f;
+    return d < eps;
+}
+
+/* Pixel-space corners (ImGui AA quads). */
+bool nearly_eq_pos(float a, float b)
+{
+    return nearly_eq(a, b, 0.5f);
+}
+
+/* UV-space: glyph quads often span << 0.5; 0.5 wrongly treated text as solid fill. */
+bool nearly_eq_uv(float a, float b)
+{
+    return nearly_eq(a, b, 1.0e-4f);
 }
 
 /* Most ImGui geometry is axis-aligned textured quads (2 triangles). */
@@ -119,7 +131,7 @@ bool try_draw_aa_quad(hsrc::sdk::Surface &surf, BackendData *b,
 
     uint32_t *pixels = reinterpret_cast<uint32_t *>(surf.pixels());
     const uint32_t stride = surf.stride();
-    const bool solid_uv = nearly_eq(a.uv.x, c.uv.x) && nearly_eq(a.uv.y, c.uv.y);
+    const bool solid_uv = nearly_eq_uv(a.uv.x, c.uv.x) && nearly_eq_uv(a.uv.y, c.uv.y);
 
     for (int y = y0; y < y1; y++) {
         const float fy = ((float)y + 0.5f - min_y) / dh;
@@ -162,13 +174,13 @@ bool verts_form_aa_quad(const ImDrawVert *vs, int count,
     const ImDrawVert *vmin = nullptr;
     const ImDrawVert *vmax = nullptr;
     for (int i = 0; i < count; i++) {
-        const bool on_x = nearly_eq(vs[i].pos.x, min_x) || nearly_eq(vs[i].pos.x, max_x);
-        const bool on_y = nearly_eq(vs[i].pos.y, min_y) || nearly_eq(vs[i].pos.y, max_y);
+        const bool on_x = nearly_eq_pos(vs[i].pos.x, min_x) || nearly_eq_pos(vs[i].pos.x, max_x);
+        const bool on_y = nearly_eq_pos(vs[i].pos.y, min_y) || nearly_eq_pos(vs[i].pos.y, max_y);
         if (!on_x || !on_y)
             return false;
-        if (nearly_eq(vs[i].pos.x, min_x) && nearly_eq(vs[i].pos.y, min_y))
+        if (nearly_eq_pos(vs[i].pos.x, min_x) && nearly_eq_pos(vs[i].pos.y, min_y))
             vmin = &vs[i];
-        if (nearly_eq(vs[i].pos.x, max_x) && nearly_eq(vs[i].pos.y, max_y))
+        if (nearly_eq_pos(vs[i].pos.x, max_x) && nearly_eq_pos(vs[i].pos.y, max_y))
             vmax = &vs[i];
     }
     if (!vmin || !vmax)

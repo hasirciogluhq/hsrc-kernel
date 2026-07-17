@@ -95,12 +95,13 @@ void paint_menubar()
     s.fill(0, kMenubarH - 1, g_sw, 1, rgba(0, 0, 0, 48));
 
     /* Menubar glyphs stay fully opaque above the acrylic layer. */
-    s.fill_round(10, 6, 16, 16, 8, rgb(30, 30, 32));
-    s.text(32, 10, "HSRC", kMenubarFg, 1);
+    s.fill_round(10, 5, 16, 16, 8, rgb(30, 30, 32));
+    const int text_y = (kMenubarH - Surface::text_height(1)) / 2;
+    s.text(32, text_y, "HSRC", kMenubarFg, 1);
 
-    s.text(kMenuSettingsX, 10, "Settings",
+    s.text(kMenuSettingsX, text_y, "Settings",
            g_menu_hover == 0 ? kMenubarAccent : kMenubarFg, 1);
-    s.text(kMenuSystemInfoX, 10, "System Information",
+    s.text(kMenuSystemInfoX, text_y, "System Information",
            g_menu_hover == 1 ? kMenubarAccent : kMenubarFg, 1);
 
     g_menubar.damage();

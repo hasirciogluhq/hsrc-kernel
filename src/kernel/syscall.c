@@ -16,6 +16,7 @@
 #include <kernel/uaccess.h>
 #include <kernel/string.h>
 #include <drivers/serial.h>
+#include <drivers/driver.h>
 #include <drivers/vfs_fs.h>
 #include <user/gx.h>
 
@@ -45,6 +46,10 @@ static const char *fs_proc_name(void)
 static void fs_log_ret(const char *op, long ret)
 {
     if (ret >= 0)
+        return;
+    /* ENOENT is a normal probe result (optional configs, path_exists, etc.).
+     * Logging it every theme poll floods the serial console. */
+    if (ret == -ENOENT)
         return;
 
     klog("[fs] ");
@@ -387,6 +392,13 @@ static long do_getppid(void)
 
 static long do_yield(void)
 {
+    const mkdx_api_t *api = mkdx_api_get();
+
+    /* Cooperative scheduler: drain input every yield so PS/2 isn't starved. */
+    drivers_poll();
+    if (api && api->pump_input)
+        api->pump_input();
+
     schedule();
     return 0;
 }

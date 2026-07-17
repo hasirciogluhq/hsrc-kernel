@@ -3,6 +3,7 @@
 #include <user/sdk/gfx.hpp>
 #include <user/sdk/fs.hpp>
 #include <user/sdk/net.hpp>
+#include <user/sdk/settings.hpp>
 #include <user/sdk/syscall.hpp>
 #include <user/string.h>
 #include <kernel/vfs.h>
@@ -13,44 +14,53 @@
 /*
  * HSRC Terminal — ring-3 shell window (root by default).
  * Builtins: help, clear, pwd, cd, ls, mkdir, cat, touch, echo, write, run,
- *           whoami, id, uname, env, export, ping, nc, connect
+ *           ps, kill, whoami, id, uname, env, export, ping, nc, connect
  * Write:  echo hello > file   |  echo more >> file  |  write path text...
  */
 
 namespace {
 
+using hsrc::sdk::ChromeHit;
 using hsrc::sdk::Color;
 using hsrc::sdk::Input;
 using hsrc::sdk::ScreenInfo;
 using hsrc::sdk::Surface;
 using hsrc::sdk::Window;
 using hsrc::sdk::WindowOptions;
-using hsrc::sdk::rgb;
-using hsrc::sdk::rgba;
+using hsrc::sdk::kChromeTitleH;
+using hsrc::sdk::settings::theme;
+using hsrc::sdk::settings::refresh_theme;
 
 constexpr int kWinW = 720;
 constexpr int kWinH = 440;
 constexpr int kPad = 10;
-constexpr int kLineH = 12;
+constexpr int kLineH = 20; /* matches UGX_FONT_H (18) + 2px leading */
 constexpr int kCols = 86;
 constexpr int kRows = 32;
 constexpr int kHist = 120;
-
-constexpr Color kBg     = rgb(18, 18, 22);
-constexpr Color kFg     = rgb(220, 220, 225);
-constexpr Color kDim    = rgb(120, 120, 130);
-constexpr Color kAccent = rgb(90, 200, 120);
-constexpr Color kErr    = rgb(240, 110, 110);
-constexpr Color kTitle  = rgb(40, 40, 48);
+constexpr int kThemePollEvery = 32;
 
 Window g_win;
+WindowOptions g_win_opts;
+Input g_prev_input{};
 char g_lines[kHist][kCols + 1];
 Color g_line_color[kHist];
 int g_nlines = 0;
 char g_cwd[VFS_PATH_MAX];
 char g_input[kCols];
 int g_inlen = 0;
+int g_theme_poll = 0;
 bool g_dirty = true;
+
+bool refresh_window_options()
+{
+    return g_win.get_options(g_win_opts);
+}
+
+Color col_fg() { return theme().term_fg; }
+Color col_dim() { return theme().term_dim; }
+Color col_accent() { return theme().term_accent; }
+Color col_err() { return theme().term_err; }
 
 void line_push(const char *text, Color c)
 {
@@ -102,12 +112,12 @@ void make_prompt(char *out, size_t n)
 
 void paint()
 {
+    const auto &t = theme();
     Surface &s = g_win.surface();
-    s.clear(kBg);
-    s.fill(0, 0, kWinW, 22, kTitle);
-    s.text(kPad, 7, "Terminal — root shell", kFg, 1);
+    s.clear(t.term_bg);
+    s.draw_window_chrome(kWinW, g_win_opts.title, g_win_opts, t.chrome, t.text, t.border);
 
-    const int top = 28;
+    const int top = kChromeTitleH + kPad;
     const int visible = (kWinH - top - kPad - kLineH) / kLineH;
     int start = g_nlines > visible ? g_nlines - visible : 0;
     int y = top;
@@ -127,7 +137,7 @@ void paint()
     if (pi < kCols)
         row[pi++] = '_';
     row[pi] = 0;
-    s.text(kPad, y, row, kAccent, 1);
+    s.text(kPad, y, row, t.term_accent, 1);
 
     g_win.damage();
     g_dirty = false;
@@ -162,17 +172,20 @@ const char *cmd_args(const char *s, const char *name)
 
 void cmd_help()
 {
-    line_push("builtins: help clear pwd cd ls mkdir cat touch echo write run", kDim);
-    line_push("          whoami id uname env export ping nc connect", kDim);
-    line_push("env:    env   |  env PATH   (lists known keys or prints one)", kDim);
-    line_push("export: export NAME=value   |  export -g NAME=value", kDim);
-    line_push("write:  echo hi > f.txt   |  echo hi >> f.txt   |  write f.txt hi", kDim);
-    line_push("run:    run terminal   |  run /applications/terminal.mke [args...]", kDim);
-    line_push("launch: ./app.mke [args...]   |  /applications/app.mke [args...]", kDim);
-    line_push("ping:   ping 10.0.2.2", kDim);
-    line_push("nc:     nc 10.0.2.2 80   |   nc 10.0.2.2 7 hello", kDim);
-    line_push("connect: same as nc", kDim);
-    line_push("tip:  >  =  AltGr+.  (or Shift+<> key)   |  no >: use write", kDim);
+    line_push("builtins: help clear pwd cd ls mkdir cat touch echo write run", col_dim());
+    line_push("          ps kill whoami id uname env export ping nc connect", col_dim());
+    line_push("env:    env   |  env PATH   (lists known keys or prints one)", col_dim());
+    line_push("export: export NAME=value   |  export -g NAME=value", col_dim());
+    line_push("write:  echo hi > f.txt   |  echo hi >> f.txt   |  write f.txt hi", col_dim());
+    line_push("run:    run terminal   |  run /applications/terminal.mke [args...]", col_dim());
+    line_push("        run -c <app>   (spawn with visible console)", col_dim());
+    line_push("launch: ./app.mke [args...]   |  /applications/app.mke [args...]", col_dim());
+    line_push("ps:     ps", col_dim());
+    line_push("kill:   kill <pid>", col_dim());
+    line_push("ping:   ping 10.0.2.2", col_dim());
+    line_push("nc:     nc 10.0.2.2 80   |   nc 10.0.2.2 7 hello", col_dim());
+    line_push("connect: same as nc", col_dim());
+    line_push("tip:  >  =  AltGr+.  (or Shift+<> key)   |  no >: use write", col_dim());
 }
 
 void append_text(char *out, int &j, const char *text)
@@ -433,7 +446,7 @@ void push_spawn_status(const char *prefix, const char *path, long rc)
     if (rc >= 0) {
         append_text(msg, j, " pid=");
         append_int(msg, j, (int)rc);
-        line_push(msg, kAccent);
+        line_push(msg, col_accent());
         return;
     }
 
@@ -442,7 +455,118 @@ void push_spawn_status(const char *prefix, const char *path, long rc)
     append_text(msg, j, " (");
     append_int(msg, j, (int)rc);
     append_text(msg, j, ")");
-    line_push(msg, kErr);
+    line_push(msg, col_err());
+}
+
+bool parse_pid_token(const char *s, pid_t *pid_out)
+{
+    const char *p = skip_ws(s);
+    int sign = 1;
+    long v = 0;
+    int ndig = 0;
+
+    if (!p || !*p)
+        return false;
+    if (*p == '-') {
+        sign = -1;
+        p++;
+    }
+    while (*p >= '0' && *p <= '9') {
+        v = v * 10 + (*p - '0');
+        ndig++;
+        p++;
+    }
+    if (ndig == 0)
+        return false;
+    if (*p && *p != ' ' && *p != '\t')
+        return false;
+    *pid_out = (pid_t)(sign < 0 ? -v : v);
+    return true;
+}
+
+void cmd_ps()
+{
+    using hsrc::sdk::process::ProcListEntry;
+    ProcListEntry ents[hsrc::sdk::process::kMaxProcesses];
+    long n = hsrc::sdk::process::proc_list(ents, hsrc::sdk::process::kMaxProcesses);
+    char row[kCols + 1];
+    int j;
+
+    if (n < 0) {
+        line_push("ps: proc_list failed", col_err());
+        return;
+    }
+    if (n == 0) {
+        line_push("(no processes)", col_dim());
+        return;
+    }
+
+    line_push("  PID  PPID  STATE     MEM     NAME", col_dim());
+    for (long i = 0; i < n; i++) {
+        j = 0;
+        row[0] = 0;
+        append_text(row, j, " ");
+        if (ents[i].pid < 1000 && j < kCols)
+            row[j++] = ' ';
+        if (ents[i].pid < 100 && j < kCols)
+            row[j++] = ' ';
+        if (ents[i].pid < 10 && j < kCols)
+            row[j++] = ' ';
+        append_int(row, j, (int)ents[i].pid);
+        append_text(row, j, "  ");
+        if (ents[i].ppid < 1000 && j < kCols)
+            row[j++] = ' ';
+        if (ents[i].ppid < 100 && j < kCols)
+            row[j++] = ' ';
+        if (ents[i].ppid < 10 && j < kCols)
+            row[j++] = ' ';
+        append_int(row, j, (int)ents[i].ppid);
+        append_text(row, j, "  ");
+        {
+            const char *st = hsrc::sdk::process::state_name(ents[i].state);
+            int pad = 8;
+            while (*st && j < kCols) {
+                row[j++] = *st++;
+                pad--;
+            }
+            while (pad-- > 0 && j < kCols)
+                row[j++] = ' ';
+        }
+        append_text(row, j, " ");
+        append_uint(row, j, ents[i].mem_bytes / 1024u);
+        append_text(row, j, "K  ");
+        append_text(row, j, ents[i].name);
+        row[j] = 0;
+        line_push(row, col_fg());
+    }
+}
+
+void cmd_kill(const char *arg)
+{
+    pid_t pid = 0;
+    long rc;
+    char msg[kCols + 1];
+    int j = 0;
+
+    if (!parse_pid_token(arg, &pid) || pid <= 0) {
+        line_push("kill: usage: kill <pid>", col_err());
+        return;
+    }
+
+    rc = hsrc::sdk::process::kill(pid);
+    msg[0] = 0;
+    if (rc < 0) {
+        append_text(msg, j, "kill: failed pid=");
+        append_int(msg, j, (int)pid);
+        append_text(msg, j, " (");
+        append_text(msg, j, errno_name(rc));
+        append_text(msg, j, ")");
+        line_push(msg, col_err());
+        return;
+    }
+    append_text(msg, j, "kill: sent to pid=");
+    append_int(msg, j, (int)pid);
+    line_push(msg, col_accent());
 }
 
 void cmd_run(const char *arg)
@@ -452,20 +576,28 @@ void cmd_run(const char *arg)
     const char *rest;
     const char *spawn_argv[PROC_ARGC_MAX + 1];
     char spawn_storage[PROC_ARGC_MAX][PROC_ARGV_MAX];
+    uint32_t flags = hsrc::sdk::process::ConsoleHidden;
     long rc;
+
+    arg = skip_ws(arg);
+    if (arg[0] == '-' && arg[1] == 'c' &&
+        (arg[2] == 0 || arg[2] == ' ' || arg[2] == '\t')) {
+        flags = hsrc::sdk::process::ConsoleVisible;
+        arg = skip_ws(arg + 2);
+    }
 
     rest = copy_token(arg, name, sizeof(name));
     if (!name[0]) {
-        line_push("run: usage: run <name|path> [args...]", kErr);
+        line_push("run: usage: run [-c] <name|path> [args...]", col_err());
         return;
     }
     if (!resolve_run_target(name, path, sizeof(path))) {
-        line_push("run: target not found", kErr);
+        line_push("run: target not found", col_err());
         return;
     }
 
     (void)build_spawn_argv(name, rest, spawn_argv, spawn_storage, PROC_ARGC_MAX);
-    rc = hsrc::sdk::process::spawn_ex(path, hsrc::sdk::process::ConsoleVisible, spawn_argv);
+    rc = hsrc::sdk::process::spawn_ex(path, flags, spawn_argv);
     push_spawn_status("run:", path, rc);
 }
 
@@ -542,13 +674,13 @@ void cmd_ping_tcp_fallback(const char *host, uint32_t dip)
 
     if (s >= 0) {
         format_endpoint_status(msg, "ping:", host, 80, "tcp connect ok");
-        line_push(msg, kAccent);
+        line_push(msg, col_accent());
         hsrc::sdk::close((int)s);
         return;
     }
 
     format_endpoint_status(msg, "ping:", host, 80, "tcp connect failed");
-    line_push(msg, kErr);
+    line_push(msg, col_err());
     {
         int j = 0;
         msg[0] = 0;
@@ -557,7 +689,7 @@ void cmd_ping_tcp_fallback(const char *host, uint32_t dip)
         append_text(msg, j, " (");
         append_int(msg, j, (int)s);
         append_text(msg, j, ")");
-        line_push(msg, kErr);
+        line_push(msg, col_err());
     }
 }
 
@@ -585,7 +717,7 @@ void cmd_ping(const char *arg)
     char msg[kCols + 1];
 
     if (!*p) {
-        line_push("ping: usage: ping <ipv4>", kErr);
+        line_push("ping: usage: ping <ipv4>", col_err());
         return;
     }
     while (p[j] && p[j] != ' ' && p[j] != '\t' && j < (int)sizeof(host) - 1) {
@@ -594,18 +726,18 @@ void cmd_ping(const char *arg)
     }
     host[j] = 0;
     if (hsrc::sdk::inet_aton(host, &dip) < 0) {
-        line_push("ping: bad address", kErr);
+        line_push("ping: bad address", col_err());
         return;
     }
 
     s = hsrc::sdk::socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
     if (s < 0) {
-        line_push("ping: raw icmp unavailable, trying tcp/80", kDim);
+        line_push("ping: raw icmp unavailable, trying tcp/80", col_dim());
         cmd_ping_tcp_fallback(host, dip);
         return;
     }
 
-    line_push("PING (SOCK_RAW/ICMP) ...", kDim);
+    line_push("PING (SOCK_RAW/ICMP) ...", col_dim());
     for (int i = 0; i < 4; i++) {
         uint8_t icmp[16];
         sockaddr_in_t dst, src;
@@ -661,9 +793,9 @@ void cmd_ping(const char *arg)
             msg[j++] = (char)('0' + recv);
         msg[j] = 0;
     }
-    line_push(msg, recv > 0 ? kAccent : kErr);
+    line_push(msg, recv > 0 ? col_accent() : col_err());
     if (recv == 0)
-        line_push("ping: timeout / unreachable", kErr);
+        line_push("ping: timeout / unreachable", col_err());
 }
 
 void cmd_connect(const char *arg)
@@ -680,22 +812,22 @@ void cmd_connect(const char *arg)
 
     rest = copy_token(arg, host, sizeof(host));
     if (!host[0]) {
-        line_push("nc: usage: nc <ipv4> <port> [line...]", kErr);
+        line_push("nc: usage: nc <ipv4> <port> [line...]", col_err());
         return;
     }
     if (hsrc::sdk::inet_aton(host, &dip) < 0) {
-        line_push("nc: bad address", kErr);
+        line_push("nc: bad address", col_err());
         return;
     }
     if (!parse_port_token(rest, &port, &rest)) {
-        line_push("nc: usage: nc <ipv4> <port> [line...]", kErr);
+        line_push("nc: usage: nc <ipv4> <port> [line...]", col_err());
         return;
     }
 
     s = tcp_connect_ipv4(dip, port);
     if (s < 0) {
         format_endpoint_status(msg, "nc:", host, port, "connect failed");
-        line_push(msg, kErr);
+        line_push(msg, col_err());
         {
             int j = 0;
             msg[0] = 0;
@@ -704,20 +836,20 @@ void cmd_connect(const char *arg)
             append_text(msg, j, " (");
             append_int(msg, j, (int)s);
             append_text(msg, j, ")");
-            line_push(msg, kErr);
+            line_push(msg, col_err());
         }
         return;
     }
 
     format_endpoint_status(msg, "nc:", host, port, "connected");
-    line_push(msg, kAccent);
+    line_push(msg, col_accent());
 
     while (rest[send_len])
         send_len++;
     if (send_len > 0) {
         n = hsrc::sdk::send((int)s, rest, send_len);
         if (n < 0) {
-            line_push("nc: send failed", kErr);
+            line_push("nc: send failed", col_err());
             hsrc::sdk::close((int)s);
             return;
         }
@@ -730,15 +862,15 @@ void cmd_connect(const char *arg)
             append_text(msg, j, "nc: sent ");
             append_int(msg, j, (int)n);
             append_text(msg, j, " bytes");
-            line_push(msg, kDim);
+            line_push(msg, col_dim());
         }
 
         n = hsrc::sdk::recv((int)s, buf, sizeof(buf) - 1);
         if (n > 0) {
             buf[n] = 0;
-            push_wrapped(buf, kFg);
+            push_wrapped(buf, col_fg());
         } else if (n == 0) {
-            line_push("nc: peer closed", kDim);
+            line_push("nc: peer closed", col_dim());
         } else {
             {
                 int j = 0;
@@ -748,7 +880,7 @@ void cmd_connect(const char *arg)
                 append_text(msg, j, " (");
                 append_int(msg, j, (int)n);
                 append_text(msg, j, ")");
-                line_push(msg, n == -EAGAIN ? kDim : kErr);
+                line_push(msg, n == -EAGAIN ? col_dim() : col_err());
             }
         }
     }
@@ -772,7 +904,7 @@ void push_env_pair(const char *key, const char *val)
     append_text(row, j, key);
     append_text(row, j, "=");
     append_text(row, j, val);
-    line_push(row, kFg);
+    line_push(row, col_fg());
 }
 
 void cmd_env(const char *arg)
@@ -785,7 +917,7 @@ void cmd_env(const char *arg)
     if (*arg) {
         copy_token(arg, key, sizeof(key));
         if (!key[0]) {
-            line_push("env: usage: env [NAME]", kErr);
+            line_push("env: usage: env [NAME]", col_err());
             return;
         }
         rc = hsrc::sdk::process::getenv(key, val, sizeof(val));
@@ -796,7 +928,7 @@ void cmd_env(const char *arg)
             append_text(msg, j, "env: ");
             append_text(msg, j, key);
             append_text(msg, j, ": not set");
-            line_push(msg, kErr);
+            line_push(msg, col_err());
             return;
         }
         push_env_pair(key, val);
@@ -821,7 +953,7 @@ void cmd_export(const char *arg)
 
     arg = skip_ws(arg);
     if (!*arg) {
-        line_push("export: usage: export [-g] NAME=value", kErr);
+        line_push("export: usage: export [-g] NAME=value", col_err());
         return;
     }
     if (arg[0] == '-' && arg[1] == 'g' &&
@@ -830,7 +962,7 @@ void cmd_export(const char *arg)
         arg = skip_ws(arg + 2);
     }
     if (!*arg) {
-        line_push("export: usage: export [-g] NAME=value", kErr);
+        line_push("export: usage: export [-g] NAME=value", col_err());
         return;
     }
 
@@ -838,13 +970,13 @@ void cmd_export(const char *arg)
     while (*eq && *eq != '=')
         eq++;
     if (*eq != '=') {
-        line_push("export: expected NAME=value", kErr);
+        line_push("export: expected NAME=value", col_err());
         return;
     }
 
     nlen = (size_t)(eq - arg);
     if (nlen == 0 || nlen >= kEnvKeyMax) {
-        line_push("export: bad variable name", kErr);
+        line_push("export: bad variable name", col_err());
         return;
     }
     memcpy(name, arg, nlen);
@@ -852,7 +984,7 @@ void cmd_export(const char *arg)
 
     copy_cstr(val, sizeof(val), eq + 1);
     if (str_len(val) >= kEnvValMax) {
-        line_push("export: value too long", kErr);
+        line_push("export: value too long", col_err());
         return;
     }
 
@@ -864,7 +996,7 @@ void cmd_export(const char *arg)
         append_text(msg, j, "export: failed (");
         append_int(msg, j, (int)rc);
         append_text(msg, j, ")");
-        line_push(msg, kErr);
+        line_push(msg, col_err());
     }
 }
 
@@ -877,17 +1009,17 @@ void cmd_ls(const char *arg)
     char row[kCols + 1];
 
     if (fd < 0) {
-        line_push("ls: cannot open directory", kErr);
+        line_push("ls: cannot open directory", col_err());
         return;
     }
     n = hsrc::sdk::getdents(fd, ents, 32);
     hsrc::sdk::close(fd);
     if (n < 0) {
-        line_push("ls: readdir failed", kErr);
+        line_push("ls: readdir failed", col_err());
         return;
     }
     if (n == 0) {
-        line_push("(empty)", kDim);
+        line_push("(empty)", col_dim());
         return;
     }
     for (long i = 0; i < n; i++) {
@@ -898,7 +1030,7 @@ void cmd_ls(const char *arg)
         while (*nm && j < kCols)
             row[j++] = *nm++;
         row[j] = 0;
-        line_push(row, S_ISDIR(ents[i].type) ? kAccent : kFg);
+        line_push(row, S_ISDIR(ents[i].type) ? col_accent() : col_fg());
     }
 }
 
@@ -910,12 +1042,12 @@ void cmd_cat(const char *arg)
     long n;
 
     if (!*arg) {
-        line_push("cat: missing path", kErr);
+        line_push("cat: missing path", col_err());
         return;
     }
     fd = (int)hsrc::sdk::open(arg, O_RDONLY);
     if (fd < 0) {
-        line_push("cat: open failed", kErr);
+        line_push("cat: open failed", col_err());
         return;
     }
     while ((n = hsrc::sdk::read(fd, buf, sizeof(buf))) > 0) {
@@ -923,7 +1055,7 @@ void cmd_cat(const char *arg)
             char c = buf[i];
             if (c == '\n' || li >= kCols) {
                 line[li] = 0;
-                line_push(line, kFg);
+                line_push(line, col_fg());
                 li = 0;
                 if (c == '\n')
                     continue;
@@ -935,23 +1067,23 @@ void cmd_cat(const char *arg)
     }
     if (li > 0) {
         line[li] = 0;
-        line_push(line, kFg);
+        line_push(line, col_fg());
     }
     hsrc::sdk::close(fd);
     if (n < 0)
-        line_push("cat: read error", kErr);
+        line_push("cat: read error", col_err());
 }
 
 void cmd_touch(const char *arg)
 {
     int fd;
     if (!*arg) {
-        line_push("touch: missing path", kErr);
+        line_push("touch: missing path", col_err());
         return;
     }
     fd = (int)hsrc::sdk::open(arg, O_WRONLY | O_CREAT);
     if (fd < 0) {
-        line_push("touch: failed", kErr);
+        line_push("touch: failed", col_err());
         return;
     }
     hsrc::sdk::close(fd);
@@ -966,7 +1098,7 @@ void cmd_write_file(const char *path, const char *text, int append)
     char nl = '\n';
 
     if (!path || !*path) {
-        line_push("write: missing path", kErr);
+        line_push("write: missing path", col_err());
         return;
     }
     if (!text)
@@ -976,12 +1108,12 @@ void cmd_write_file(const char *path, const char *text, int append)
 
     fd = (int)hsrc::sdk::open(path, flags);
     if (fd < 0) {
-        line_push("write: open failed", kErr);
+        line_push("write: open failed", col_err());
         return;
     }
     if (append && hsrc::sdk::lseek(fd, 0, SEEK_END) < 0) {
         hsrc::sdk::close(fd);
-        line_push("write: seek failed", kErr);
+        line_push("write: seek failed", col_err());
         return;
     }
 
@@ -989,7 +1121,7 @@ void cmd_write_file(const char *path, const char *text, int append)
         len++;
     if (len > 0 && hsrc::sdk::write(fd, text, len) < 0) {
         hsrc::sdk::close(fd);
-        line_push("write: failed", kErr);
+        line_push("write: failed", col_err());
         return;
     }
     (void)hsrc::sdk::write(fd, &nl, 1);
@@ -1031,7 +1163,7 @@ int try_echo_redirect(const char *args)
         gt += 1;
     gt = skip_ws(gt);
     if (!*gt) {
-        line_push("echo: missing redirect path", kErr);
+        line_push("echo: missing redirect path", col_err());
         return 1;
     }
     while (*gt && *gt != ' ' && *gt != '\t' && pi < (int)sizeof(path) - 1)
@@ -1063,22 +1195,22 @@ void run_line(const char *line)
     }
     if (strcmp(s, "pwd") == 0) {
         refresh_cwd();
-        line_push(g_cwd, kFg);
+        line_push(g_cwd, col_fg());
         return;
     }
     if (strcmp(s, "whoami") == 0) {
-        line_push(hsrc::sdk::geteuid() == 0 ? "root" : "user", kFg);
+        line_push(hsrc::sdk::geteuid() == 0 ? "root" : "user", col_fg());
         return;
     }
     if (strcmp(s, "id") == 0) {
         if (hsrc::sdk::getuid() == 0 && hsrc::sdk::geteuid() == 0)
-            line_push("uid=0(root) euid=0(root)", kFg);
+            line_push("uid=0(root) euid=0(root)", col_fg());
         else
-            line_push("uid!=0", kFg);
+            line_push("uid!=0", col_fg());
         return;
     }
     if (strcmp(s, "uname") == 0) {
-        line_push("HSRC OS mykernel i386", kFg);
+        line_push("HSRC OS mykernel i386", col_fg());
         return;
     }
     if (cmd_is(s, "env")) {
@@ -1094,7 +1226,7 @@ void run_line(const char *line)
         if (!*rest)
             rest = "/root";
         if (hsrc::sdk::chdir(rest) < 0)
-            line_push("cd: no such directory", kErr);
+            line_push("cd: no such directory", col_err());
         else
             refresh_cwd();
         return;
@@ -1106,11 +1238,11 @@ void run_line(const char *line)
     if (cmd_is(s, "mkdir")) {
         const char *rest = cmd_args(s, "mkdir");
         if (!*rest) {
-            line_push("mkdir: missing operand", kErr);
+            line_push("mkdir: missing operand", col_err());
             return;
         }
         if (hsrc::sdk::mkdir(rest, 0755) < 0)
-            line_push("mkdir: failed", kErr);
+            line_push("mkdir: failed", col_err());
         return;
     }
     if (cmd_is(s, "cat")) {
@@ -1125,7 +1257,7 @@ void run_line(const char *line)
         const char *rest = cmd_args(s, "echo");
         if (try_echo_redirect(rest))
             return;
-        line_push(rest, kFg);
+        line_push(rest, col_fg());
         return;
     }
     if (cmd_is(s, "write")) {
@@ -1134,7 +1266,7 @@ void run_line(const char *line)
         char path[VFS_PATH_MAX];
         int pi = 0;
         if (!*rest) {
-            line_push("write: usage: write <path> <text>", kErr);
+            line_push("write: usage: write <path> <text>", col_err());
             return;
         }
         while (*rest && *rest != ' ' && *rest != '\t' && pi < (int)sizeof(path) - 1)
@@ -1146,6 +1278,14 @@ void run_line(const char *line)
     }
     if (cmd_is(s, "run")) {
         cmd_run(cmd_args(s, "run"));
+        return;
+    }
+    if (cmd_is(s, "ps")) {
+        cmd_ps();
+        return;
+    }
+    if (cmd_is(s, "kill")) {
+        cmd_kill(cmd_args(s, "kill"));
         return;
     }
     if (cmd_is(s, "ping")) {
@@ -1166,7 +1306,7 @@ void run_line(const char *line)
         long rc;
 
         (void)build_spawn_argv(arg, arg_rest, spawn_argv, spawn_storage, PROC_ARGC_MAX);
-        rc = hsrc::sdk::process::spawn_ex(arg, hsrc::sdk::process::ConsoleVisible, spawn_argv);
+        rc = hsrc::sdk::process::spawn_ex(arg, hsrc::sdk::process::ConsoleHidden, spawn_argv);
         push_spawn_status("spawn:", arg, rc);
         return;
     }
@@ -1182,7 +1322,7 @@ void run_line(const char *line)
         while (*p && j < kCols)
             msg[j++] = *p++;
         msg[j] = 0;
-        line_push(msg, kErr);
+        line_push(msg, col_err());
     }
 }
 
@@ -1200,7 +1340,7 @@ void on_enter()
     for (int j = 0; j < g_inlen && i < kCols; j++)
         shown[i++] = g_input[j];
     shown[i] = 0;
-    line_push(shown, kDim);
+    line_push(shown, col_dim());
 
     g_input[g_inlen] = 0;
     run_line(g_input);
@@ -1224,13 +1364,31 @@ void handle_key(int ch)
         return;
     }
     if (ch == 3) { /* ctrl-c */
-        line_push("^C", kDim);
+        line_push("^C", col_dim());
         g_inlen = 0;
         g_dirty = true;
         return;
     }
     if (ch >= 32 && ch < 127 && g_inlen < kCols - 1) {
         g_input[g_inlen++] = (char)ch;
+        g_dirty = true;
+    }
+}
+
+void handle_click(const Input &in)
+{
+    if (!refresh_window_options())
+        return;
+
+    const int lx = in.mouse_x - g_win_opts.x;
+    const int ly = in.mouse_y - g_win_opts.y;
+    if (lx < 0 || ly < 0 || lx >= g_win_opts.w || ly >= g_win_opts.h)
+        return;
+
+    ChromeHit chrome = g_win.hit_chrome(lx, ly, g_win_opts);
+    if (chrome != ChromeHit::None) {
+        (void)g_win.handle_chrome_hit(chrome);
+        (void)refresh_window_options();
         g_dirty = true;
     }
 }
@@ -1245,6 +1403,8 @@ extern "C" void mke_main(void)
             hsrc::sdk::yield();
     }
 
+    (void)refresh_theme();
+
     const int x = ((int)info.width - kWinW) / 2;
     const int y = ((int)info.height - kWinH) / 2;
 
@@ -1255,11 +1415,21 @@ extern "C" void mke_main(void)
     opts.h = kWinH;
     opts.radius = 10;
     opts.rounded = true;
+    opts.shadow = true;
+    opts.resizable = false;
+    opts.framed = true;
+    opts.closable = true;
+    opts.can_minimize = true;
+    opts.can_maximize = true;
+    opts.accept_focus = true;
+    opts.capture_keys = true;
     opts.set_title("Terminal");
+    opts.set_class_name("os.terminal");
     if (!g_win.create(opts)) {
         for (;;)
             hsrc::sdk::yield();
     }
+    (void)refresh_window_options();
 
     g_win.show(true);
     g_win.focus();
@@ -1268,22 +1438,46 @@ extern "C" void mke_main(void)
     (void)hsrc::sdk::chdir("/root");
     refresh_cwd();
 
-    line_push("HSRC Terminal — running as root (uid 0)", kAccent);
-    line_push("Type 'help' for builtins.", kDim);
+    line_push("HSRC Terminal — running as root (uid 0)", col_accent());
+    line_push("Type 'help' for builtins.", col_dim());
 
     paint();
     (void)hsrc::sdk::present();
 
     for (;;) {
-        Input in{};
-        (void)hsrc::sdk::input(in);
+        if (!g_win.ok()) {
+            (void)g_win.close();
+            hsrc::sdk::exit(0);
+        }
 
-        if (in.focus_id == g_win.id()) {
-            for (;;) {
-                long k = hsrc::sdk::syscall1(SYS_WM_POP_KEY, g_win.id());
-                if (k < 0)
-                    break;
-                handle_key((int)k);
+        g_theme_poll++;
+        if (g_theme_poll >= kThemePollEvery) {
+            g_theme_poll = 0;
+            if (refresh_theme())
+                g_dirty = true;
+        }
+
+        Input in{};
+        if (hsrc::sdk::input(in)) {
+            const uint8_t pressed = (uint8_t)(in.buttons & ~g_prev_input.buttons);
+            if (pressed & UGX_BTN_LEFT) {
+                const int lx = in.mouse_x - g_win_opts.x;
+                const int ly = in.mouse_y - g_win_opts.y;
+                const bool over = refresh_window_options() &&
+                                  lx >= 0 && ly >= 0 &&
+                                  lx < g_win_opts.w && ly < g_win_opts.h;
+                if (over || in.focus_id == g_win.id())
+                    handle_click(in);
+            }
+            g_prev_input = in;
+
+            if (in.focus_id == g_win.id()) {
+                for (;;) {
+                    long k = hsrc::sdk::syscall1(SYS_WM_POP_KEY, g_win.id());
+                    if (k < 0)
+                        break;
+                    handle_key((int)k);
+                }
             }
         }
 

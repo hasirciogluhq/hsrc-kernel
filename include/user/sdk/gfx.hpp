@@ -100,6 +100,7 @@ public:
 
     void clear(Color c);
     void set(int x, int y, Color c);
+    void blend(int x, int y, Color c);
     void fill(int x, int y, int w, int h, Color c);
     void fill_round(int x, int y, int w, int h, int radius, Color c);
     void rect(int x, int y, int w, int h, Color c, int thickness = 1);
@@ -145,6 +146,7 @@ public:
     bool set_fullscreen(bool enabled);
     bool toggle_fullscreen();
     ChromeHit hit_chrome(int lx, int ly, const WindowOptions &opts) const;
+    /* Close → close()+exit(0); green escalates maximize→fullscreen. Never returns on Close. */
     bool handle_chrome_hit(ChromeHit hit);
     void damage();
 
@@ -156,6 +158,10 @@ private:
 };
 
 bool screen_info(ScreenInfo &out);
+/* Integer UI scale from screen size (1× @ ~720p, 2× @ ≥1600×1080). */
+int ui_scale();
+/* Scale a logical pixel size by ui_scale(). */
+int ui_px(int logical);
 bool present();
 bool set_wallpaper(const Color *pixels, uint32_t width, uint32_t height, uint32_t stride);
 bool set_wallpaper_default();

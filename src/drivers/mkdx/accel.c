@@ -32,6 +32,47 @@ int gx_point_in_round_rect(int32_t lx, int32_t ly, int32_t w, int32_t h, int32_t
     return dx * dx + dy * dy <= r * r;
 }
 
+uint8_t gx_round_coverage(int32_t lx, int32_t ly, int32_t w, int32_t h, int32_t r)
+{
+    if (lx < 0 || ly < 0 || lx >= w || ly >= h)
+        return 0;
+    if (r <= 0)
+        return 255;
+    if (r * 2 > w)
+        r = w / 2;
+    if (r * 2 > h)
+        r = h / 2;
+    if (r <= 0)
+        return 255;
+
+    int32_t x = lx;
+    int32_t y = ly;
+    if (x >= w - r)
+        x = w - 1 - x;
+    if (y >= h - r)
+        y = h - 1 - y;
+
+    if (x >= r || y >= r)
+        return 255;
+
+    /* 4×4 supersample against circle centered near (r-0.5, r-0.5). */
+    int hits = 0;
+    int32_t cx = r * 4 - 2;
+    int32_t cy = r * 4 - 2;
+    int32_t rr = cx * cx;
+    for (int sy = 0; sy < 4; sy++) {
+        for (int sx = 0; sx < 4; sx++) {
+            int32_t px = x * 4 + sx;
+            int32_t py = y * 4 + sy;
+            int32_t dx = cx - px;
+            int32_t dy = cy - py;
+            if (dx * dx + dy * dy <= rr)
+                hits++;
+        }
+    }
+    return (uint8_t)((hits * 255 + 8) / 16);
+}
+
 void gx_accel_fill(gx_surface *s, gx_rect r, gx_color c)
 {
     if (!s || !s->pixels || gx_rect_empty(r))
@@ -68,13 +109,18 @@ void gx_accel_fill_round(gx_surface *s, gx_rect r, int32_t radius, gx_color c)
 
     for (int32_t y = 0; y < r.h; y++) {
         for (int32_t x = 0; x < r.w; x++) {
-            if (!gx_point_in_round_rect(x, y, r.w, r.h, radius))
+            uint8_t cov = gx_round_coverage(x, y, r.w, r.h, radius);
+            if (cov == 0)
                 continue;
             int32_t dx = r.x + x;
             int32_t dy = r.y + y;
             if (dx < 0 || dy < 0 || (uint32_t)dx >= s->width || (uint32_t)dy >= s->height)
                 continue;
-            s->pixels[(uint32_t)dy * s->stride + (uint32_t)dx] = c;
+            gx_color *dp = &s->pixels[(uint32_t)dy * s->stride + (uint32_t)dx];
+            if (cov == 255 && GX_A(c) == 255)
+                *dp = c;
+            else
+                *dp = gx_blend(*dp, gx_color_mul_alpha(c, cov));
         }
     }
 }

@@ -2,48 +2,41 @@
 #include <user/sdk/fs.hpp>
 #include <user/sdk/gfx.hpp>
 #include <user/sdk/process.hpp>
+#include <user/sdk/settings.hpp>
 #include <user/string.h>
 
 namespace {
 
+using hsrc::sdk::ChromeHit;
 using hsrc::sdk::Color;
 using hsrc::sdk::Input;
 using hsrc::sdk::ScreenInfo;
 using hsrc::sdk::Surface;
 using hsrc::sdk::Window;
 using hsrc::sdk::WindowOptions;
-using hsrc::sdk::rgb;
-using hsrc::sdk::rgba;
+using hsrc::sdk::kChromeTitleH;
+using hsrc::sdk::settings::theme;
+using hsrc::sdk::settings::refresh_theme;
 
 constexpr int kWinW = 760;
-constexpr int kWinH = 520;
+constexpr int kWinH = 548;
 constexpr int kSidebarW = 172;
 constexpr int kHeaderH = 58;
 constexpr int kFooterH = 34;
 constexpr int kListX = kSidebarW + 18;
 constexpr int kListW = kWinW - kListX - 18;
-constexpr int kListY = 92;
-constexpr int kRowH = 30;
+constexpr int kListY = kChromeTitleH + 92;
+constexpr int kRowH = 32;
 constexpr int kVisibleRows = 12;
 constexpr int kShortcutX = 14;
 constexpr int kShortcutW = kSidebarW - 28;
 constexpr int kShortcutH = 30;
 constexpr int kShortcutGap = 8;
+constexpr int kShortcutTop = kChromeTitleH + 88;
 constexpr int kFooterBtnW = 72;
 constexpr int kMaxEntries = 96;
 constexpr int kStatusChars = 120;
-
-constexpr Color kBg = rgb(255, 255, 255);
-constexpr Color kSidebarBg = rgb(247, 247, 245);
-constexpr Color kHoverBg = rgb(242, 241, 238);
-constexpr Color kBorder = rgba(55, 53, 47, 22);
-constexpr Color kText = rgb(50, 48, 44);
-constexpr Color kTextDim = rgb(115, 114, 110);
-constexpr Color kTextSoft = rgba(71, 70, 68, 153);
-constexpr Color kAccent = rgb(35, 131, 226);
-constexpr Color kAccentSoft = rgba(35, 131, 226, 28);
-constexpr Color kButtonBg = rgba(242, 241, 238, 153);
-constexpr Color kWarn = rgb(176, 96, 32);
+constexpr int kThemePollEvery = 32;
 
 struct Entry {
     char name[64];
@@ -59,6 +52,7 @@ Entry g_entries[kMaxEntries];
 int g_entry_count = 0;
 int g_selected = -1;
 int g_scroll = 0;
+int g_theme_poll = 0;
 bool g_dirty = true;
 char g_cwd[VFS_PATH_MAX];
 char g_status[kStatusChars];
@@ -200,11 +194,12 @@ const char *entry_type_label(const Entry &entry)
 
 Color entry_name_color(const Entry &entry)
 {
+    const auto &t = theme();
     if (entry.synthetic_up || S_ISDIR(entry.type))
-        return kAccent;
+        return t.accent;
     if (ends_with(entry.name, ".mke"))
-        return kWarn;
-    return kText;
+        return t.warn;
+    return t.text;
 }
 
 bool activate_entry(int index)
@@ -241,70 +236,73 @@ bool activate_entry(int index)
 
 void paint_shortcut(Surface &s, int y, const char *label, bool active)
 {
-    s.fill_round(kShortcutX, y, kShortcutW, kShortcutH, 8, active ? kAccentSoft : kButtonBg);
-    s.rect(kShortcutX, y, kShortcutW, kShortcutH, active ? kAccentSoft : kBorder, 1);
-    s.text(kShortcutX + 12, y + 10, label, active ? kAccent : kText, 1);
+    const auto &t = theme();
+    s.fill_round(kShortcutX, y, kShortcutW, kShortcutH, 8, active ? t.accent_soft : t.button);
+    s.rect(kShortcutX, y, kShortcutW, kShortcutH, active ? t.accent_soft : t.border, 1);
+    s.text(kShortcutX + 12, y + 10, label, active ? t.accent : t.text, 1);
 }
 
 void paint()
 {
+    const auto &t = theme();
     Surface &s = g_win.surface();
-    s.clear(kBg);
+    s.clear(t.bg);
+    s.draw_window_chrome(kWinW, g_win_opts.title, g_win_opts, t.chrome, t.text, t.border);
 
-    s.fill(0, 0, kSidebarW, kWinH, kSidebarBg);
-    s.fill(kSidebarW - 1, 0, 1, kWinH, kBorder);
-    s.fill(kSidebarW, kHeaderH - 1, kWinW - kSidebarW, 1, kBorder);
-    s.fill(0, kWinH - kFooterH, kWinW, 1, kBorder);
+    s.fill(0, kChromeTitleH, kSidebarW, kWinH - kChromeTitleH, t.sidebar);
+    s.fill(kSidebarW - 1, kChromeTitleH, 1, kWinH - kChromeTitleH, t.border);
+    s.fill(kSidebarW, kChromeTitleH + kHeaderH - 1, kWinW - kSidebarW, 1, t.border);
+    s.fill(0, kWinH - kFooterH, kWinW, 1, t.border);
 
-    s.text(16, 18, "Files", kText, 2);
-    s.text(16, 42, "Bounded explorer", kTextDim, 1);
+    s.text(16, kChromeTitleH + 14, "Files", t.text, 1);
+    s.text(16, kChromeTitleH + 36, "Bounded explorer", t.text_dim, 1);
 
-    int shortcut_y = 88;
+    int shortcut_y = kShortcutTop;
     paint_shortcut(s, shortcut_y, "Applications", strcmp(g_cwd, "/applications") == 0);
     shortcut_y += kShortcutH + kShortcutGap;
     paint_shortcut(s, shortcut_y, "Root", is_root());
     shortcut_y += kShortcutH + kShortcutGap;
     paint_shortcut(s, shortcut_y, "Up", false);
 
-    s.text(kListX, 18, "Current Path", kTextDim, 1);
-    s.fill_round(kListX, 34, kListW, 30, 8, rgba(242, 241, 238, 153));
-    s.rect(kListX, 34, kListW, 30, kBorder, 1);
-    s.text(kListX + 12, 44, g_cwd, kText, 1);
+    s.text(kListX, kChromeTitleH + 18, "Current Path", t.text_dim, 1);
+    s.fill_round(kListX, kChromeTitleH + 34, kListW, 30, 8, t.inset);
+    s.rect(kListX, kChromeTitleH + 34, kListW, 30, t.border, 1);
+    s.text(kListX + 12, kChromeTitleH + 44, g_cwd, t.text, 1);
 
-    s.text(kListX, 74, "Name", kTextDim, 1);
-    s.text(kListX + kListW - 72, 74, "Type", kTextDim, 1);
+    s.text(kListX, kChromeTitleH + 74, "Name", t.text_dim, 1);
+    s.text(kListX + kListW - 72, kChromeTitleH + 74, "Type", t.text_dim, 1);
 
     for (int row = 0; row < kVisibleRows; row++) {
         const int index = g_scroll + row;
         const int y = kListY + row * kRowH;
         if (index >= g_entry_count) {
-            s.fill_round(kListX, y, kListW, kRowH - 4, 8, rgb(252, 252, 251));
-            s.rect(kListX, y, kListW, kRowH - 4, kBorder, 1);
+            s.fill_round(kListX, y, kListW, kRowH - 4, 8, t.card);
+            s.rect(kListX, y, kListW, kRowH - 4, t.border, 1);
             continue;
         }
 
         const Entry &entry = g_entries[index];
         const bool selected = index == g_selected;
-        s.fill_round(kListX, y, kListW, kRowH - 4, 8, selected ? kAccentSoft : kHoverBg);
-        s.rect(kListX, y, kListW, kRowH - 4, kBorder, 1);
+        s.fill_round(kListX, y, kListW, kRowH - 4, 8, selected ? t.accent_soft : t.hover);
+        s.rect(kListX, y, kListW, kRowH - 4, t.border, 1);
         s.text(kListX + 12, y + 9, entry.name, entry_name_color(entry), 1);
         const char *type = entry_type_label(entry);
         s.text(kListX + kListW - 12 - text_width(type), y + 9, type,
-               selected ? kAccent : kTextSoft, 1);
+               selected ? t.accent : t.text_soft, 1);
     }
 
-    s.text(16, kWinH - 22, g_status, kTextDim, 1);
+    s.text(16, kWinH - 22, g_status, t.text_dim, 1);
 
     const bool can_prev = g_scroll > 0;
     const bool can_next = g_scroll + kVisibleRows < g_entry_count;
     const int next_x = kWinW - 16 - kFooterBtnW;
     const int prev_x = next_x - 10 - kFooterBtnW;
-    s.fill_round(prev_x, kWinH - 28, kFooterBtnW, 22, 6, can_prev ? kButtonBg : rgba(242, 241, 238, 90));
-    s.fill_round(next_x, kWinH - 28, kFooterBtnW, 22, 6, can_next ? kButtonBg : rgba(242, 241, 238, 90));
-    s.rect(prev_x, kWinH - 28, kFooterBtnW, 22, kBorder, 1);
-    s.rect(next_x, kWinH - 28, kFooterBtnW, 22, kBorder, 1);
-    s.text(prev_x + 19, kWinH - 20, "Prev", can_prev ? kText : kTextSoft, 1);
-    s.text(next_x + 19, kWinH - 20, "Next", can_next ? kText : kTextSoft, 1);
+    s.fill_round(prev_x, kWinH - 28, kFooterBtnW, 22, 6, can_prev ? t.button : t.inset);
+    s.fill_round(next_x, kWinH - 28, kFooterBtnW, 22, 6, can_next ? t.button : t.inset);
+    s.rect(prev_x, kWinH - 28, kFooterBtnW, 22, t.border, 1);
+    s.rect(next_x, kWinH - 28, kFooterBtnW, 22, t.border, 1);
+    s.text(prev_x + 19, kWinH - 20, "Prev", can_prev ? t.text : t.text_soft, 1);
+    s.text(next_x + 19, kWinH - 20, "Next", can_next ? t.text : t.text_soft, 1);
 
     g_win.damage();
     g_dirty = false;
@@ -312,7 +310,7 @@ void paint()
 
 int shortcut_hit(int lx, int ly)
 {
-    int shortcut_y = 88;
+    int shortcut_y = kShortcutTop;
     for (int i = 0; i < 3; i++) {
         if (lx >= kShortcutX && lx < kShortcutX + kShortcutW &&
             ly >= shortcut_y && ly < shortcut_y + kShortcutH)
@@ -357,6 +355,14 @@ void handle_click(const Input &in)
     const int ly = in.mouse_y - g_win_opts.y;
     if (lx < 0 || ly < 0 || lx >= g_win_opts.w || ly >= g_win_opts.h)
         return;
+
+    ChromeHit chrome = g_win.hit_chrome(lx, ly, g_win_opts);
+    if (chrome != ChromeHit::None) {
+        (void)g_win.handle_chrome_hit(chrome);
+        (void)refresh_window_options();
+        g_dirty = true;
+        return;
+    }
 
     const int shortcut = shortcut_hit(lx, ly);
     if (shortcut == 0) {
@@ -440,6 +446,8 @@ extern "C" void mke_main(void)
             hsrc::sdk::yield();
     }
 
+    (void)refresh_theme();
+
     if (!build_ui()) {
         for (;;)
             hsrc::sdk::yield();
@@ -454,11 +462,30 @@ extern "C" void mke_main(void)
     (void)hsrc::sdk::present();
 
     for (;;) {
+        if (!g_win.ok()) {
+            (void)g_win.close();
+            hsrc::sdk::exit(0);
+        }
+
+        g_theme_poll++;
+        if (g_theme_poll >= kThemePollEvery) {
+            g_theme_poll = 0;
+            if (refresh_theme())
+                g_dirty = true;
+        }
+
         Input in{};
         if (hsrc::sdk::input(in)) {
             const uint8_t pressed = (uint8_t)(in.buttons & ~g_prev_input.buttons);
-            if ((pressed & UGX_BTN_LEFT) && in.focus_id == g_win.id())
-                handle_click(in);
+            if (pressed & UGX_BTN_LEFT) {
+                const int lx = in.mouse_x - g_win_opts.x;
+                const int ly = in.mouse_y - g_win_opts.y;
+                const bool over = refresh_window_options() &&
+                                  lx >= 0 && ly >= 0 &&
+                                  lx < g_win_opts.w && ly < g_win_opts.h;
+                if (over || in.focus_id == g_win.id())
+                    handle_click(in);
+            }
             g_prev_input = in;
         }
 

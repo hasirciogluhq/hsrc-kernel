@@ -1,6 +1,7 @@
 #include "accel.h"
 #include "blur.h"
 #include <kernel/string.h>
+#include <drivers/ps2.h>
 #include "compositor.h"
 
 static int alloc_slot(gx_compositor *c)
@@ -198,6 +199,46 @@ static void blit_span(gx_surface *bb, int32_t dx, int32_t dy,
     }
 }
 
+/* Rounded-corner row: coverage-modulated blend for soft silhouette edges. */
+static void blit_round_row(gx_surface *bb, int32_t dx, int32_t dy,
+                           const gx_surface *src, int32_t sy, int32_t local_y,
+                           int32_t w, int32_t h, int32_t rad, uint8_t opacity)
+{
+    if (dy < 0 || (uint32_t)dy >= bb->height || sy < 0 || (uint32_t)sy >= src->height)
+        return;
+
+    int32_t x0, x1;
+    round_span(local_y, w, h, rad, &x0, &x1);
+    /* Expand one pixel for AA fringe outside the hard span. */
+    if (x0 > 0)
+        x0--;
+    if (x1 < w)
+        x1++;
+
+    for (int32_t sx = x0; sx < x1; sx++) {
+        if (sx < 0 || sx >= (int32_t)src->width)
+            continue;
+        uint8_t cov = gx_round_coverage(sx, local_y, w, h, rad);
+        if (cov == 0)
+            continue;
+        int32_t x = dx + sx;
+        if (x < 0 || (uint32_t)x >= bb->width)
+            continue;
+        gx_color c = src->pixels[(uint32_t)sy * src->stride + (uint32_t)sx];
+        if (opacity != 255)
+            c = gx_color_mul_alpha(c, opacity);
+        if (cov < 255)
+            c = gx_color_mul_alpha(c, cov);
+        if (GX_A(c) == 0)
+            continue;
+        gx_color *dp = &bb->pixels[(uint32_t)dy * bb->stride + (uint32_t)x];
+        if (GX_A(c) == 255)
+            *dp = c;
+        else
+            *dp = gx_blend(*dp, c);
+    }
+}
+
 /* Fast path: opaque solid rows via memcpy when fully opaque source. */
 static void blit_layer(gx_surface *bb, gx_layer *L, uint8_t opacity)
 {
@@ -214,8 +255,13 @@ static void blit_layer(gx_surface *bb, gx_layer *L, uint8_t opacity)
         if (sy < 0 || (uint32_t)sy >= bb->height || (uint32_t)y >= src->height)
             continue;
 
-        int32_t x0, x1;
-        round_span(y, r.w, r.h, rad, &x0, &x1);
+        if (rad > 0) {
+            blit_round_row(bb, r.x, sy, src, y, y, r.w, r.h, rad, opacity);
+            continue;
+        }
+
+        int32_t x0 = 0;
+        int32_t x1 = r.w;
         if (x0 >= x1)
             continue;
 
@@ -253,11 +299,27 @@ static void paint_acrylic(gx_compositor *c, gx_surface *bb, gx_layer *L)
             if (sy < 0 || (uint32_t)sy >= bb->height)
                 continue;
 
+            /* Keep PS/2 drained during per-pixel acrylic work. */
+            if ((y & 31) == 0)
+                ps2_poll();
+
             int32_t x0, x1;
-            round_span(y, r.w, r.h, rad, &x0, &x1);
+            if (rad > 0) {
+                round_span(y, r.w, r.h, rad, &x0, &x1);
+                if (x0 > 0)
+                    x0--;
+                if (x1 < r.w)
+                    x1++;
+            } else {
+                x0 = 0;
+                x1 = r.w;
+            }
             for (int32_t x = x0; x < x1; x++) {
                 int32_t sx = r.x + x;
                 if (sx < 0 || (uint32_t)sx >= bb->width)
+                    continue;
+                uint8_t cov = rad > 0 ? gx_round_coverage(x, y, r.w, r.h, rad) : 255;
+                if (cov == 0)
                     continue;
                 gx_color base = GX_BLACK;
                 if (blurred->width == 1 && blurred->height == 1)
@@ -266,7 +328,11 @@ static void paint_acrylic(gx_compositor *c, gx_surface *bb, gx_layer *L)
                          (uint32_t)sy < blurred->height)
                     base = blurred->pixels[(uint32_t)sy * blurred->stride +
                                            (uint32_t)sx];
-                bb->pixels[(uint32_t)sy * bb->stride + (uint32_t)sx] = gx_blend(base, tint);
+                gx_color t = tint;
+                if (cov < 255)
+                    t = gx_color_mul_alpha(t, cov);
+                gx_color *dp = &bb->pixels[(uint32_t)sy * bb->stride + (uint32_t)sx];
+                *dp = gx_blend(base, t);
             }
         }
     }
@@ -308,6 +374,7 @@ void gx_compositor_compose(gx_compositor *c)
 
     for (int i = 0; i < n; i++) {
         gx_layer *L = &c->layers[ids[i]];
+        ps2_poll();
         switch (L->style) {
         case GX_LAYER_ACRYLIC:
             paint_acrylic(c, bb, L);

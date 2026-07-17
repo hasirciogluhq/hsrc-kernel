@@ -31,6 +31,8 @@ typedef struct mkdx_api {
     int  (*fill)(const void *args, int rounded);
     int  (*set_wallpaper)(const void *args);
     int  (*input_state)(void *out);
+    /* Poll input + flush hardware cursor (no full frame compose). */
+    void (*pump_input)(void);
 
     /* Per-process console (Wave O). */
     int     (*console_alloc)(int pid, const char *name, int visible);

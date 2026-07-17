@@ -7,6 +7,7 @@
 
 #include <user/mke.h>
 #include <user/sdk/gfx.hpp>
+#include <user/sdk/process.hpp>
 #include <user/sdk/syscall.hpp>
 
 namespace {
@@ -97,6 +98,9 @@ AppTask run_demo()
             hsrc::sdk::yield();
         }
     }
+
+    /* GUI app: never keep the spawn console window around. */
+    (void)hsrc::sdk::process::console_show((pid_t)hsrc::sdk::process::getpid(), false);
 
     co_await FrameAwaiter{};
     hsrc::sdk::yield();

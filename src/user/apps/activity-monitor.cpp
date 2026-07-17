@@ -1,6 +1,7 @@
 #include <user/mke.h>
 #include <user/sdk/gfx.hpp>
 #include <user/sdk/process.hpp>
+#include <user/sdk/settings.hpp>
 #include <user/string.h>
 
 namespace {
@@ -16,13 +17,12 @@ using hsrc::sdk::kChromeTitleH;
 using hsrc::sdk::process::ProcListEntry;
 using hsrc::sdk::process::ProcStat;
 using hsrc::sdk::process::SysInfo;
-using hsrc::sdk::rgb;
-using hsrc::sdk::rgba;
+using hsrc::sdk::settings::theme;
+using hsrc::sdk::settings::refresh_theme;
 
 constexpr int kWinW = 900;
 constexpr int kWinH = 560;
 constexpr int kHeaderH = 60;
-constexpr Color kChromeBg = rgb(250, 250, 248);
 constexpr int kSummaryY = 84;
 constexpr int kSummaryH = 72;
 constexpr int kSummaryGap = 12;
@@ -31,7 +31,7 @@ constexpr int kListX = 20;
 constexpr int kListY = 172;
 constexpr int kListW = 860;
 constexpr int kListHeaderH = 28;
-constexpr int kRowH = 30;
+constexpr int kRowH = 32;
 constexpr int kVisibleRows = 10;
 constexpr int kDetailY = 514;
 constexpr int kFooterBtnW = 72;
@@ -40,18 +40,7 @@ constexpr int kRefreshEvery = 24;
 constexpr int kMaxEntries = hsrc::sdk::process::kMaxProcesses;
 constexpr int kStatusChars = 128;
 
-constexpr Color kBg = rgb(255, 255, 255);
-constexpr Color kCard = rgb(247, 247, 245);
-constexpr Color kHover = rgb(242, 241, 238);
-constexpr Color kBorder = rgba(55, 53, 47, 22);
-constexpr Color kText = rgb(50, 48, 44);
-constexpr Color kTextDim = rgb(115, 114, 110);
-constexpr Color kTextSoft = rgba(71, 70, 68, 153);
-constexpr Color kAccent = rgb(35, 131, 226);
-constexpr Color kAccentSoft = rgba(35, 131, 226, 28);
-constexpr Color kDanger = rgb(196, 66, 66);
-constexpr Color kDangerSoft = rgba(196, 66, 66, 30);
-constexpr Color kWhite = rgb(255, 255, 255);
+constexpr int kThemePollEvery = 32;
 
 struct MonitorEntry {
     ProcListEntry proc{};
@@ -76,6 +65,7 @@ int g_scroll = 0;
 int g_refresh_counter = 0;
 bool g_has_selected_stat = false;
 bool g_dirty = true;
+int g_theme_poll = 0;
 bool g_running = true;
 bool g_summary_open = true;
 pid_t g_selected_pid = -1;
@@ -229,11 +219,11 @@ void format_percent(char *out, size_t out_size, uint32_t pct)
 
 void draw_stat_card(Surface &s, int x, const char *title, const char *value, const char *note)
 {
-    s.fill_round(x, kSummaryY, kSummaryW, kSummaryH, 10, kCard);
-    s.rect(x, kSummaryY, kSummaryW, kSummaryH, kBorder, 1);
-    s.text(x + 16, kSummaryY + 14, title, kTextDim, 1);
-    s.text(x + 16, kSummaryY + 32, value, kText, 1);
-    s.text(x + 16, kSummaryY + 52, note, kTextSoft, 1);
+    s.fill_round(x, kSummaryY, kSummaryW, kSummaryH, 10, theme().card);
+    s.rect(x, kSummaryY, kSummaryW, kSummaryH, theme().border, 1);
+    s.text(x + 16, kSummaryY + 14, title, theme().text_dim, 1);
+    s.text(x + 16, kSummaryY + 32, value, theme().text, 1);
+    s.text(x + 16, kSummaryY + 52, note, theme().text_soft, 1);
 }
 
 void refresh_monitor(bool keep_status)
@@ -306,17 +296,17 @@ void paint()
         return;
 
     Surface &s = g_win.surface();
-    s.clear(kBg);
-    s.draw_window_chrome(kWinW, g_win_opts.title, g_win_opts, kChromeBg, kText, kBorder);
-    s.fill(0, kChromeTitleH + kHeaderH - 1, kWinW, 1, kBorder);
-    s.text(78, kChromeTitleH + 12, "Activity Monitor", kText, 1);
-    s.text(78, kChromeTitleH + 30, "Bounded process view for Wave N", kTextDim, 1);
+    s.clear(theme().bg);
+    s.draw_window_chrome(kWinW, g_win_opts.title, g_win_opts, theme().chrome, theme().text, theme().border);
+    s.fill(0, kChromeTitleH + kHeaderH - 1, kWinW, 1, theme().border);
+    s.text(78, kChromeTitleH + 12, "Activity Monitor", theme().text, 1);
+    s.text(78, kChromeTitleH + 30, "Bounded process view for Wave N", theme().text_dim, 1);
 
     const bool can_kill = can_end_task();
-    const Color task_bg = can_kill ? kDangerSoft : kCard;
-    const Color task_fg = can_kill ? kDanger : kTextSoft;
+    const Color task_bg = can_kill ? theme().danger_soft : theme().card;
+    const Color task_fg = can_kill ? theme().danger : theme().text_soft;
     s.fill_round(kWinW - 20 - kTaskBtnW, kChromeTitleH + 14, kTaskBtnW, 28, 8, task_bg);
-    s.rect(kWinW - 20 - kTaskBtnW, kChromeTitleH + 14, kTaskBtnW, 28, can_kill ? kDangerSoft : kBorder, 1);
+    s.rect(kWinW - 20 - kTaskBtnW, kChromeTitleH + 14, kTaskBtnW, 28, can_kill ? theme().danger_soft : theme().border, 1);
     s.text(kWinW - 20 - kTaskBtnW + 18, kChromeTitleH + 24, "End Task", task_fg, 1);
 
     char cpu_value[32];
@@ -335,8 +325,8 @@ void paint()
     append_uint(uptime_value, sizeof(uptime_value), narrow_u64(g_sysinfo.uptime_ticks));
 
     const char *summary_mark = g_summary_open ? "v Summary" : "> Summary";
-    s.fill_round(20, kSummaryY - 22, 120, 20, 6, kHover);
-    s.text(28, kSummaryY - 16, summary_mark, kTextDim, 1);
+    s.fill_round(20, kSummaryY - 22, 120, 20, 6, theme().hover);
+    s.text(28, kSummaryY - 16, summary_mark, theme().text_dim, 1);
 
     if (g_summary_open) {
         draw_stat_card(s, 20, "CPU Sample", cpu_value, "sampled from cooperative scheduler ticks");
@@ -344,27 +334,27 @@ void paint()
         draw_stat_card(s, 20 + 2 * (kSummaryW + kSummaryGap), "Processes", proc_value, uptime_value);
     }
 
-    s.text(kListX, kListY - 18, "Name", kTextDim, 1);
-    s.text(kListX + 288, kListY - 18, "PID", kTextDim, 1);
-    s.text(kListX + 360, kListY - 18, "State", kTextDim, 1);
-    s.text(kListX + 520, kListY - 18, "CPU", kTextDim, 1);
-    s.text(kListX + 640, kListY - 18, "Memory", kTextDim, 1);
-    s.fill_round(kListX, kListY, kListW, kListHeaderH + kVisibleRows * kRowH, 10, kCard);
-    s.rect(kListX, kListY, kListW, kListHeaderH + kVisibleRows * kRowH, kBorder, 1);
+    s.text(kListX, kListY - 18, "Name", theme().text_dim, 1);
+    s.text(kListX + 288, kListY - 18, "PID", theme().text_dim, 1);
+    s.text(kListX + 360, kListY - 18, "State", theme().text_dim, 1);
+    s.text(kListX + 520, kListY - 18, "CPU", theme().text_dim, 1);
+    s.text(kListX + 640, kListY - 18, "Memory", theme().text_dim, 1);
+    s.fill_round(kListX, kListY, kListW, kListHeaderH + kVisibleRows * kRowH, 10, theme().card);
+    s.rect(kListX, kListY, kListW, kListHeaderH + kVisibleRows * kRowH, theme().border, 1);
 
     for (int row = 0; row < kVisibleRows; row++) {
         const int index = g_scroll + row;
         const int y = kListY + kListHeaderH + row * kRowH;
-        s.fill(kListX + 1, y, kListW - 2, 1, kBorder);
+        s.fill(kListX + 1, y, kListW - 2, 1, theme().border);
         if (index >= g_entry_count)
             continue;
 
         const MonitorEntry &entry = g_entries[index];
         const bool selected = entry.proc.pid == g_selected_pid;
         if (selected)
-            s.fill_round(kListX + 4, y + 2, kListW - 8, kRowH - 4, 8, kAccentSoft);
+            s.fill_round(kListX + 4, y + 2, kListW - 8, kRowH - 4, 8, theme().accent_soft);
         else
-            s.fill_round(kListX + 4, y + 2, kListW - 8, kRowH - 4, 8, kHover);
+            s.fill_round(kListX + 4, y + 2, kListW - 8, kRowH - 4, 8, theme().hover);
 
         char pid_text[16];
         char cpu_text[16];
@@ -374,16 +364,16 @@ void paint()
         format_percent(cpu_text, sizeof(cpu_text), entry.cpu_pct);
         format_bytes_kb(mem_text, sizeof(mem_text), entry.proc.mem_bytes);
 
-        s.text(kListX + 12, y + 10, entry.proc.name, selected ? kAccent : kText, 1);
-        s.text(kListX + 288, y + 10, pid_text, selected ? kAccent : kText, 1);
+        s.text(kListX + 12, y + 10, entry.proc.name, selected ? theme().accent : theme().text, 1);
+        s.text(kListX + 288, y + 10, pid_text, selected ? theme().accent : theme().text, 1);
         s.text(kListX + 360, y + 10, hsrc::sdk::process::state_name(entry.proc.state),
-               selected ? kAccent : kTextDim, 1);
-        s.text(kListX + 520, y + 10, cpu_text, selected ? kAccent : kText, 1);
-        s.text(kListX + 640, y + 10, mem_text, selected ? kAccent : kText, 1);
+               selected ? theme().accent : theme().text_dim, 1);
+        s.text(kListX + 520, y + 10, cpu_text, selected ? theme().accent : theme().text, 1);
+        s.text(kListX + 640, y + 10, mem_text, selected ? theme().accent : theme().text, 1);
     }
 
-    s.fill_round(20, kDetailY - 34, kWinW - 40, 44, 8, kCard);
-    s.rect(20, kDetailY - 34, kWinW - 40, 44, kBorder, 1);
+    s.fill_round(20, kDetailY - 34, kWinW - 40, 44, 8, theme().card);
+    s.rect(20, kDetailY - 34, kWinW - 40, 44, theme().border, 1);
     if (g_has_selected_stat) {
         char detail[256];
         char ticks[40];
@@ -399,25 +389,25 @@ void paint()
         append_text(detail, sizeof(detail), " ticks");
         format_ticks(ticks, sizeof(ticks), g_selected_stat.cpu_ticks);
         format_bytes_kb(mem, sizeof(mem), g_selected_stat.mem_bytes);
-        s.text(32, kDetailY - 20, detail, kText, 1);
-        s.text(32, kDetailY, ticks, kTextDim, 1);
-        s.text(220, kDetailY, mem, kTextDim, 1);
+        s.text(32, kDetailY - 20, detail, theme().text, 1);
+        s.text(32, kDetailY, ticks, theme().text_dim, 1);
+        s.text(220, kDetailY, mem, theme().text_dim, 1);
     } else {
-        s.text(32, kDetailY - 12, "Select a process to inspect per-process stats.", kTextDim, 1);
+        s.text(32, kDetailY - 12, "Select a process to inspect per-process stats.", theme().text_dim, 1);
     }
 
-    s.text(20, kWinH - 20, g_status, kTextDim, 1);
+    s.text(20, kWinH - 20, g_status, theme().text_dim, 1);
 
     const bool can_prev = g_scroll > 0;
     const bool can_next = g_scroll + kVisibleRows < g_entry_count;
     const int next_x = kWinW - 20 - kFooterBtnW;
     const int prev_x = next_x - 10 - kFooterBtnW;
-    s.fill_round(prev_x, kWinH - 28, kFooterBtnW, 22, 6, can_prev ? kCard : rgba(242, 241, 238, 90));
-    s.fill_round(next_x, kWinH - 28, kFooterBtnW, 22, 6, can_next ? kCard : rgba(242, 241, 238, 90));
-    s.rect(prev_x, kWinH - 28, kFooterBtnW, 22, kBorder, 1);
-    s.rect(next_x, kWinH - 28, kFooterBtnW, 22, kBorder, 1);
-    s.text(prev_x + 19, kWinH - 20, "Prev", can_prev ? kText : kTextSoft, 1);
-    s.text(next_x + 19, kWinH - 20, "Next", can_next ? kText : kTextSoft, 1);
+    s.fill_round(prev_x, kWinH - 28, kFooterBtnW, 22, 6, can_prev ? theme().card : theme().inset);
+    s.fill_round(next_x, kWinH - 28, kFooterBtnW, 22, 6, can_next ? theme().card : theme().inset);
+    s.rect(prev_x, kWinH - 28, kFooterBtnW, 22, theme().border, 1);
+    s.rect(next_x, kWinH - 28, kFooterBtnW, 22, theme().border, 1);
+    s.text(prev_x + 19, kWinH - 20, "Prev", can_prev ? theme().text : theme().text_soft, 1);
+    s.text(next_x + 19, kWinH - 20, "Next", can_next ? theme().text : theme().text_soft, 1);
 
     g_win.damage();
     g_dirty = false;
@@ -498,26 +488,10 @@ void handle_click(const Input &in)
 
     ChromeHit chrome = g_win.hit_chrome(lx, ly, g_win_opts);
     if (chrome != ChromeHit::None) {
-        if (chrome == ChromeHit::Close) {
-            (void)g_win.close();
-            /* Never return from mke_main — usermode has no return address (eip→junk/#UD). */
-            hsrc::sdk::exit(0);
-        }
-        if (chrome == ChromeHit::Minimize) {
-            (void)g_win.minimize();
-            return;
-        }
-        if (chrome == ChromeHit::Maximize) {
-            if (g_win_opts.fullscreen)
-                (void)g_win.set_fullscreen(false);
-            else if (g_win_opts.maximized)
-                (void)g_win.set_fullscreen(true);
-            else
-                (void)g_win.maximize();
-            (void)refresh_window_options();
-            g_dirty = true;
-            return;
-        }
+        (void)g_win.handle_chrome_hit(chrome);
+        (void)refresh_window_options();
+        g_dirty = true;
+        return;
     }
 
     if (summary_toggle_hit(lx, ly)) {
@@ -595,6 +569,7 @@ extern "C" void mke_main(void)
 
     g_self_pid = (pid_t)hsrc::sdk::process::getpid();
     set_status("Collecting process data...");
+    (void)refresh_theme();
 
     if (!build_ui()) {
         for (;;)
@@ -611,6 +586,13 @@ extern "C" void mke_main(void)
         if (!g_running || !g_win.ok()) {
             (void)g_win.close();
             hsrc::sdk::exit(0);
+        }
+
+        g_theme_poll++;
+        if (g_theme_poll >= kThemePollEvery) {
+            g_theme_poll = 0;
+            if (refresh_theme())
+                g_dirty = true;
         }
 
         Input in{};

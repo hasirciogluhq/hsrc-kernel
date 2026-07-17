@@ -7,18 +7,19 @@ namespace {
 
 #include "../ugx_font.inc"
 
-bool point_in_round(int lx, int ly, int w, int h, int r)
+/* Integer 4×4 supersample coverage for soft rounded corners (0..255). */
+uint8_t round_coverage(int lx, int ly, int w, int h, int r)
 {
     if (lx < 0 || ly < 0 || lx >= w || ly >= h)
-        return false;
+        return 0;
     if (r <= 0)
-        return true;
+        return 255;
     if (r * 2 > w)
         r = w / 2;
     if (r * 2 > h)
         r = h / 2;
     if (r <= 0)
-        return true;
+        return 255;
 
     int x = lx;
     int y = ly;
@@ -27,11 +28,21 @@ bool point_in_round(int lx, int ly, int w, int h, int r)
     if (y >= h - r)
         y = h - 1 - y;
     if (x >= r || y >= r)
-        return true;
+        return 255;
 
-    int dx = r - x;
-    int dy = r - y;
-    return dx * dx + dy * dy <= r * r;
+    int hits = 0;
+    int cx = r * 4 - 2;
+    int cy = r * 4 - 2;
+    int rr = cx * cx;
+    for (int sy = 0; sy < 4; sy++) {
+        for (int sx = 0; sx < 4; sx++) {
+            int dx = cx - (x * 4 + sx);
+            int dy = cy - (y * 4 + sy);
+            if (dx * dx + dy * dy <= rr)
+                hits++;
+        }
+    }
+    return (uint8_t)((hits * 255 + 8) / 16);
 }
 
 const ugx_glyph &glyph(uint8_t ch)
@@ -184,11 +195,37 @@ void Surface::set(int x, int y, Color c)
     pixels()[(uint32_t)y * stride() + (uint32_t)x] = c;
 }
 
+void Surface::blend(int x, int y, Color c)
+{
+    if (!valid() || x < 0 || y < 0 ||
+        (uint32_t)x >= width() || (uint32_t)y >= height())
+        return;
+    if (color_a(c) == 0)
+        return;
+    Color *p = &pixels()[(uint32_t)y * stride() + (uint32_t)x];
+    if (color_a(c) == 255) {
+        *p = c;
+        return;
+    }
+    /* Transparent dst: keep straight RGB + coverage alpha for the compositor. */
+    if (color_a(*p) == 0) {
+        *p = c;
+        return;
+    }
+    *p = color_blend(*p, c);
+}
+
 void Surface::fill(int x, int y, int w, int h, Color c)
 {
-    for (int yy = 0; yy < h; yy++)
-        for (int xx = 0; xx < w; xx++)
-            set(x + xx, y + yy, c);
+    if (color_a(c) == 255) {
+        for (int yy = 0; yy < h; yy++)
+            for (int xx = 0; xx < w; xx++)
+                set(x + xx, y + yy, c);
+    } else {
+        for (int yy = 0; yy < h; yy++)
+            for (int xx = 0; xx < w; xx++)
+                blend(x + xx, y + yy, c);
+    }
 }
 
 void Surface::fill_round(int x, int y, int w, int h, int radius, Color c)
@@ -197,8 +234,13 @@ void Surface::fill_round(int x, int y, int w, int h, int radius, Color c)
         return;
     for (int ly = 0; ly < h; ly++) {
         for (int lx = 0; lx < w; lx++) {
-            if (point_in_round(lx, ly, w, h, radius))
+            uint8_t cov = round_coverage(lx, ly, w, h, radius);
+            if (cov == 0)
+                continue;
+            if (cov == 255 && color_a(c) == 255)
                 set(x + lx, y + ly, c);
+            else
+                blend(x + lx, y + ly, color_mul_alpha(c, cov));
         }
     }
 }
@@ -256,13 +298,18 @@ void Surface::text(int x, int y, const char *s, Color c, int scale)
         }
         const ugx_glyph &g = glyph(ch);
         for (int row = 0; row < UGX_FONT_H; row++) {
-            uint16_t bits = g.bits[row];
-            for (int col = 0; col < 16; col++) {
-                if (!(bits & (1u << col)))
+            for (int col = 0; col < UGX_FONT_W; col++) {
+                uint8_t cov = g.alpha[row][col];
+                if (cov == 0)
                     continue;
-                for (int sy = 0; sy < scale; sy++)
-                    for (int sx = 0; sx < scale; sx++)
-                        set(cx + col * scale + sx, cy + row * scale + sy, c);
+                Color px = color_mul_alpha(c, cov);
+                if (scale == 1) {
+                    blend(cx + col, cy + row, px);
+                } else {
+                    for (int sy = 0; sy < scale; sy++)
+                        for (int sx = 0; sx < scale; sx++)
+                            blend(cx + col * scale + sx, cy + row * scale + sy, px);
+                }
             }
         }
         cx += (int)g.advance * scale;
@@ -295,7 +342,10 @@ void Surface::draw_window_chrome(int win_w, const char *title, const WindowOptio
         int tx = chrome_btn_x(3) + 4;
         if (tx < 78)
             tx = 78;
-        text(tx, 8, title, title_color, 1);
+        int ty = (kChromeTitleH - UGX_FONT_H) / 2;
+        if (ty < 0)
+            ty = 0;
+        text(tx, ty, title, title_color, 1);
     }
 }
 
@@ -493,11 +543,21 @@ bool Window::handle_chrome_hit(ChromeHit hit)
 {
     switch (hit) {
     case ChromeHit::Close:
-        return close();
+        (void)close();
+        /* Never return from mke_main — usermode has no return address (eip→junk/#UD). */
+        exit(0);
     case ChromeHit::Minimize:
         return minimize();
-    case ChromeHit::Maximize:
-        return toggle_maximize();
+    case ChromeHit::Maximize: {
+        WindowOptions opts;
+        if (!get_options(opts))
+            return false;
+        if (opts.fullscreen)
+            return set_fullscreen(false);
+        if (opts.maximized)
+            return set_fullscreen(true);
+        return maximize();
+    }
     case ChromeHit::None:
     default:
         return false;
@@ -518,6 +578,24 @@ bool screen_info(ScreenInfo &out)
     out.height = info.height;
     out.bpp = info.bpp;
     return true;
+}
+
+int ui_scale()
+{
+    ScreenInfo si;
+    if (!screen_info(si))
+        return 1;
+    /* BGA default is 1280×720 → 1×. Bump at roughly 1080p+/retina-ish. */
+    if (si.width >= 1600 && si.height >= 1000)
+        return 2;
+    return 1;
+}
+
+int ui_px(int logical)
+{
+    if (logical <= 0)
+        return 0;
+    return logical * ui_scale();
 }
 
 bool present()

@@ -414,8 +414,16 @@ static int api_input_state(void *out)
 {
     ugx_input_state *o = (ugx_input_state *)out;
     gx_server *s = gx_server_get();
-    const mouse_state_t *ms = mouse_get();
-    if (!o || !s || !ms)
+    const mouse_state_t *ms;
+
+    if (!o || !s)
+        return -1;
+
+    /* Apps read input before present — poll so coordinates are current. */
+    gx_server_pump_input();
+
+    ms = mouse_get();
+    if (!ms)
         return -1;
     o->mouse_x = ms->x;
     o->mouse_y = ms->y;
@@ -423,6 +431,11 @@ static int api_input_state(void *out)
     o->mods = keyboard_modifiers();
     o->focus_id = wm_focused_id(&s->wm);
     return 0;
+}
+
+static void api_pump_input(void)
+{
+    gx_server_pump_input();
 }
 
 static int api_console_alloc(int pid, const char *name, int visible)
@@ -470,6 +483,7 @@ static const mkdx_api_t g_api = {
     .fill = api_fill,
     .set_wallpaper = api_set_wallpaper,
     .input_state = api_input_state,
+    .pump_input = api_pump_input,
     .console_alloc = api_console_alloc,
     .console_free = api_console_free,
     .console_write = api_console_write,

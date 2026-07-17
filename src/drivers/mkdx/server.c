@@ -13,6 +13,8 @@
 #define CURSOR_H 19
 
 static gx_server g_server;
+/* Set while composing/full-presenting so pump_input won't fight the frame. */
+static int g_present_busy;
 
 /* Classic arrow — 0 empty, 1 outline, 2 fill */
 static const uint8_t cursor_mask[CURSOR_H][CURSOR_W] = {
@@ -118,6 +120,32 @@ void gx_server_mark_dirty(void)
         g_server.dirty = 1;
 }
 
+static void flush_cursor_at(gx_server *s, int32_t mx, int32_t my)
+{
+    display_ops_t *ops;
+
+    if (!s || !s->scene)
+        return;
+    if (mx == s->cursor_x && my == s->cursor_y)
+        return;
+
+    ops = display_active();
+    if (!ops)
+        return;
+
+    if (s->cursor_x >= 0 && s->cursor_y >= 0) {
+        blit_scene_rect_to_bb(s, s->cursor_x, s->cursor_y, CURSOR_W, CURSOR_H);
+        present_rect(s, s->cursor_x, s->cursor_y, CURSOR_W, CURSOR_H);
+    }
+
+    blit_scene_rect_to_bb(s, mx, my, CURSOR_W, CURSOR_H);
+    draw_cursor_on_bb(s, mx, my);
+    present_rect(s, mx, my, CURSOR_W, CURSOR_H);
+
+    s->cursor_x = mx;
+    s->cursor_y = my;
+}
+
 void gx_server_poll_input(void)
 {
     gx_server *s = gx_server_get();
@@ -159,6 +187,27 @@ void gx_server_poll_input(void)
 
     while ((ch = keyboard_getchar()) >= 0)
         wm_push_key(&s->wm, (uint8_t)ch);
+}
+
+void gx_server_pump_input(void)
+{
+    gx_server *s = gx_server_get();
+    const mouse_state_t *ms;
+    int32_t mx, my;
+
+    if (!s)
+        return;
+
+    gx_server_poll_input();
+
+    /* Don't redraw cursor while compose/full-present owns the backbuffer. */
+    if (g_present_busy)
+        return;
+
+    ms = mouse_get();
+    mx = ms ? ms->x : 0;
+    my = ms ? ms->y : 0;
+    flush_cursor_at(s, mx, my);
 }
 
 int gx_server_init(void)
@@ -207,14 +256,14 @@ void gx_server_present(void)
     display_ops_t *ops;
     const mouse_state_t *ms;
     int32_t mx, my;
-    int mouse_moved;
     gx_surface *bb;
     gx_surface *scene;
 
     if (!s)
         return;
 
-    gx_server_poll_input();
+    /* Live cursor first — even if a dirty compose follows. */
+    gx_server_pump_input();
 
     ops = display_active();
     if (!ops || !ops->present)
@@ -223,7 +272,6 @@ void gx_server_present(void)
     ms = mouse_get();
     mx = ms ? ms->x : 0;
     my = ms ? ms->y : 0;
-    mouse_moved = (mx != s->cursor_x || my != s->cursor_y);
 
     bb = s->device.backbuffer;
     scene = s->scene;
@@ -232,7 +280,15 @@ void gx_server_present(void)
         static int s_present_log;
         int li, nvis = 0;
 
+        g_present_busy = 1;
         gx_compositor_compose(&s->comp);
+        g_present_busy = 0;
+
+        /* Compose can take a long time — drain PS/2 and take latest pointer. */
+        drivers_poll();
+        ms = mouse_get();
+        mx = ms ? ms->x : 0;
+        my = ms ? ms->y : 0;
 
         if (s_present_log < 3) {
             for (li = 0; li < GX_MAX_LAYERS; li++) {
@@ -274,26 +330,21 @@ void gx_server_present(void)
                (size_t)scene->stride * scene->height * sizeof(gx_color));
 
         draw_cursor_on_bb(s, mx, my);
+        g_present_busy = 1;
         ops->present(bb->pixels, bb->stride);
+        g_present_busy = 0;
 
         s->cursor_x = mx;
         s->cursor_y = my;
         s->dirty = 0;
+
+        /* Full blit is slow — apply any motion that arrived during present. */
+        drivers_poll();
+        ms = mouse_get();
+        if (ms)
+            flush_cursor_at(s, ms->x, ms->y);
         return;
     }
 
-    if (!mouse_moved)
-        return;
-
-    if (s->cursor_x >= 0 && s->cursor_y >= 0) {
-        blit_scene_rect_to_bb(s, s->cursor_x, s->cursor_y, CURSOR_W, CURSOR_H);
-        present_rect(s, s->cursor_x, s->cursor_y, CURSOR_W, CURSOR_H);
-    }
-
-    blit_scene_rect_to_bb(s, mx, my, CURSOR_W, CURSOR_H);
-    draw_cursor_on_bb(s, mx, my);
-    present_rect(s, mx, my, CURSOR_W, CURSOR_H);
-
-    s->cursor_x = mx;
-    s->cursor_y = my;
+    flush_cursor_at(s, mx, my);
 }

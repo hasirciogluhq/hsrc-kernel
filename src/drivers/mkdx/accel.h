@@ -17,4 +17,7 @@ void gx_accel_blit_rect(gx_surface *dst, int32_t dx, int32_t dy,
 /* True if (lx,ly) is inside a w×h rounded rect with corner radius r (local coords). */
 int gx_point_in_round_rect(int32_t lx, int32_t ly, int32_t w, int32_t h, int32_t r);
 
+/* 0..255 coverage for AA rounded rects (4×4 supersample, integer-only). */
+uint8_t gx_round_coverage(int32_t lx, int32_t ly, int32_t w, int32_t h, int32_t r);
+
 #endif

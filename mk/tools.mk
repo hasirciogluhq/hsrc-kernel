@@ -19,6 +19,16 @@ $(MKFATIMG): tools/mkfatimg.c
 	@mkdir -p $(dir $@)
 	$(HOSTCC) -O2 -Wall -Wextra -o $@ $<
 
+# Rebuild Inter AA bitmap for Surface::text (host tool; not part of default build).
+BAKE_UGX_FONT := $(BUILD)/bake_ugx_font
+$(BAKE_UGX_FONT): tools/bake_ugx_font.c tools/stb_truetype.h
+	@mkdir -p $(dir $@)
+	$(HOSTCC) -O2 -Wall -Wextra -o $@ tools/bake_ugx_font.c -lm
+
+.PHONY: ugx-font
+ugx-font: $(BAKE_UGX_FONT)
+	$(BAKE_UGX_FONT) assets/fonts/Inter-Regular.ttf src/user/ugx_font.inc 16.0
+
 # Persistent virtio disk (kept outside build/ so `make clean` does not wipe data).
 # Only create when missing — never rewrite an existing image (that wiped /root files).
 $(DISKIMG): | $(MKFATIMG)

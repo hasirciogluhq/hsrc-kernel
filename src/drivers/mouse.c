@@ -17,9 +17,20 @@ static unsigned ev_t;
 
 static void ev_push(mouse_event_t *e)
 {
-    unsigned next = (ev_h + 1) % MOUSE_EVQ;
-    if (next == ev_t)
-        return;
+    /* Coalesce consecutive moves so the queue keeps the latest pointer. */
+    if (e->type == MOUSE_EV_MOVE && ev_h != ev_t) {
+        unsigned last = (ev_h + MOUSE_EVQ - 1u) % MOUSE_EVQ;
+        if (evq[last].type == MOUSE_EV_MOVE) {
+            evq[last] = *e;
+            return;
+        }
+    }
+
+    unsigned next = (ev_h + 1u) % MOUSE_EVQ;
+    if (next == ev_t) {
+        /* Full: drop oldest — never drop the newest packet. */
+        ev_t = (ev_t + 1u) % MOUSE_EVQ;
+    }
     evq[ev_h] = *e;
     ev_h = next;
 }
@@ -34,6 +45,40 @@ static void clamp_pos(void)
         state.x = bound_w - 1;
     if (state.y >= bound_h)
         state.y = bound_h - 1;
+}
+
+/* Mild ballistic acceleration so small moves stay precise, flicks travel farther. */
+static int32_t accel_delta(int32_t d)
+{
+    int32_t a = d < 0 ? -d : d;
+    int32_t mul;
+
+    if (a >= 12)
+        mul = 3;
+    else if (a >= 6)
+        mul = 2;
+    else
+        mul = 1;
+    return d * mul;
+}
+
+static int mouse_try_cmd(uint8_t cmd)
+{
+    return ps2_write_mouse(cmd) == 0xFA ? 0 : -1;
+}
+
+static int mouse_try_set_rate(uint8_t hz)
+{
+    if (mouse_try_cmd(0xF3) < 0)
+        return -1;
+    return mouse_try_cmd(hz);
+}
+
+static int mouse_try_set_res(uint8_t res)
+{
+    if (mouse_try_cmd(0xE8) < 0)
+        return -1;
+    return mouse_try_cmd(res);
 }
 
 void mouse_set_bounds(int32_t w, int32_t h)
@@ -68,9 +113,15 @@ void mouse_init(void)
     ps2_write_cmd(0x60);
     ps2_write_data(cfg);
 
-    /* defaults + enable streaming */
+    /* defaults + streaming */
     if (ps2_write_mouse(0xF6) != 0xFA)
         return;
+
+    /* Prefer 8 counts/mm (res=3) and 200Hz; fall back gracefully. */
+    (void)mouse_try_set_res(3);
+    if (mouse_try_set_rate(200) < 0)
+        (void)mouse_try_set_rate(100);
+
     if (ps2_write_mouse(0xF4) != 0xFA)
         return;
 
@@ -113,6 +164,9 @@ void mouse_handle_byte(uint8_t b)
 
     /* PS/2 Y is opposite of screen Y */
     dy = -dy;
+
+    dx = accel_delta(dx);
+    dy = accel_delta(dy);
 
     state.dx = dx;
     state.dy = dy;
