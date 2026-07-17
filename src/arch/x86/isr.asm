@@ -23,4 +23,14 @@ isr_syscall:
 
     popa                    ; eax = return value from frame
     add esp, 8              ; drop int_no + err
+
+    ; If returning to ring 3 (CS.RPL != 0), restore user data segments
+    test byte [esp + 4], 3  ; CS at [esp+4] after frame adjust
+    jz .iret
+    mov ax, 0x23            ; user data | RPL3
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+.iret:
     iret

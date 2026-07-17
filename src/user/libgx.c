@@ -77,6 +77,11 @@ int ugx_wm_get_frame(int win, ugx_frame *out)
     return (int)syscall2(SYS_WM_GET_FRAME, win, (long)out);
 }
 
+int ugx_wm_find(const char *title)
+{
+    return (int)syscall1(SYS_WM_FIND, (long)title);
+}
+
 int ugx_fill(int win, int x, int y, int w, int h, uint32_t color)
 {
     ugx_fill_args args;
@@ -126,6 +131,18 @@ int ugx_wm_pop_key(int win)
 int ugx_damage(void)
 {
     return (int)syscall1(SYS_GX_DAMAGE, 0);
+}
+
+int ugx_yield(void)
+{
+    return (int)syscall1(SYS_YIELD, 0);
+}
+
+void ugx_exit(int code)
+{
+    (void)syscall1(SYS_EXIT, code);
+    for (;;)
+        ;
 }
 
 void ugx_buf_set(ugx_map *m, int x, int y, uint32_t c)

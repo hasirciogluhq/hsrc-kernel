@@ -1,16 +1,20 @@
-# mykernel — bare-metal i386 Multiboot + MKDX (.kmod) graphics
+# mykernel — bare-metal i386 Multiboot + MKDX (.kmod) + usermode (.mke)
 
 BUILD   := build
 SRC     := src
 INC     := include
 TARGET  := $(BUILD)/kernel.bin
 DRIVERS := $(BUILD)/drivers
+USEROUT := $(BUILD)/user
 INITRD  := $(DRIVERS)/initrd.img
 PACKER  := $(BUILD)/pack_initrd
+PACK_MKE := $(BUILD)/pack_mke
 
 AS      := nasm
 CC      := i686-elf-gcc
 LD      := i686-elf-ld
+OBJCOPY := i686-elf-objcopy
+NM      := i686-elf-nm
 HOSTCC  := cc
 QEMU    := qemu-system-i386
 
@@ -21,8 +25,10 @@ CFLAGS  := -std=c11 -ffreestanding -m32 -Wall -Wextra -Werror \
 MODCFLAGS := $(CFLAGS) -I$(SRC)/drivers/mkdx \
              -I$(SRC)/drivers/display/bga \
              -I$(SRC)/drivers/display/virtio_gpu
+USERCFLAGS := $(CFLAGS) -DUSERMODE
 LDFLAGS := -m elf_i386 -n -T linker.ld -nostdlib
 MODLDFLAGS := -m elf_i386 -r
+USERLDFLAGS := -m elf_i386 -nostdlib -T user.ld
 
 ARCH_ASM := $(SRC)/arch/x86/boot.asm \
             $(SRC)/arch/x86/switch.asm \
@@ -41,7 +47,9 @@ KERNEL_C := $(SRC)/kernel/main.c \
             $(SRC)/kernel/vfs.c \
             $(SRC)/kernel/ksym.c \
             $(SRC)/kernel/module.c \
-            $(SRC)/kernel/mkdx_api.c
+            $(SRC)/kernel/mkdx_api.c \
+            $(SRC)/kernel/mke.c \
+            $(SRC)/kernel/uaccess.c
 
 LIB_C    := $(SRC)/lib/string.c
 
@@ -55,13 +63,8 @@ DRV_C    := $(SRC)/drivers/driver.c \
             $(SRC)/drivers/pci/pci.c \
             $(SRC)/drivers/display/display.c
 
-USER_C   := $(SRC)/user/libgx.c \
-            $(SRC)/user/os-ui.c \
-            $(SRC)/user/terminal.c \
-            $(SRC)/user/notepad.c
-
 ASM_SRCS := $(ARCH_ASM)
-C_SRCS   := $(ARCH_C) $(KERNEL_C) $(LIB_C) $(DRV_C) $(USER_C)
+C_SRCS   := $(ARCH_C) $(KERNEL_C) $(LIB_C) $(DRV_C)
 
 ASM_OBJS := $(patsubst $(SRC)/%.asm,$(BUILD)/%.o,$(ASM_SRCS))
 C_OBJS   := $(patsubst $(SRC)/%.c,$(BUILD)/%.o,$(C_SRCS))
@@ -69,8 +72,7 @@ OBJS     := $(ASM_OBJS) $(C_OBJS)
 
 # ---- loadable drivers (.kmod = relocatable ELF) ----
 BGA_SRCS := $(SRC)/drivers/display/bga/bga.c
-VIRTIO_SRCS := $(SRC)/drivers/display/virtio_gpu/virtio_pci.c \
-               $(SRC)/drivers/display/virtio_gpu/virtio_gpu.c
+VIRTIO_SRCS := $(SRC)/drivers/display/virtio_gpu/virtio_gpu.c
 MKDX_SRCS := $(SRC)/drivers/mkdx/surface.c \
              $(SRC)/drivers/mkdx/draw.c \
              $(SRC)/drivers/mkdx/blur.c \
@@ -93,11 +95,26 @@ KMOD_VIRTIO := $(DRIVERS)/display_virtio.kmod
 KMOD_MKDX   := $(DRIVERS)/mkdx.kmod
 KMODS       := $(KMOD_BGA) $(KMOD_VIRTIO) $(KMOD_MKDX)
 
-.PHONY: all drivers run run-bga run-virtio clean
+# ---- usermode .mke apps ----
+USER_LIB_SRCS := $(SRC)/user/libgx.c $(SRC)/user/string.c
+USER_LIB_OBJS := $(patsubst $(SRC)/%.c,$(BUILD)/%.o,$(USER_LIB_SRCS))
+
+MKE_OSUI     := $(USEROUT)/os-ui.mke
+MKE_TERMINAL := $(USEROUT)/terminal.mke
+MKE_NOTEPAD  := $(USEROUT)/notepad.mke
+MKES         := $(MKE_OSUI) $(MKE_TERMINAL) $(MKE_NOTEPAD)
+
+LOAD_OSUI     := 0x02000000
+LOAD_TERMINAL := 0x02800000
+LOAD_NOTEPAD  := 0x03000000
+
+.PHONY: all drivers userapps run clean
 
 all: $(TARGET) $(INITRD)
 
-drivers: $(KMODS) $(INITRD)
+drivers: $(KMODS)
+
+userapps: $(MKES)
 
 $(TARGET): $(OBJS) linker.ld
 	@mkdir -p $(dir $@)
@@ -119,29 +136,65 @@ $(PACKER): tools/pack_initrd.c
 	@mkdir -p $(dir $@)
 	$(HOSTCC) -O2 -Wall -Wextra -o $@ $<
 
-$(INITRD): $(PACKER) $(KMODS)
-	$(PACKER) $@ $(KMOD_BGA) $(KMOD_VIRTIO) $(KMOD_MKDX)
+$(PACK_MKE): tools/pack_mke.c
+	@mkdir -p $(dir $@)
+	$(HOSTCC) -O2 -Wall -Wextra -o $@ $<
+
+# Pack flat image + MKE1 header. Args: elf bin out load name
+define pack_mke_from_elf
+	@mkdir -p $(dir $(3))
+	$(OBJCOPY) -O binary $(1) $(2)
+	ENTRY=$$($(NM) -n $(1) | awk '/ mke_main$$/{print $$1}'); \
+	EDATA=$$($(NM) -n $(1) | awk '/ _mke_edata$$/{print $$1}'); \
+	END=$$($(NM) -n $(1) | awk '/ _mke_end$$/{print $$1}'); \
+	ENTRY_OFF=$$((0x$$ENTRY - $(4))); \
+	IMG=$$((0x$$EDATA - $(4))); \
+	BSS=$$((0x$$END - 0x$$EDATA)); \
+	$(PACK_MKE) $(3) $(2) $(4) $$ENTRY_OFF $$IMG $$BSS $(5)
+endef
+
+$(USEROUT)/os-ui.elf: $(BUILD)/user/os-ui.o $(USER_LIB_OBJS) user.ld
+	@mkdir -p $(dir $@)
+	$(LD) $(USERLDFLAGS) --defsym=LOAD_ADDR=$(LOAD_OSUI) -o $@ \
+		$(BUILD)/user/os-ui.o $(USER_LIB_OBJS)
+
+$(USEROUT)/terminal.elf: $(BUILD)/user/terminal.o $(USER_LIB_OBJS) user.ld
+	@mkdir -p $(dir $@)
+	$(LD) $(USERLDFLAGS) --defsym=LOAD_ADDR=$(LOAD_TERMINAL) -o $@ \
+		$(BUILD)/user/terminal.o $(USER_LIB_OBJS)
+
+$(USEROUT)/notepad.elf: $(BUILD)/user/notepad.o $(USER_LIB_OBJS) user.ld
+	@mkdir -p $(dir $@)
+	$(LD) $(USERLDFLAGS) --defsym=LOAD_ADDR=$(LOAD_NOTEPAD) -o $@ \
+		$(BUILD)/user/notepad.o $(USER_LIB_OBJS)
+
+$(MKE_OSUI): $(USEROUT)/os-ui.elf $(PACK_MKE)
+	$(call pack_mke_from_elf,$<,$(USEROUT)/os-ui.bin,$@,$(LOAD_OSUI),os-ui)
+
+$(MKE_TERMINAL): $(USEROUT)/terminal.elf $(PACK_MKE)
+	$(call pack_mke_from_elf,$<,$(USEROUT)/terminal.bin,$@,$(LOAD_TERMINAL),terminal)
+
+$(MKE_NOTEPAD): $(USEROUT)/notepad.elf $(PACK_MKE)
+	$(call pack_mke_from_elf,$<,$(USEROUT)/notepad.bin,$@,$(LOAD_NOTEPAD),notepad)
+
+$(INITRD): $(PACKER) $(KMODS) $(MKES)
+	$(PACKER) $@ $(KMOD_BGA) $(KMOD_VIRTIO) $(KMOD_MKDX) $(MKES)
 
 $(BUILD)/%.o: $(SRC)/%.asm
 	@mkdir -p $(dir $@)
 	$(AS) $(ASFLAGS) $< -o $@
 
+# User objects before generic C rule (must use USERCFLAGS)
+$(BUILD)/user/%.o: $(SRC)/user/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(USERCFLAGS) -c $< -o $@
+
 $(BUILD)/%.o: $(SRC)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(MODCFLAGS) -c $< -o $@
 
-# Both backends present: virtio-gpu wins (DISPLAY_PRIO_VIRTIO > BGA)
 run: $(TARGET) $(INITRD)
-	$(QEMU) -kernel $(TARGET) -initrd $(INITRD) -m 128M \
-		-vga std -device virtio-gpu-pci
-
-# BGA only
-run-bga: $(TARGET) $(INITRD)
 	$(QEMU) -kernel $(TARGET) -initrd $(INITRD) -m 128M -vga std
-
-# Virtio-vga only (no Bochs BGA)
-run-virtio: $(TARGET) $(INITRD)
-	$(QEMU) -kernel $(TARGET) -initrd $(INITRD) -m 128M -vga virtio
 
 clean:
 	rm -rf $(BUILD)

@@ -1,11 +1,10 @@
 #include <user/gx.h>
-#include <user/apps.h>
-#include <kernel/syscall.h>
-#include <kernel/string.h>
+#include <user/string.h>
+#include <user/mke.h>
 
 /*
- * os-ui — desktop shell (menubar + dock). Apps are separate modules.
- * Kernel only composites; this process draws all chrome via ugx.
+ * os-ui — desktop shell (menubar + dock). Ring-3 .mke process.
+ * Apps are separate .mke processes; dock focuses them by window title.
  */
 
 #define MENUBAR_H 28
@@ -41,7 +40,6 @@ static void paint_menubar(void)
 static void dock_icon(int x, int y, uint32_t color, const char *label)
 {
     ugx_fill_round(win_dock, x, y, DOCK_ICON, DOCK_ICON, 12, color);
-    /* gloss */
     ugx_fill_round(win_dock, x + 6, y + 4, DOCK_ICON - 12, 14, 6, UGX_RGBA(255, 255, 255, 60));
     if (label)
         ugx_buf_text(&map_dock, x + (DOCK_ICON - (int)strlen(label) * 8) / 2,
@@ -50,7 +48,6 @@ static void dock_icon(int x, int y, uint32_t color, const char *label)
 
 static void paint_dock(void)
 {
-    /* solid dock so it stays visible without alpha blending */
     ugx_fill(win_dock, 0, 0, dock_w, DOCK_H, UGX_RGB(55, 55, 60));
     ugx_buf_fill(&map_dock, 8, 1, dock_w - 16, 1, UGX_RGB(120, 120, 130));
 
@@ -118,25 +115,32 @@ static int dock_hit(int x, int y)
     return -1;
 }
 
+static void focus_app(const char *title)
+{
+    int id = ugx_wm_find(title);
+    if (id < 0)
+        return;
+    ugx_wm_show(id, 1);
+    ugx_wm_focus(id);
+}
+
 static void handle_click(int x, int y)
 {
     int icon = dock_hit(x, y);
     if (icon == 1)
-        app_terminal_open(screen_w, screen_h);
+        focus_app("Terminal");
     else if (icon == 2)
-        app_notepad_open(screen_w, screen_h);
-    else if (icon == 3) {
-        /* simple system about via notepad-style — open terminal with uname */
-        app_terminal_open(screen_w, screen_h);
-    }
+        focus_app("Notepad");
+    else if (icon == 3)
+        focus_app("Terminal");
 }
 
-void user_os_ui_main(void)
+void mke_main(void)
 {
     ugx_info info;
     if (ugx_info_get(&info) < 0) {
         for (;;)
-            ;
+            ugx_yield();
     }
 
     screen_w = (int)info.width;
@@ -146,21 +150,15 @@ void user_os_ui_main(void)
     ugx_set_wallpaper(&bg, 1, 1, 1);
 
     if (create_chrome() < 0) {
-        /* hard fail color — red means chrome create failed */
         uint32_t err = UGX_RGB(160, 30, 30);
         ugx_set_wallpaper(&err, 1, 1, 1);
         ugx_present();
         for (;;)
-            ;
+            ugx_yield();
     }
 
     paint_menubar();
     paint_dock();
-
-    /* Launch example apps on boot so desktop is not empty */
-    app_terminal_open(screen_w, screen_h);
-    app_notepad_open(screen_w, screen_h);
-
     ugx_present();
     prev_buttons = 0;
 
@@ -173,14 +171,8 @@ void user_os_ui_main(void)
             if (pressed & UGX_BTN_LEFT)
                 handle_click(in.mouse_x, in.mouse_y);
             prev_buttons = in.buttons;
-
-            app_terminal_tick(&in, pressed);
-            app_notepad_tick(&in, pressed);
-        } else {
-            ugx_input_state z;
-            memset(&z, 0, sizeof(z));
-            app_terminal_tick(&z, 0);
-            app_notepad_tick(&z, 0);
         }
+
+        ugx_yield();
     }
 }

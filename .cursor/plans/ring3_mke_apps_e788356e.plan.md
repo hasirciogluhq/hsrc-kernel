@@ -4,22 +4,22 @@ overview: Usermode uygulamalar özel `.mke` (MyKernel Executable) formatında ay
 todos:
   - id: mke-format
     content: mke_header (MKE1) + tools/pack_mke.c + include/kernel/mke.h
-    status: pending
+    status: completed
   - id: makefile-user
     content: User sources kernel linkinden ayır; user.ld + os-ui/terminal/notepad.mke + initrd pack
-    status: pending
+    status: completed
   - id: mke-loader
     content: "src/kernel/mke.c: validate, load_addr copy, BSS, process_create_user; initrd routing"
-    status: pending
+    status: completed
   - id: ring3-fix
     content: isr_syscall user DS restore; main process_init/scheduler_start; copy_from/to_user for ugx
-    status: pending
+    status: completed
   - id: app-split
     content: Her app kendi mke_main loop; dock için SYS_WM_FIND; kernel header bağımlılığını kaldır
-    status: pending
+    status: completed
   - id: persist-plan
     content: Plan .cursor/plans altında kalıcı (bu dosya)
-    status: pending
+    status: completed
 isProject: false
 ---
 

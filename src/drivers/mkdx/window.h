@@ -68,6 +68,7 @@ void       wm_shutdown(wm_t *wm);
 wm_window *wm_create(wm_t *wm, const wm_create_args *args, int owner_pid);
 void       wm_destroy(wm_t *wm, int id);
 wm_window *wm_get(wm_t *wm, int id);
+int        wm_find_by_title(wm_t *wm, const char *title);
 int        wm_map(wm_t *wm, int id, wm_map_info *out);
 void       wm_move(wm_t *wm, int id, int32_t x, int32_t y);
 void       wm_resize(wm_t *wm, int id, int32_t w, int32_t h);

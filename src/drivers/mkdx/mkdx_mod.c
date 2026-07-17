@@ -161,6 +161,14 @@ static int api_wm_focused_id(void)
     return wm_focused_id(&s->wm);
 }
 
+static int api_wm_find(const char *title)
+{
+    gx_server *s = gx_server_get();
+    if (!s || !title)
+        return -1;
+    return wm_find_by_title(&s->wm, title);
+}
+
 static int api_fill(const void *args, int rounded)
 {
     const ugx_fill_args *a = (const ugx_fill_args *)args;
@@ -254,6 +262,7 @@ static const mkdx_api_t g_api = {
     .wm_get_frame = api_wm_get_frame,
     .wm_pop_key = api_wm_pop_key,
     .wm_focused_id = api_wm_focused_id,
+    .wm_find = api_wm_find,
     .fill = api_fill,
     .set_wallpaper = api_set_wallpaper,
     .input_state = api_input_state,

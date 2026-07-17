@@ -1,6 +1,6 @@
-#include <user/apps.h>
-#include <kernel/string.h>
-#include <kernel/syscall.h>
+#include <user/gx.h>
+#include <user/string.h>
+#include <user/mke.h>
 
 #define NOTE_W       480
 #define NOTE_H       320
@@ -14,8 +14,9 @@ static ugx_map g_map;
 static char    g_text[NOTE_MAX + 1];
 static int     g_len;
 static int     g_blink;
+static uint8_t prev_buttons;
 
-void app_notepad_paint(int focused)
+static void notepad_paint(int focused)
 {
     if (g_win < 0)
         return;
@@ -28,7 +29,6 @@ void app_notepad_paint(int focused)
     ugx_fill_round(g_win, 46, 8, 12, 12, 6, UGX_RGB(39, 201, 63));
     ugx_buf_text(&g_map, NOTE_W / 2 - 36, 10, "Untitled", UGX_RGB(40, 40, 40));
 
-    /* paper */
     ugx_fill(g_win, 0, NOTE_TITLE_H, NOTE_W, NOTE_H - NOTE_TITLE_H, UGX_RGB(255, 255, 255));
 
     int x = 16;
@@ -55,15 +55,16 @@ void app_notepad_paint(int focused)
     ugx_damage();
 }
 
-void app_notepad_open(int screen_w, int screen_h)
+static int notepad_open(int screen_w, int screen_h)
 {
+    ugx_win_create a;
+
     if (g_win >= 0) {
         ugx_wm_show(g_win, 1);
         ugx_wm_focus(g_win);
-        return;
+        return 0;
     }
 
-    ugx_win_create a;
     memset(&a, 0, sizeof(a));
     a.w = NOTE_W;
     a.h = NOTE_H;
@@ -73,23 +74,24 @@ void app_notepad_open(int screen_w, int screen_h)
         a.y = 40;
     a.style = UGX_STYLE_ROUNDED;
     a.radius = 10;
-    strncpy(a.title, "Untitled", sizeof(a.title) - 1);
+    strncpy(a.title, "Notepad", sizeof(a.title) - 1);
 
     g_win = ugx_wm_create(&a);
     if (g_win < 0)
-        return;
+        return -1;
     if (ugx_wm_map(g_win, &g_map) < 0)
-        return;
+        return -1;
 
     memset(g_text, 0, sizeof(g_text));
     g_len = 0;
     strncpy(g_text, "Notepad\nType here...\n", sizeof(g_text) - 1);
     g_len = (int)strlen(g_text);
     ugx_wm_focus(g_win);
-    app_notepad_paint(1);
+    notepad_paint(1);
+    return 0;
 }
 
-void app_notepad_close(void)
+static void notepad_close(void)
 {
     if (g_win < 0)
         return;
@@ -97,12 +99,7 @@ void app_notepad_close(void)
     g_win = -1;
 }
 
-int app_notepad_win(void)
-{
-    return g_win;
-}
-
-void app_notepad_tick(const ugx_input_state *in, uint8_t pressed)
+static void notepad_tick(const ugx_input_state *in, uint8_t pressed)
 {
     ugx_frame fr;
 
@@ -114,7 +111,7 @@ void app_notepad_tick(const ugx_input_state *in, uint8_t pressed)
     if (ugx_wm_get_frame(g_win, &fr) == 0 && (pressed & UGX_BTN_LEFT)) {
         if (in->mouse_x >= fr.x + 6 && in->mouse_x < fr.x + 22 &&
             in->mouse_y >= fr.y + 6 && in->mouse_y < fr.y + 22) {
-            app_notepad_close();
+            notepad_close();
             return;
         }
     }
@@ -138,5 +135,40 @@ void app_notepad_tick(const ugx_input_state *in, uint8_t pressed)
     }
 
     if (dirty || (g_blink % 20) == 0)
-        app_notepad_paint(in->focus_id == g_win);
+        notepad_paint(in->focus_id == g_win);
+}
+
+void mke_main(void)
+{
+    ugx_info info;
+    if (ugx_info_get(&info) < 0) {
+        for (;;)
+            ugx_yield();
+    }
+
+    if (notepad_open((int)info.width, (int)info.height) < 0) {
+        for (;;)
+            ugx_yield();
+    }
+
+    prev_buttons = 0;
+    for (;;) {
+        ugx_present();
+
+        ugx_input_state in;
+        if (ugx_input_get(&in) == 0) {
+            uint8_t pressed = (uint8_t)(in.buttons & ~prev_buttons);
+            notepad_tick(&in, pressed);
+            prev_buttons = in.buttons;
+        } else {
+            ugx_input_state z;
+            memset(&z, 0, sizeof(z));
+            notepad_tick(&z, 0);
+        }
+
+        if (g_win < 0)
+            notepad_open((int)info.width, (int)info.height);
+
+        ugx_yield();
+    }
 }

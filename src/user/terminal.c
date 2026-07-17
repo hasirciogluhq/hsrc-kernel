@@ -1,10 +1,9 @@
-#include <user/apps.h>
-#include <kernel/string.h>
-#include <kernel/syscall.h>
+#include <user/gx.h>
+#include <user/string.h>
+#include <user/mke.h>
 
 /*
- * macOS Terminal.app look (Pro profile):
- * dark titlebar, traffic lights, black content, light text, block cursor.
+ * macOS Terminal.app look — ring-3 .mke process.
  */
 
 #define TERM_COLS    80
@@ -18,11 +17,10 @@
 #define TERM_W       (TERM_COLS * TERM_CW + TERM_PAD_X * 2 + TERM_SCROLL)
 #define TERM_H       (TERM_TITLE_H + TERM_ROWS * TERM_CH + TERM_PAD_Y * 2)
 
-/* Pro profile colors */
 #define COL_TITLE_ACTIVE   UGX_RGB(53, 53, 55)
 #define COL_TITLE_INACTIVE UGX_RGB(72, 72, 74)
 #define COL_BG             UGX_RGB(0, 0, 0)
-#define COL_FG             UGX_RGB(0, 255, 0)   /* classic Terminal green */
+#define COL_FG             UGX_RGB(0, 255, 0)
 #define COL_CURSOR         UGX_RGB(0, 220, 0)
 #define COL_SCROLL         UGX_RGB(40, 40, 40)
 #define COL_SCROLL_THUMB   UGX_RGB(90, 90, 90)
@@ -37,6 +35,7 @@ static int     g_cx, g_cy;
 static char    g_line[TERM_COLS];
 static int     g_llen;
 static int     g_blink;
+static uint8_t prev_buttons;
 
 static void term_clear(void)
 {
@@ -91,7 +90,6 @@ static void term_puts(const char *s)
 
 static void term_prompt(void)
 {
-    /* zsh-style default on modern macOS */
     term_puts("user@mykernel ~ % ");
 }
 
@@ -138,13 +136,12 @@ static void term_newline_cmd(void)
 
 static void draw_traffic_lights(void)
 {
-    /* macOS spacing: 8px from left edge, ~8px from top, 12px diam, 8px gap */
     ugx_fill_round(g_win, 8, 8, 12, 12, 6, COL_BTN_CLOSE);
     ugx_fill_round(g_win, 28, 8, 12, 12, 6, COL_BTN_MIN);
     ugx_fill_round(g_win, 48, 8, 12, 12, 6, COL_BTN_ZOOM);
 }
 
-void app_terminal_paint(int focused)
+static void terminal_paint(int focused)
 {
     if (g_win < 0)
         return;
@@ -153,15 +150,12 @@ void app_terminal_paint(int focused)
     ugx_fill(g_win, 0, 0, TERM_W, TERM_TITLE_H, title);
     draw_traffic_lights();
 
-    /* centered title like Terminal.app */
     const char *ttl = "user@mykernel: ~  -bash-  80x24";
     int tw = (int)strlen(ttl) * 8;
     ugx_buf_text(&g_map, (TERM_W - tw) / 2, 10, ttl, UGX_RGB(210, 210, 210));
 
-    /* content black */
     ugx_fill(g_win, 0, TERM_TITLE_H, TERM_W, TERM_H - TERM_TITLE_H, COL_BG);
 
-    /* right scrollbar gutter (macOS Terminal) */
     int sx = TERM_W - TERM_SCROLL;
     ugx_fill(g_win, sx, TERM_TITLE_H, TERM_SCROLL, TERM_H - TERM_TITLE_H, COL_SCROLL);
     ugx_fill_round(g_win, sx + 3, TERM_TITLE_H + 8, 6, 48, 3, COL_SCROLL_THUMB);
@@ -181,7 +175,6 @@ void app_terminal_paint(int focused)
         }
     }
 
-    /* block cursor */
     if (focused && ((g_blink / 25) & 1) == 0) {
         int px = TERM_PAD_X + g_cx * TERM_CW;
         int py = TERM_TITLE_H + TERM_PAD_Y + g_cy * TERM_CH;
@@ -195,15 +188,16 @@ void app_terminal_paint(int focused)
     ugx_damage();
 }
 
-void app_terminal_open(int screen_w, int screen_h)
+static int terminal_open(int screen_w, int screen_h)
 {
+    ugx_win_create a;
+
     if (g_win >= 0) {
         ugx_wm_show(g_win, 1);
         ugx_wm_focus(g_win);
-        return;
+        return 0;
     }
 
-    ugx_win_create a;
     memset(&a, 0, sizeof(a));
     a.w = TERM_W;
     a.h = TERM_H;
@@ -217,18 +211,19 @@ void app_terminal_open(int screen_w, int screen_h)
 
     g_win = ugx_wm_create(&a);
     if (g_win < 0)
-        return;
+        return -1;
     if (ugx_wm_map(g_win, &g_map) < 0)
-        return;
+        return -1;
 
     term_clear();
     term_puts("Last login: Sat Jul 11 15:39:00 on ttys001\n");
     term_prompt();
     ugx_wm_focus(g_win);
-    app_terminal_paint(1);
+    terminal_paint(1);
+    return 0;
 }
 
-void app_terminal_close(void)
+static void terminal_close(void)
 {
     if (g_win < 0)
         return;
@@ -236,12 +231,7 @@ void app_terminal_close(void)
     g_win = -1;
 }
 
-int app_terminal_win(void)
-{
-    return g_win;
-}
-
-void app_terminal_tick(const ugx_input_state *in, uint8_t pressed)
+static void terminal_tick(const ugx_input_state *in, uint8_t pressed)
 {
     ugx_frame fr;
 
@@ -253,7 +243,7 @@ void app_terminal_tick(const ugx_input_state *in, uint8_t pressed)
     if (ugx_wm_get_frame(g_win, &fr) == 0 && (pressed & UGX_BTN_LEFT)) {
         if (in->mouse_x >= fr.x + 6 && in->mouse_x < fr.x + 22 &&
             in->mouse_y >= fr.y + 6 && in->mouse_y < fr.y + 22) {
-            app_terminal_close();
+            terminal_close();
             return;
         }
     }
@@ -281,5 +271,42 @@ void app_terminal_tick(const ugx_input_state *in, uint8_t pressed)
     }
 
     if (dirty || (g_blink % 25) == 0)
-        app_terminal_paint(in->focus_id == g_win);
+        terminal_paint(in->focus_id == g_win);
+}
+
+void mke_main(void)
+{
+    ugx_info info;
+    if (ugx_info_get(&info) < 0) {
+        for (;;)
+            ugx_yield();
+    }
+
+    if (terminal_open((int)info.width, (int)info.height) < 0) {
+        for (;;)
+            ugx_yield();
+    }
+
+    prev_buttons = 0;
+    for (;;) {
+        ugx_present();
+
+        ugx_input_state in;
+        if (ugx_input_get(&in) == 0) {
+            uint8_t pressed = (uint8_t)(in.buttons & ~prev_buttons);
+            terminal_tick(&in, pressed);
+            prev_buttons = in.buttons;
+        } else {
+            ugx_input_state z;
+            memset(&z, 0, sizeof(z));
+            terminal_tick(&z, 0);
+        }
+
+        if (g_win < 0) {
+            /* Recreate if closed so dock focus still works after relaunch delay */
+            terminal_open((int)info.width, (int)info.height);
+        }
+
+        ugx_yield();
+    }
 }

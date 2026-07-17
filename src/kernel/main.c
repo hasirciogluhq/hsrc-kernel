@@ -9,9 +9,11 @@
 #include <kernel/ksym.h>
 #include <kernel/module.h>
 #include <kernel/mkdx_api.h>
+#include <kernel/process.h>
+#include <kernel/scheduler.h>
+#include <kernel/mke.h>
 #include <arch/x86/gdt.h>
 #include <arch/x86/idt.h>
-#include <user/gx.h>
 
 #define HEAP_SIZE (20u * 1024u * 1024u)
 static uint8_t heap_area[HEAP_SIZE] __attribute__((aligned(16)));
@@ -32,6 +34,8 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     syscall_init();
     vfs_init();
     ksym_init();
+    process_init();
+    scheduler_init();
 
     driver_framework_init();
     display_framework_init();
@@ -64,6 +68,12 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
             __asm__ volatile("hlt");
     }
 
-    /* Desktop shell — ugx syscalls into mkdx. Never returns. */
-    user_os_ui_main();
+    /* Spawn ring-3 .mke apps from initrd (os-ui, terminal, notepad). */
+    if (mke_spawn_from_mbi(mbi) < 0) {
+        vga_print("mke_spawn_from_mbi failed\n");
+        for (;;)
+            __asm__ volatile("hlt");
+    }
+
+    scheduler_start();
 }

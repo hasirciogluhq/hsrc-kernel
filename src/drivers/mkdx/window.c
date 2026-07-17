@@ -145,6 +145,21 @@ wm_window *wm_get(wm_t *wm, int id)
     return slot_by_id(wm, id);
 }
 
+int wm_find_by_title(wm_t *wm, const char *title)
+{
+    int i;
+    if (!wm || !title)
+        return -1;
+    for (i = 0; i < WM_MAX_WINDOWS; i++) {
+        wm_window *w = &wm->windows[i];
+        if (!w->used)
+            continue;
+        if (strcmp(w->title, title) == 0)
+            return w->id;
+    }
+    return -1;
+}
+
 int wm_map(wm_t *wm, int id, wm_map_info *out)
 {
     wm_window *w = slot_by_id(wm, id);

@@ -3,6 +3,8 @@
 #include <kernel/scheduler.h>
 #include <kernel/vfs.h>
 #include <kernel/mkdx_api.h>
+#include <kernel/uaccess.h>
+#include <kernel/string.h>
 #include <user/gx.h>
 
 typedef struct {
@@ -31,36 +33,86 @@ static long do_exit(long code)
 static long do_read(long fd, long buf, long count)
 {
     process_t *p = process_current();
-    if (!p)
+    char tmp[256];
+    long total = 0;
+    int vfd;
+
+    if (!p || count < 0)
         return -1;
-    int vfd = process_lookup_fd(p, (int)fd);
+    vfd = process_lookup_fd(p, (int)fd);
     if (vfd < 0)
         return -1;
-    return (long)vfs_read(vfd, (void *)buf, (size_t)count);
+
+    while (total < count) {
+        size_t chunk = (size_t)(count - total);
+        ssize_t n;
+        if (chunk > sizeof(tmp))
+            chunk = sizeof(tmp);
+        n = vfs_read(vfd, tmp, chunk);
+        if (n < 0)
+            return total > 0 ? total : -1;
+        if (n == 0)
+            break;
+        if (copy_to_user((void *)(buf + total), tmp, (size_t)n) < 0)
+            return -1;
+        total += n;
+        if ((size_t)n < chunk)
+            break;
+    }
+    return total;
 }
 
 static long do_write(long fd, long buf, long count)
 {
     process_t *p = process_current();
-    if (!p)
+    char tmp[256];
+    long total = 0;
+    int vfd;
+
+    if (!p || count < 0)
         return -1;
-    int vfd = process_lookup_fd(p, (int)fd);
+    vfd = process_lookup_fd(p, (int)fd);
     if (vfd < 0)
         return -1;
-    return (long)vfs_write(vfd, (const void *)buf, (size_t)count);
+
+    while (total < count) {
+        size_t chunk = (size_t)(count - total);
+        ssize_t n;
+        if (chunk > sizeof(tmp))
+            chunk = sizeof(tmp);
+        if (copy_from_user(tmp, (const void *)(buf + total), chunk) < 0)
+            return -1;
+        n = vfs_write(vfd, tmp, chunk);
+        if (n < 0)
+            return total > 0 ? total : -1;
+        total += n;
+        if ((size_t)n < chunk)
+            break;
+    }
+    return total;
 }
 
 static long do_open(long path, long flags)
 {
     process_t *p = process_current();
+    char kpath[256];
+    int len;
+    int vfd;
+    int ufd;
+
     if (!p)
         return -1;
+    len = user_strlen((const char *)path, sizeof(kpath));
+    if (len < 0)
+        return -1;
+    if (copy_from_user(kpath, (const void *)path, (size_t)len + 1) < 0)
+        return -1;
 
-    int vfd = vfs_open((const char *)path, (int)flags);
+    vfd = vfs_open(kpath, (int)flags);
     if (vfd < 0)
         return -1;
 
-    int ufd = process_alloc_fd(p, vfd);
+    ufd = process_alloc_fd(p, vfd);
     if (ufd < 0) {
         vfs_close(vfd);
         return -1;
@@ -104,11 +156,15 @@ static const mkdx_api_t *mkdx(void)
 
 static long do_gx_info(long outp)
 {
-    ugx_info *out = (ugx_info *)outp;
+    ugx_info info;
     const mkdx_api_t *api = mkdx();
-    if (!out || !api || !api->info)
+    if (!outp || !api || !api->info)
         return -1;
-    return api->info(&out->width, &out->height, &out->bpp);
+    if (api->info(&info.width, &info.height, &info.bpp) < 0)
+        return -1;
+    if (copy_to_user((void *)outp, &info, sizeof(info)) < 0)
+        return -1;
+    return 0;
 }
 
 static long do_gx_present(void)
@@ -121,11 +177,14 @@ static long do_gx_present(void)
 
 static long do_wm_create(long argp)
 {
+    ugx_win_create args;
     const mkdx_api_t *api = mkdx();
     process_t *p = process_current();
     if (!api || !api->wm_create)
         return -1;
-    return api->wm_create((const void *)argp, p ? p->pid : 0);
+    if (copy_from_user(&args, (const void *)argp, sizeof(args)) < 0)
+        return -1;
+    return api->wm_create(&args, p ? (uint32_t)p->pid : 0);
 }
 
 static long do_wm_destroy(long id)
@@ -138,10 +197,15 @@ static long do_wm_destroy(long id)
 
 static long do_wm_map(long id, long outp)
 {
+    ugx_map m;
     const mkdx_api_t *api = mkdx();
     if (!api || !api->wm_map)
         return -1;
-    return api->wm_map((int)id, (void *)outp);
+    if (api->wm_map((int)id, &m) < 0)
+        return -1;
+    if (copy_to_user((void *)outp, &m, sizeof(m)) < 0)
+        return -1;
+    return 0;
 }
 
 static long do_wm_move(long id, long x, long y)
@@ -178,26 +242,53 @@ static long do_wm_show(long id, long vis)
 
 static long do_gx_fill(long argp, int rounded)
 {
+    ugx_fill_args args;
     const mkdx_api_t *api = mkdx();
     if (!api || !api->fill)
         return -1;
-    return api->fill((const void *)argp, rounded);
+    if (copy_from_user(&args, (const void *)argp, sizeof(args)) < 0)
+        return -1;
+    return api->fill(&args, rounded);
 }
 
 static long do_gx_set_wallpaper(long argp)
 {
+    ugx_wallpaper args;
+    ugx_wallpaper kargs;
+    uint32_t pixels[64];
+    size_t npix;
     const mkdx_api_t *api = mkdx();
+
     if (!api || !api->set_wallpaper)
         return -1;
-    return api->set_wallpaper((const void *)argp);
+    if (copy_from_user(&args, (const void *)argp, sizeof(args)) < 0)
+        return -1;
+    if (!args.pixels || args.width == 0 || args.height == 0)
+        return -1;
+
+    npix = (size_t)args.width * (size_t)args.height;
+    if (npix > sizeof(pixels) / sizeof(pixels[0]))
+        return -1;
+    if (copy_from_user(pixels, args.pixels, npix * sizeof(uint32_t)) < 0)
+        return -1;
+
+    kargs = args;
+    kargs.pixels = pixels;
+    kargs.stride = args.width;
+    return api->set_wallpaper(&kargs);
 }
 
 static long do_input_state(long outp)
 {
+    ugx_input_state st;
     const mkdx_api_t *api = mkdx();
     if (!api || !api->input_state)
         return -1;
-    return api->input_state((void *)outp);
+    if (api->input_state(&st) < 0)
+        return -1;
+    if (copy_to_user((void *)outp, &st, sizeof(st)) < 0)
+        return -1;
+    return 0;
 }
 
 static long do_wm_pop_key(long id)
@@ -219,10 +310,31 @@ static long do_gx_damage(void)
 
 static long do_wm_get_frame(long id, long outp)
 {
+    ugx_frame fr;
     const mkdx_api_t *api = mkdx();
     if (!api || !api->wm_get_frame)
         return -1;
-    return api->wm_get_frame((int)id, (void *)outp);
+    if (api->wm_get_frame((int)id, &fr) < 0)
+        return -1;
+    if (copy_to_user((void *)outp, &fr, sizeof(fr)) < 0)
+        return -1;
+    return 0;
+}
+
+static long do_wm_find(long titlep)
+{
+    char title[64];
+    int len;
+    const mkdx_api_t *api = mkdx();
+
+    if (!api || !api->wm_find)
+        return -1;
+    len = user_strlen((const char *)titlep, sizeof(title));
+    if (len < 0)
+        return -1;
+    if (copy_from_user(title, (const void *)titlep, (size_t)len + 1) < 0)
+        return -1;
+    return api->wm_find(title);
 }
 
 long syscall_dispatch(long n, long a1, long a2, long a3, long a4, long a5)
@@ -256,6 +368,7 @@ long syscall_dispatch(long n, long a1, long a2, long a3, long a4, long a5)
     case SYS_WM_POP_KEY:       return do_wm_pop_key(a1);
     case SYS_GX_DAMAGE:        return do_gx_damage();
     case SYS_WM_GET_FRAME:     return do_wm_get_frame(a1, a2);
+    case SYS_WM_FIND:          return do_wm_find(a1);
 
     default:         return -1;
     }

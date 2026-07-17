@@ -22,6 +22,7 @@ typedef struct mkdx_api {
     int  (*wm_get_frame)(int id, void *out);
     int  (*wm_pop_key)(int id);
     int  (*wm_focused_id)(void);
+    int  (*wm_find)(const char *title);
 
     int  (*fill)(const void *args, int rounded);
     int  (*set_wallpaper)(const void *args);

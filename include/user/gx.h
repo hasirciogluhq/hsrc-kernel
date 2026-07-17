@@ -3,6 +3,10 @@
 
 #include <kernel/types.h>
 
+/* Base syscalls usable from ring-3 .mke apps */
+#define SYS_EXIT             1
+#define SYS_YIELD            158
+
 /* Graphics / window syscalls (mykernel private range) */
 #define SYS_GX_INFO          200
 #define SYS_GX_PRESENT       201
@@ -20,6 +24,7 @@
 #define SYS_WM_POP_KEY       213
 #define SYS_GX_DAMAGE        214
 #define SYS_WM_GET_FRAME     215
+#define SYS_WM_FIND          216
 
 #define UGX_STYLE_OPAQUE     0
 #define UGX_STYLE_ACRYLIC    (1u << 0)
@@ -98,12 +103,15 @@ int  ugx_wm_resize(int win, int w, int h);
 int  ugx_wm_focus(int win);
 int  ugx_wm_show(int win, int visible);
 int  ugx_wm_get_frame(int win, ugx_frame *out);
+int  ugx_wm_find(const char *title);
 int  ugx_fill(int win, int x, int y, int w, int h, uint32_t color);
 int  ugx_fill_round(int win, int x, int y, int w, int h, int radius, uint32_t color);
 int  ugx_set_wallpaper(const uint32_t *pixels, uint32_t w, uint32_t h, uint32_t stride);
 int  ugx_input_get(ugx_input_state *out);
 int  ugx_wm_pop_key(int win); /* -1 empty, else Latin-5 byte */
 int  ugx_damage(void);        /* mark frame dirty after userspace buffer paint */
+int  ugx_yield(void);
+void ugx_exit(int code);
 
 /* Software helpers on a mapped buffer (userspace CPU draw) */
 void ugx_buf_set(ugx_map *m, int x, int y, uint32_t c);
@@ -111,7 +119,5 @@ void ugx_buf_fill(ugx_map *m, int x, int y, int w, int h, uint32_t c);
 void ugx_buf_rect(ugx_map *m, int x, int y, int w, int h, uint32_t c, int t);
 void ugx_buf_text(ugx_map *m, int x, int y, const char *text, uint32_t c);
 void ugx_buf_clear(ugx_map *m, uint32_t c);
-
-void user_os_ui_main(void);
 
 #endif

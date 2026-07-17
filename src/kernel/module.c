@@ -332,9 +332,19 @@ int modules_load_initrd(const void *data, size_t size)
     for (i = 0; i < hdr->count; i++) {
         const initrd_file_t *f = &hdr->files[i];
         const uint8_t *blob;
+        const uint32_t *magic;
+
         if (f->offset + f->size > size || f->size == 0)
             return -1;
         blob = (const uint8_t *)data + f->offset;
+
+        /* .mke apps are spawned later by mke_spawn_from_* */
+        if (f->size >= 4) {
+            magic = (const uint32_t *)blob;
+            if (*magic == 0x31454B4Du) /* MKE1 */
+                continue;
+        }
+
         vga_print("load ");
         vga_print(f->name);
         vga_print("\n");
