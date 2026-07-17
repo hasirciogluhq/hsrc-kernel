@@ -401,8 +401,8 @@ static long do_yield(void)
     if (api && api->pump_input)
         api->pump_input();
 
-    /* Keep shared proc snapshot fresh without forcing apps to SYS_PROC_LIST. */
-    process_snapshot_publish();
+    /* Do NOT publish proc snapshot here — walking the table on every yield
+     * + activity-monitor full present = desktop freeze. */
 
     schedule();
     return 0;
@@ -1591,6 +1591,8 @@ long syscall_dispatch(long n, long a1, long a2, long a3, long a4, long a5)
         proc_page_t *pp = process_page_get();
         if (!pp || pp->magic != PROC_PAGE_MAGIC)
             return 0;
+        /* Consumers asked for a fresh sample — bypass idle throttle. */
+        process_snapshot_mark_dirty();
         process_snapshot_publish();
         return (long)(uintptr_t)pp;
     }

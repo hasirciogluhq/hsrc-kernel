@@ -527,11 +527,16 @@ bool parse_pid_token(const char *s, pid_t *pid_out)
 void cmd_ps()
 {
     using hsrc::sdk::process::ProcListEntry;
-    ProcListEntry ents[hsrc::sdk::process::kMaxProcesses];
-    long n = hsrc::sdk::process::proc_list(ents, hsrc::sdk::process::kMaxProcesses);
+    ProcListEntry ent;
     char row[kCols + 1];
     int j;
+    int n;
 
+    if (!hsrc::sdk::process::refresh_snapshot()) {
+        line_push("ps: proc snapshot unavailable", col_err());
+        return;
+    }
+    n = hsrc::sdk::process::snapshot_count();
     if (n < 0) {
         line_push("ps: proc_list failed", col_err());
         return;
@@ -542,28 +547,30 @@ void cmd_ps()
     }
 
     line_push("  PID  PPID  STATE     MEM     NAME", col_dim());
-    for (long i = 0; i < n; i++) {
+    for (int i = 0; i < n; i++) {
+        if (!hsrc::sdk::process::snapshot_entry(i, &ent))
+            continue;
         j = 0;
         row[0] = 0;
         append_text(row, j, " ");
-        if (ents[i].pid < 1000 && j < kCols)
+        if (ent.pid < 1000 && j < kCols)
             row[j++] = ' ';
-        if (ents[i].pid < 100 && j < kCols)
+        if (ent.pid < 100 && j < kCols)
             row[j++] = ' ';
-        if (ents[i].pid < 10 && j < kCols)
+        if (ent.pid < 10 && j < kCols)
             row[j++] = ' ';
-        append_int(row, j, (int)ents[i].pid);
+        append_int(row, j, (int)ent.pid);
         append_text(row, j, "  ");
-        if (ents[i].ppid < 1000 && j < kCols)
+        if (ent.ppid < 1000 && j < kCols)
             row[j++] = ' ';
-        if (ents[i].ppid < 100 && j < kCols)
+        if (ent.ppid < 100 && j < kCols)
             row[j++] = ' ';
-        if (ents[i].ppid < 10 && j < kCols)
+        if (ent.ppid < 10 && j < kCols)
             row[j++] = ' ';
-        append_int(row, j, (int)ents[i].ppid);
+        append_int(row, j, (int)ent.ppid);
         append_text(row, j, "  ");
         {
-            const char *st = hsrc::sdk::process::state_name(ents[i].state);
+            const char *st = hsrc::sdk::process::state_name(ent.state);
             int pad = 8;
             while (*st && j < kCols) {
                 row[j++] = *st++;
@@ -573,9 +580,9 @@ void cmd_ps()
                 row[j++] = ' ';
         }
         append_text(row, j, " ");
-        append_uint(row, j, ents[i].mem_bytes / 1024u);
+        append_uint(row, j, ent.mem_bytes / 1024u);
         append_text(row, j, "K  ");
-        append_text(row, j, ents[i].name);
+        append_text(row, j, ent.name);
         row[j] = 0;
         line_push(row, col_fg());
     }

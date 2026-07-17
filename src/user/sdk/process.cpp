@@ -7,21 +7,65 @@ namespace {
 
 const proc_page_t *g_page = nullptr;
 
-bool read_page(proc_page_t *out)
+void copy_page_entry(ProcListEntry *dst, const proc_page_entry_t *src)
 {
-    if (!map_proc_page() || !g_page || !out)
+    dst->pid = src->pid;
+    dst->ppid = src->ppid;
+    dst->state = src->state;
+    dst->is_user = src->is_user;
+    dst->cpu_ticks = src->cpu_ticks;
+    dst->uptime_ticks = src->uptime_ticks;
+    dst->mem_bytes = src->mem_bytes;
+    memcpy(dst->name, src->name, sizeof(dst->name));
+    dst->name[sizeof(dst->name) - 1] = 0;
+}
+
+/*
+ * Seqlock-read the mapped proc page in place — never memcpy the full page
+ * (~17KiB) onto the 8KiB user stack.
+ */
+bool read_snapshot(ProcListEntry *entries, int max_entries, int *count_out, SysInfo *info_out)
+{
+    if (!map_proc_page() || !g_page)
         return false;
 
-    uint32_t s1, s2;
-    do {
-        s1 = g_page->seq;
+    for (int spin = 0; spin < 64; spin++) {
+        uint32_t s1 = g_page->seq;
         __asm__ volatile("" ::: "memory");
-        memcpy(out, g_page, sizeof(*out));
-        __asm__ volatile("" ::: "memory");
-        s2 = g_page->seq;
-    } while ((s1 & 1u) || s1 != s2);
+        if (s1 & 1u)
+            continue;
 
-    return out->magic == PROC_PAGE_MAGIC;
+        int page_count = (int)g_page->count;
+        if (page_count < 0)
+            page_count = 0;
+        int n = page_count;
+        if (max_entries > 0 && n > max_entries)
+            n = max_entries;
+
+        SysInfo info{};
+        info.uptime_ticks = g_page->uptime_ticks;
+        info.total_cpu_ticks = g_page->total_cpu_ticks;
+        info.total_ram_bytes = g_page->total_ram_bytes;
+        info.used_ram_bytes = g_page->used_ram_bytes;
+        info.free_ram_bytes = g_page->free_ram_bytes;
+        info.process_count = g_page->process_count;
+
+        if (entries && n > 0) {
+            for (int i = 0; i < n; i++)
+                copy_page_entry(&entries[i], &g_page->entries[i]);
+        }
+
+        __asm__ volatile("" ::: "memory");
+        uint32_t s2 = g_page->seq;
+        if (!(s1 & 1u) && s1 == s2 && g_page->magic == PROC_PAGE_MAGIC) {
+            if (count_out)
+                *count_out = n;
+            if (info_out)
+                *info_out = info;
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace
@@ -90,43 +134,57 @@ bool map_proc_page()
     return true;
 }
 
+bool refresh_snapshot()
+{
+    /* Always hits kernel publish path (throttled server-side). */
+    long p = hsrc::sdk::syscall0(SYS_PROC_MAP);
+    if (p <= 0)
+        return false;
+    const proc_page_t *pp = (const proc_page_t *)(uintptr_t)p;
+    if (!pp || pp->magic != PROC_PAGE_MAGIC)
+        return false;
+    g_page = pp;
+    return true;
+}
+
 bool snapshot(ProcListEntry *entries, int max_entries, int *count_out, SysInfo *info_out)
 {
-    proc_page_t page{};
-    if (!read_page(&page))
+    return read_snapshot(entries, max_entries, count_out, info_out);
+}
+
+int snapshot_count()
+{
+    int count = 0;
+    if (read_snapshot(nullptr, 0, &count, nullptr))
+        return count;
+    return -1;
+}
+
+bool snapshot_entry(int index, ProcListEntry *out)
+{
+    if (!out || index < 0)
+        return false;
+    if (!map_proc_page() || !g_page)
         return false;
 
-    int n = (int)page.count;
-    if (n > max_entries)
-        n = max_entries;
-    if (n < 0)
-        n = 0;
+    for (int spin = 0; spin < 64; spin++) {
+        uint32_t s1 = g_page->seq;
+        __asm__ volatile("" ::: "memory");
+        if (s1 & 1u)
+            continue;
 
-    if (entries && n > 0) {
-        for (int i = 0; i < n; i++) {
-            entries[i].pid = page.entries[i].pid;
-            entries[i].ppid = page.entries[i].ppid;
-            entries[i].state = page.entries[i].state;
-            entries[i].is_user = page.entries[i].is_user;
-            entries[i].cpu_ticks = page.entries[i].cpu_ticks;
-            entries[i].uptime_ticks = page.entries[i].uptime_ticks;
-            entries[i].mem_bytes = page.entries[i].mem_bytes;
-            memcpy(entries[i].name, page.entries[i].name, sizeof(entries[i].name));
-            entries[i].name[sizeof(entries[i].name) - 1] = 0;
-        }
-    }
+        int page_count = (int)g_page->count;
+        if (index >= page_count)
+            return false;
 
-    if (count_out)
-        *count_out = n;
-    if (info_out) {
-        info_out->uptime_ticks = page.uptime_ticks;
-        info_out->total_cpu_ticks = page.total_cpu_ticks;
-        info_out->total_ram_bytes = page.total_ram_bytes;
-        info_out->used_ram_bytes = page.used_ram_bytes;
-        info_out->free_ram_bytes = page.free_ram_bytes;
-        info_out->process_count = page.process_count;
+        copy_page_entry(out, &g_page->entries[index]);
+
+        __asm__ volatile("" ::: "memory");
+        uint32_t s2 = g_page->seq;
+        if (!(s1 & 1u) && s1 == s2 && g_page->magic == PROC_PAGE_MAGIC)
+            return true;
     }
-    return true;
+    return false;
 }
 
 uint32_t snapshot_seq()

@@ -7,6 +7,8 @@
 namespace hsrc::sdk::process {
 
 constexpr int kMaxProcesses = PROC_PAGE_MAX;
+/* 8KiB user stacks — never allocate ProcListEntry[kMaxProcesses] on stack. */
+constexpr int kMaxStackProcesses = 32;
 
 enum State : uint32_t {
     Unused = 0,
@@ -65,8 +67,13 @@ long getppid();
 
 /* Map shared proc page once (SYS_PROC_MAP). Safe to call repeatedly. */
 bool map_proc_page();
-/* Hot path: seqlock-read snapshot — no syscall after map. */
+/* Force kernel republish + remap pointer (use sparingly from app loops). */
+bool refresh_snapshot();
+/* Hot path: seqlock-read snapshot — no syscall after map/refresh. */
 bool snapshot(ProcListEntry *entries, int max_entries, int *count_out, SysInfo *info_out);
+/* Stack-safe: read one row from the mapped page (no large caller buffer). */
+int snapshot_count();
+bool snapshot_entry(int index, ProcListEntry *out);
 /* seq changes when kernel republishes; generation bumps on create/exit. */
 uint32_t snapshot_seq();
 uint32_t snapshot_generation();

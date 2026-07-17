@@ -324,8 +324,12 @@ void process_snapshot_publish(void)
     uint32_t free_ram;
     int was_dirty = g_proc_page_dirty;
 
-    /* Refresh at least every 8 scheduler ticks for CPU% samples; sooner if dirty. */
-    if (!was_dirty && now - g_proc_page_last_tick < 8)
+    /*
+     * Only republish when the table changed, or the previous sample is stale.
+     * Callers (SYS_PROC_MAP / PROC_LIST) invoke this on demand — not per-yield.
+     */
+    if (!was_dirty && g_proc_page_last_tick != 0 &&
+        now - g_proc_page_last_tick < 16)
         return;
 
     used_ram = (uint32_t)heap_used();
@@ -337,6 +341,9 @@ void process_snapshot_publish(void)
     for (int i = 0; i < PROC_MAX; i++) {
         process_t *p = g_procs[i];
         if (!p || p->state == PROC_UNUSED)
+            continue;
+        /* Skip unreaped zombies — they clutter Activity Monitor as "Zombie". */
+        if (p->state == PROC_ZOMBIE)
             continue;
         if (filled < PROC_PAGE_MAX) {
             proc_page_entry_t *dst = &g_proc_page.entries[filled++];

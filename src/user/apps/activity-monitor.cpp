@@ -30,11 +30,12 @@ constexpr int kPad = 12;
 constexpr int kRowH = 22;
 constexpr int kVisibleRows = 12;
 constexpr int kListY = kChromeTitleH + 72;
-constexpr int kMaxEntries = hsrc::sdk::process::kMaxProcesses;
+/* User stacks are 8KiB — keep snapshot buffers in BSS, not on the stack. */
+constexpr int kMaxEntries = 96;
 constexpr int kStatusChars = 128;
 constexpr int kThemePollEvery = 240;
-/* Sample when shared page seq advances; also force-redraw at this yield cadence. */
-constexpr int kOptsPollEvery = 32;
+/* ~1–2 Hz sample cadence (yield-counted, not per-yield publish). */
+constexpr int kSampleEvery = 24;
 
 struct MonitorEntry {
     ProcListEntry proc{};
@@ -52,6 +53,7 @@ ScreenInfo g_screen{};
 Input g_prev_input{};
 MonitorEntry g_entries[kMaxEntries];
 PrevSample g_prev_samples[kMaxEntries];
+ProcListEntry g_snapshot_scratch[kMaxEntries];
 SysInfo g_sysinfo{};
 ProcStat g_selected_stat{};
 int g_entry_count = 0;
@@ -60,12 +62,11 @@ bool g_has_selected_stat = false;
 bool g_dirty = true;
 bool g_was_minimized = false;
 int g_theme_poll = 0;
-int g_opts_poll = 0;
+int g_sample_poll = 0;
 pid_t g_selected_pid = -1;
 pid_t g_self_pid = -1;
 uint64_t g_prev_total_ticks = 0;
 uint32_t g_total_cpu_pct = 0;
-uint32_t g_last_seq = 0;
 uint64_t g_last_sample_ticks = 0;
 char g_status[kStatusChars];
 
@@ -150,29 +151,6 @@ void remember_samples()
     }
 }
 
-void sort_entries()
-{
-    for (int i = 0; i < g_entry_count; i++) {
-        for (int j = i + 1; j < g_entry_count; j++) {
-            bool swap = false;
-            if (g_entries[j].cpu_pct > g_entries[i].cpu_pct)
-                swap = true;
-            else if (g_entries[j].cpu_pct == g_entries[i].cpu_pct &&
-                     g_entries[j].proc.mem_bytes > g_entries[i].proc.mem_bytes)
-                swap = true;
-            else if (g_entries[j].cpu_pct == g_entries[i].cpu_pct &&
-                     g_entries[j].proc.mem_bytes == g_entries[i].proc.mem_bytes &&
-                     g_entries[j].proc.pid < g_entries[i].proc.pid)
-                swap = true;
-            if (swap) {
-                MonitorEntry tmp = g_entries[i];
-                g_entries[i] = g_entries[j];
-                g_entries[j] = tmp;
-            }
-        }
-    }
-}
-
 int selected_index()
 {
     for (int i = 0; i < g_entry_count; i++) {
@@ -194,54 +172,90 @@ bool can_end_task()
 
 void refresh_monitor(bool keep_status)
 {
-    ProcListEntry raw[kMaxEntries];
     SysInfo info{};
     int count = 0;
+    int live = 0;
 
-    if (!hsrc::sdk::process::snapshot(raw, kMaxEntries, &count, &info)) {
+    if (!hsrc::sdk::process::refresh_snapshot()) {
         set_status("proc snapshot unavailable");
+        g_dirty = true;
+        return;
+    }
+    if (!hsrc::sdk::process::snapshot(g_snapshot_scratch, kMaxEntries, &count, &info)) {
+        set_status("proc snapshot unavailable");
+        g_dirty = true;
         return;
     }
     if (count > kMaxEntries)
         count = kMaxEntries;
 
+    /* Drop zombies client-side too (kernel already filters). */
+    for (int i = 0; i < count && live < kMaxEntries; i++) {
+        if (g_snapshot_scratch[i].state == hsrc::sdk::process::Zombie ||
+            g_snapshot_scratch[i].state == hsrc::sdk::process::Unused)
+            continue;
+        g_entries[live].proc = g_snapshot_scratch[i];
+        g_entries[live].cpu_pct = 0;
+        live++;
+    }
+    count = live;
+
     uint64_t total_delta = 0;
     if (info.total_cpu_ticks >= g_prev_total_ticks)
         total_delta = info.total_cpu_ticks - g_prev_total_ticks;
     uint32_t total_delta32 = narrow_u64(total_delta);
-    g_total_cpu_pct = 0;
+    uint32_t next_cpu = 0;
     if (total_delta32 > 0 && g_last_sample_ticks > 0) {
         uint64_t sample_dt = info.uptime_ticks >= g_last_sample_ticks
                                  ? info.uptime_ticks - g_last_sample_ticks
                                  : 0;
         if (sample_dt == 0)
             sample_dt = 1;
-        g_total_cpu_pct = (total_delta32 * 100u) / narrow_u64(sample_dt);
-        if (g_total_cpu_pct > 100)
-            g_total_cpu_pct = 100;
+        next_cpu = (total_delta32 * 100u) / narrow_u64(sample_dt);
+        if (next_cpu > 100)
+            next_cpu = 100;
+    }
+
+    for (int i = 0; i < count; i++) {
+        if (total_delta32 > 0 && next_cpu > 0) {
+            uint64_t prev = prev_ticks_for(g_entries[i].proc.pid);
+            uint64_t delta = g_entries[i].proc.cpu_ticks >= prev
+                                 ? g_entries[i].proc.cpu_ticks - prev
+                                 : 0;
+            uint32_t delta32 = narrow_u64(delta);
+            g_entries[i].cpu_pct = (delta32 * next_cpu) / total_delta32;
+        }
+    }
+
+    for (int i = 0; i < count; i++) {
+        for (int j = i + 1; j < count; j++) {
+            bool swap = false;
+            if (g_entries[j].cpu_pct > g_entries[i].cpu_pct)
+                swap = true;
+            else if (g_entries[j].cpu_pct == g_entries[i].cpu_pct &&
+                     g_entries[j].proc.mem_bytes > g_entries[i].proc.mem_bytes)
+                swap = true;
+            else if (g_entries[j].cpu_pct == g_entries[i].cpu_pct &&
+                     g_entries[j].proc.mem_bytes == g_entries[i].proc.mem_bytes &&
+                     g_entries[j].proc.pid < g_entries[i].proc.pid)
+                swap = true;
+            if (swap) {
+                MonitorEntry tmp = g_entries[i];
+                g_entries[i] = g_entries[j];
+                g_entries[j] = tmp;
+            }
+        }
     }
 
     g_sysinfo = info;
     g_entry_count = count;
-    for (int i = 0; i < g_entry_count; i++) {
-        g_entries[i].proc = raw[i];
-        g_entries[i].cpu_pct = 0;
-        if (total_delta32 > 0 && g_total_cpu_pct > 0) {
-            uint64_t prev = prev_ticks_for(raw[i].pid);
-            uint64_t delta = raw[i].cpu_ticks >= prev ? raw[i].cpu_ticks - prev : 0;
-            uint32_t delta32 = narrow_u64(delta);
-            g_entries[i].cpu_pct = (delta32 * g_total_cpu_pct) / total_delta32;
-        }
-    }
+    g_total_cpu_pct = next_cpu;
 
-    sort_entries();
     remember_samples();
     g_prev_total_ticks = info.total_cpu_ticks;
     g_last_sample_ticks = info.uptime_ticks;
-    g_last_seq = hsrc::sdk::process::snapshot_seq();
 
     if (g_selected_pid > 0) {
-        /* Prefer list row data — avoid PROC_STAT syscall every sample. */
         int idx = selected_index();
         if (idx >= 0) {
             const ProcListEntry &e = g_entries[idx].proc;
@@ -266,7 +280,9 @@ void refresh_monitor(bool keep_status)
     if (g_scroll > 0 && g_scroll >= g_entry_count)
         g_scroll = g_entry_count > 0 ? g_entry_count - 1 : 0;
     if (!keep_status)
-        set_status("shared snapshot · select then end");
+        set_status("select a process · end to terminate");
+    /* Always repaint after a successful sample — cpu/state ticks change even
+     * when sorted row order looks identical. */
     g_dirty = true;
 }
 
@@ -535,22 +551,11 @@ extern "C" void mke_main(void)
                 g_dirty = true;
         }
 
-        /* WM_GET only on a slow cadence unless we need geometry for clicks. */
-        g_opts_poll++;
-        if (g_opts_poll >= kOptsPollEvery) {
-            g_opts_poll = 0;
-            (void)refresh_window_options();
-        }
+        (void)refresh_window_options();
 
         Input in{};
         if (hsrc::sdk::input(in)) {
-            const bool moved = in.mouse_x != g_prev_input.mouse_x ||
-                               in.mouse_y != g_prev_input.mouse_y;
             const uint8_t pressed = (uint8_t)(in.buttons & ~g_prev_input.buttons);
-            if (moved || pressed) {
-                g_opts_poll = kOptsPollEvery;
-                (void)refresh_window_options();
-            }
             if (pressed & UGX_BTN_LEFT) {
                 const bool interactive = !g_win_opts.minimized && g_win_opts.visible;
                 const int lx = in.mouse_x - g_win_opts.x;
@@ -564,11 +569,13 @@ extern "C" void mke_main(void)
             g_prev_input = in;
         }
 
-        /* Sample only when kernel republished the shared page. */
+        /* Slow on-demand sample — never chase every kernel seq bump. */
         if (!g_win_opts.minimized) {
-            uint32_t seq = hsrc::sdk::process::snapshot_seq();
-            if (seq != 0 && seq != g_last_seq && (seq & 1u) == 0)
+            g_sample_poll++;
+            if (g_sample_poll >= kSampleEvery) {
+                g_sample_poll = 0;
                 refresh_monitor(true);
+            }
         }
 
         if (g_dirty && !g_win_opts.minimized) {
