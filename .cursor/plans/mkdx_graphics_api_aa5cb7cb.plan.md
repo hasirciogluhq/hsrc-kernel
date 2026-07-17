@@ -4,25 +4,25 @@ overview: Kernel core ince kalır. Grafik = drivers/mkdx + drivers/display (ayr�
 todos:
   - id: layout-drivers
     content: src/gfx ve fb public API kaldir; drivers/mkdx + drivers/display_* + pci .h/.c yan yana
-    status: pending
+    status: completed
   - id: kmod-format
     content: Ayrı build .kmod ELF + kernel module loader (reloc/register)
-    status: pending
+    status: completed
   - id: boot-load-mods
     content: Multiboot mods / initrd ile boot aninda display+mkdx load; VFS yok
-    status: pending
+    status: completed
   - id: display-backends
-    content: display_ops; backend_bga + backend_virtio_gpu; probe virtio>bga; GetScreenSize
+    content: "display_ops + BGA OK; virtio kmod iskelet (scanout yok → display_register etmiyor; virtio>bga henüz aktif değil)"
     status: pending
   - id: mkdx-driver
-    content: MKDX API+compositor+clip/mask/3D; Present→display_ops; soft-copy yok
-    status: pending
+    content: "MKDX compositor/Present/blur OK; 2D clip/opacity/round OK; mask uygulanmiyor; 3D buffer/pipeline/submit iskelet"
+    status: completed
   - id: syscall-glue
     content: Kernel core sadece SYS_GX_* → mkdx export; driver yoksa -1
-    status: pending
+    status: completed
   - id: qemu-pack
     content: Makefile ayri driver build + run (initrd/mods ile load)
-    status: pending
+    status: completed
 isProject: false
 ---
 
