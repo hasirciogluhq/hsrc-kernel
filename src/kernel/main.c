@@ -56,7 +56,7 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
 
     /*
      * Heap lives in a Multiboot-discovered available region above the fixed
-     * .mke load window (see bootmem). Avoid a huge .bss heap — loaders may
+     * .mke load window (see bootmem). Avoid a huge .bss heap - loaders may
      * place the initrd inside the kernel BSS span and then zero it.
      */
     if (bootmem_init(mbi, &mem) < 0 || mem.heap_size == 0) {
@@ -140,7 +140,7 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     klog("[boot] display active\n");
 
     if (!mkdx_api_get()) {
-        klog("[boot] mkdx NOT loaded — UI cannot start\n");
+        klog("[boot] mkdx NOT loaded - UI cannot start\n");
         vga_print("mkdx not loaded\n");
         for (;;)
             __asm__ volatile("hlt");
@@ -148,7 +148,7 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     klog("[boot] mkdx ready\n");
     klog_heap("[boot]");
 
-    /* Calm spinner while userspace comes up — covers the raw LFB blue flash. */
+    /* Calm spinner while userspace comes up - covers the raw LFB blue flash. */
     boot_splash_show();
 
     service_register_builtin_defaults();

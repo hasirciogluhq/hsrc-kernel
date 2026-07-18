@@ -122,7 +122,7 @@ ThemeMode resolve_mode(Appearance appearance)
 {
     if (appearance == Appearance::Dark)
         return ThemeMode::Dark;
-    /* Auto has no clock/sensor yet — fall back to Light. */
+    /* Auto has no clock/sensor yet - fall back to Light. */
     return ThemeMode::Light;
 }
 
@@ -146,7 +146,7 @@ Appearance read_appearance_from_ini(int *status)
     int fd = (int)hsrc::sdk::open(kIniPath, O_RDONLY);
     if (fd < 0) {
         if (status)
-            *status = 0; /* treat as absent — expected before first Settings save */
+            *status = 0; /* treat as absent - expected before first Settings save */
         return Appearance::Light;
     }
 
@@ -527,7 +527,7 @@ long find_settings_window()
     if (wid >= 0)
         return wid;
 
-    /* Class lookup — one syscall, no id-space probe storm. */
+    /* Class lookup - one syscall, no id-space probe storm. */
     wid = hsrc::sdk::syscall1(SYS_WM_FIND_CLASS, (long)kSettingsClass);
     if (wid >= 0)
         return wid;

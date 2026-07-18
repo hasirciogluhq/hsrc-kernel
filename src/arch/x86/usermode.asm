@@ -20,7 +20,7 @@ enter_usermode:
     pushf
     pop eax
     ; IF must stay set in ring 3. With IF=0 the PIT never fires while
-    ; yield(0) apps keep the CPU busy — sleepers (os-ui yield(N)) stay
+    ; yield(0) apps keep the CPU busy - sleepers (os-ui yield(N)) stay
     ; BLOCKED forever and the desktop freezes behind open windows.
     or eax, 0x200           ; IF=1
     push eax                ; EFLAGS

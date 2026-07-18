@@ -92,7 +92,7 @@ int mkdx_draw_indexed(mkdx_gpu *gpu, int pipeline, int vbo, int ibo,
     (void)ibo;
     (void)index_count;
     (void)index_offset;
-    /* SW raster path reserved — record-only for now */
+    /* SW raster path reserved - record-only for now */
     return 0;
 }
 

@@ -32,7 +32,7 @@ typedef struct {
 /* Log only setup-ish GX/WM calls (not per-frame YIELD/DAMAGE/INPUT/GET probes). */
 static int sys_log_interesting(long n)
 {
-    /* Skip present/focus/show — hot path spam stalls serial + BSP. */
+    /* Skip present/focus/show - hot path spam stalls serial + BSP. */
     return n == SYS_GX_INFO || n == SYS_WM_CREATE ||
            n == SYS_WM_CLOSE ||
            n == SYS_WM_MAP || n == SYS_GX_SET_WALLPAPER || n == SYS_WM_DESTROY ||
@@ -430,7 +430,7 @@ static long do_yield(long sleep_ticks)
     process_t *p = process_current();
 
     /* Optional coop reschedule (sleep_ticks==0). sleep_ticks>0 → PROC_BLOCKED.
-     * Fairness does not require yield — timer preemption handles CPU hogs. */
+     * Fairness does not require yield - timer preemption handles CPU hogs. */
     if (cpu_id() == 0) {
         drivers_poll();
         if (api && api->pump_input)
@@ -626,7 +626,7 @@ static long do_setenv(long name_ptr, long val_ptr, long global_flag)
 
 static long do_proc_list(long outp, long max_entries)
 {
-    /* Prefer shared snapshot — one publish, no per-call table storm. */
+    /* Prefer shared snapshot - one publish, no per-call table storm. */
     proc_page_t *page;
     proc_list_entry_t chunk[16];
     int total;
@@ -1705,7 +1705,7 @@ long syscall_dispatch(long n, long a1, long a2, long a3, long a4, long a5)
         proc_page_t *pp = process_page_get();
         if (!pp || pp->magic != PROC_PAGE_MAGIC)
             return 0;
-        /* Consumers asked for a fresh sample — bypass idle throttle. */
+        /* Consumers asked for a fresh sample - bypass idle throttle. */
         process_snapshot_mark_dirty();
         process_snapshot_publish();
         return (long)(uintptr_t)pp;

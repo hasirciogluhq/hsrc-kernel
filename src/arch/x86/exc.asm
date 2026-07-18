@@ -1,5 +1,5 @@
 ; CPU exception stubs → exc_handler(regs *)
-; Vectors 0–31. Some push an error code; others get a fake 0.
+; Vectors 0-31. Some push an error code; others get a fake 0.
 
 %macro ISR_NOERR 1
 global isr_exc_%1

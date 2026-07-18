@@ -30,20 +30,20 @@ static int32_t g_deferred_mx, g_deferred_my;
 static int g_deferred_btn;
 static uint8_t g_deferred_btn_code;
 static int32_t g_deferred_btn_x, g_deferred_btn_y;
-/* Cursor hops during g_frame_busy — apply as soon as the frame releases bb. */
+/* Cursor hops during g_frame_busy - apply as soon as the frame releases bb. */
 static int g_pending_cursor;
 static int32_t g_pending_cx, g_pending_cy;
-/* Last pointer we notified — collapse duplicate poll_input MOVE wakes. */
+/* Last pointer we notified - collapse duplicate poll_input MOVE wakes. */
 static int g_have_last_notify;
 static int32_t g_last_notify_mx, g_last_notify_my;
-/* Drag damage as two rects — never the fat old∪new bbox (that was the hitch). */
+/* Drag damage as two rects - never the fat old∪new bbox (that was the hitch). */
 static int g_drag_damage;
 static gx_rect g_drag_old;
 static gx_rect g_drag_new;
-/* Publish during drag updated front — blit in place without a move slide. */
+/* Publish during drag updated front - blit in place without a move slide. */
 static int g_drag_content;
 
-/* Classic arrow — 0 empty, 1 outline, 2 fill */
+/* Classic arrow - 0 empty, 1 outline, 2 fill */
 static const uint8_t cursor_mask[CURSOR_H][CURSOR_W] = {
     {1,0,0,0,0,0,0,0,0,0,0,0},
     {1,1,0,0,0,0,0,0,0,0,0,0},
@@ -173,7 +173,7 @@ static void draw_cursor_on_bb(gx_server *s, int32_t x, int32_t y)
     gx_accel_blit(s->device.backbuffer, x, y, s->cursor);
 }
 
-/* Must run before drag_slide / underlay capture — never drop valid without restore. */
+/* Must run before drag_slide / underlay capture - never drop valid without restore. */
 static void cursor_erase_from_bb(gx_server *s)
 {
     if (g_cursor_under_valid)
@@ -292,7 +292,7 @@ static void pending_mark_full(void)
 {
     g_pending_dirty = 1;
     g_pending_full = 1;
-    /* Sibling/full damage during drag — underlay pixels are no longer valid. */
+    /* Sibling/full damage during drag - underlay pixels are no longer valid. */
     if (g_server.wm.drag_id >= 0)
         gx_compositor_drag_invalidate_underlay();
 }
@@ -406,7 +406,7 @@ void gx_server_mark_drag_move(gx_rect old_r, gx_rect new_r)
     old_r = gx_rect_intersect(old_r, screen);
     new_r = gx_rect_intersect(new_r, screen);
 
-    /* Keep earliest unrestored old + latest dest — never union into dirty_rect. */
+    /* Keep earliest unrestored old + latest dest - never union into dirty_rect. */
     if (!g_drag_damage)
         g_drag_old = old_r;
     g_drag_new = new_r;
@@ -431,8 +431,8 @@ static void flush_cursor_at(gx_server *s, int32_t mx, int32_t my)
     oy = s->cursor_y;
 
     /*
-     * Software cursor (C21–C23): update backbuffer fully, then scanout.
-     * Never present the erase before the new glyph — that flashes a hole
+     * Software cursor (C21-C23): update backbuffer fully, then scanout.
+     * Never present the erase before the new glyph - that flashes a hole
      * on fast moves (erase→present→draw→present).
      */
     if (g_cursor_under_valid) {
@@ -456,7 +456,7 @@ static void flush_cursor_at(gx_server *s, int32_t mx, int32_t my)
     if (uni_area <= (CURSOR_W * CURSOR_H) * 4) {
         present_rect(s, uni.x, uni.y, uni.w, uni.h);
     } else {
-        /* Far jump: show new first, then clear old — cursor never blanks. */
+        /* Far jump: show new first, then clear old - cursor never blanks. */
         present_rect(s, mx, my, CURSOR_W, CURSOR_H);
         present_rect(s, ox, oy, CURSOR_W, CURSOR_H);
     }
@@ -518,7 +518,7 @@ static void end_drag_if_released(gx_server *s)
     int drag_id;
     gx_rect frame;
 
-    /* Grab ends on button-up anywhere — even if the UP event was coalesced away. */
+    /* Grab ends on button-up anywhere - even if the UP event was coalesced away. */
     if (!s || s->wm.drag_id < 0)
         return;
     ms = mouse_get();
@@ -576,7 +576,7 @@ void gx_server_poll_input(void)
                 have_move = 0;
             }
             flags |= INPUT_EV_BUTTON;
-            /* Focus/raise start damage — defer across compose; never drop the grab. */
+            /* Focus/raise start damage - defer across compose; never drop the grab. */
             if (g_frame_busy) {
                 g_deferred_btn = 1;
                 g_deferred_btn_code = ev.button;
@@ -623,7 +623,7 @@ void gx_server_poll_input(void)
 
     /*
      * Safety net: position can move (PS/2 drained elsewhere) without a live
-     * queue entry — still notify so wait_events(-1) shell wakes for hover.
+     * queue entry - still notify so wait_events(-1) shell wakes for hover.
      */
     if (ms && (ms->x != s->cursor_x || ms->y != s->cursor_y))
         flags |= INPUT_EV_MOVE;
@@ -670,7 +670,7 @@ void gx_server_pump_input(void)
 
     /*
      * C21/C22: cursor must track the pointer even when apps are PROC_BLOCKED.
-     * During compose the backbuffer is owned — remember the tip and apply
+     * During compose the backbuffer is owned - remember the tip and apply
      * as soon as the frame finishes (see gx_server_frame_tick).
      */
     if (g_frame_busy) {
@@ -699,7 +699,7 @@ int gx_server_init(void)
     if (proc_console_init() < 0)
         return -1;
 
-    /* Compose directly into the display backbuffer — a second full-screen
+    /* Compose directly into the display backbuffer - a second full-screen
      * scene surface (~3.6MiB @ 1280×720) starved WM window allocations on the
      * bump heap (files / activity-monitor create failed; terminal barely fit). */
     g_server.cursor = make_cursor();
@@ -748,7 +748,7 @@ static void present_full_frame(gx_server *s, display_ops_t *ops,
  * Live drag: one coalesced slide to the pointer tip, then a tight present.
  * Multi-hop trail unions were presenting a path AABB every frame (~1 FPS).
  * Sibling publishes invalidate underlay and are absorbed into this tick's
- * live reseed (seed_extra) — not deferred until button-up.
+ * live reseed (seed_extra) - not deferred until button-up.
  */
 static int frame_tick_drag(gx_server *s, display_ops_t *ops)
 {
@@ -772,7 +772,7 @@ static int frame_tick_drag(gx_server *s, display_ops_t *ops)
     if (dw)
         layer_id = dw->layer_id;
 
-    /* Cursor off bb before underlay capture — otherwise ghosts bake into drag. */
+    /* Cursor off bb before underlay capture - otherwise ghosts bake into drag. */
     cursor_erase_from_bb(s);
 
     /*
@@ -785,7 +785,7 @@ static int frame_tick_drag(gx_server *s, display_ops_t *ops)
     flush_deferred_move(s);
     end_drag_if_released(s);
     if (s->wm.drag_id < 0) {
-        /* Release during coalesce — fall through to normal dirty compose. */
+        /* Release during coalesce - fall through to normal dirty compose. */
         if (g_tick_depth <= 3)
             return gx_server_frame_tick();
         return 0;
@@ -847,7 +847,7 @@ static int frame_tick_drag(gx_server *s, display_ops_t *ops)
     old_r = g_drag_old;
     new_r = g_drag_new;
     g_drag_damage = 0;
-    /* Slide blits latest front — content publish rides along. */
+    /* Slide blits latest front - content publish rides along. */
     g_drag_content = 0;
 
     g_frame_busy = 1;
@@ -863,7 +863,7 @@ static int frame_tick_drag(gx_server *s, display_ops_t *ops)
     s->frame_seq++;
     g_frame_busy = 0;
 
-    /* Next moves wait for the following frame_tick — do not nest another slide. */
+    /* Next moves wait for the following frame_tick - do not nest another slide. */
     gx_server_poll_input();
     flush_deferred_btn(s);
     flush_deferred_move(s);
@@ -933,7 +933,7 @@ int gx_server_frame_tick(void)
         return 0;
     }
 
-    /* Drag ended with leftover split damage — fold into normal dirty. */
+    /* Drag ended with leftover split damage - fold into normal dirty. */
     if (g_drag_damage) {
         gx_server_mark_dirty_rect(g_drag_old);
         gx_server_mark_dirty_rect(g_drag_new);
@@ -1095,7 +1095,7 @@ void gx_server_present(void)
     if (!s)
         return;
 
-    /* Pre-frame input (not busy yet — drag applies immediately). */
+    /* Pre-frame input (not busy yet - drag applies immediately). */
     gx_server_poll_input();
     gx_server_frame_tick();
 }

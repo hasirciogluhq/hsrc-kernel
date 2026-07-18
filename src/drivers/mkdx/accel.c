@@ -3,7 +3,7 @@
 
 /*
  * Pixel-perfect rounded rect. Mirror into TL quadrant so all four corners
- * share one circle test — no asymmetric gaps from w-r-1 centers.
+ * share one circle test - no asymmetric gaps from w-r-1 centers.
  */
 int gx_point_in_round_rect(int32_t lx, int32_t ly, int32_t w, int32_t h, int32_t r)
 {

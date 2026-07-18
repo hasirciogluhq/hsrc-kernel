@@ -81,7 +81,7 @@ static int pc_fill(inode_t *inode, page_cache_entry_t *e)
     if (inode->i_mapping && inode->i_mapping->a_ops &&
         inode->i_mapping->a_ops->readpage)
         return inode->i_mapping->a_ops->readpage(inode, e->data, e->index);
-    /* Fallback: no a_ops — leave zeroed */
+    /* Fallback: no a_ops - leave zeroed */
     return 0;
 }
 

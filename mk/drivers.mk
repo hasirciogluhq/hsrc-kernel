@@ -102,7 +102,7 @@ KMOD_BGA    := $(DRIVERS)/display_bga.kmod
 KMOD_VIRTIO := $(DRIVERS)/display_virtio.kmod
 KMOD_MKDX   := $(DRIVERS)/mkdx.kmod
 
-# Load order: FS/block first, then display/MKDX (before net — keeps heap for FB), then net
+# Load order: FS/block first, then display/MKDX (before net - keeps heap for FB), then net
 KMODS := \
 	$(KMOD_BLOCK) $(KMOD_VFS) \
 	$(KMOD_PART_GPT) $(KMOD_PART_MBR) \

@@ -1,7 +1,7 @@
 #ifndef IMGUI_DEMO_MATH_H
 #define IMGUI_DEMO_MATH_H
 
-/* Declarations only — ImGui uses ImFabs/ImSqrt wrappers from imconfig.h. */
+/* Declarations only - ImGui uses ImFabs/ImSqrt wrappers from imconfig.h. */
 
 #ifdef __cplusplus
 extern "C" {

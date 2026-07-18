@@ -4,7 +4,7 @@
 #include <kernel/types.h>
 #include <kernel/process.h>
 
-/* Kernel auto-reset events — waiters leave the Ready queue until signal/timeout. */
+/* Kernel auto-reset events - waiters leave the Ready queue until signal/timeout. */
 #define KEVENT_MAX 128
 
 /* timeout_ticks: <0 = forever; 0 = try (non-blocking); >0 = max wait. */
@@ -28,7 +28,7 @@ void process_block(uint64_t wake_tick);
 /* Move BLOCKED → READY; safe from IRQ / other CPU contexts. */
 void process_wake(process_t *p);
 
-/* Input / WM event wait — apps block until real work (not timed sleep). */
+/* Input / WM event wait - apps block until real work (not timed sleep). */
 #define INPUT_EV_MOVE   (1u << 0)
 #define INPUT_EV_BUTTON (1u << 1)
 #define INPUT_EV_WHEEL  (1u << 2)
@@ -40,7 +40,7 @@ uint32_t input_event_seq(void);
 /* Called from MKDX when pointer/key/focus/wm state changes. */
 void     input_event_notify(uint32_t flags, int hit_id, int focus_id,
                             int prev_hit_id, int wm_id);
-/* 1 once after input waiters were woken — timer should force schedule. */
+/* 1 once after input waiters were woken - timer should force schedule. */
 int      input_event_need_sched(void);
 /*
  * Block until seq advances with an event relevant to win_id (-1 = any),

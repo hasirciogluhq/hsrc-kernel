@@ -9,7 +9,7 @@ static spinlock_t g_serial_lock;
 
 void serial_init(void)
 {
-    /* 115200 8N1, FIFO on — QEMU accepts this immediately. */
+    /* 115200 8N1, FIFO on - QEMU accepts this immediately. */
     outb(COM1 + 1, 0x00); /* disable IRQs */
     outb(COM1 + 3, 0x80); /* DLAB on */
     outb(COM1 + 0, 0x01); /* divisor lo (115200) */

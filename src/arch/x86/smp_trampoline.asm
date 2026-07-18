@@ -1,4 +1,4 @@
-; Real-mode AP trampoline — copied to physical 0x8000.
+; Real-mode AP trampoline - copied to physical 0x8000.
 ; Boot info at physical 0x7000 (see smp.c):
 ;   +0  uint32 entry
 ;   +4  uint32 stack

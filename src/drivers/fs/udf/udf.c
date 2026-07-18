@@ -243,7 +243,7 @@ static int udf_parse_alloc_descs(udf_fs_t *fs, const uint8_t *fe, uint32_t fe_si
                 e.sparse = 1;
             else if (etype == 1)
                 e.unwritten = 1;
-            /* etype == 3 means "next extent of ADs" — not supported (rare). */
+            /* etype == 3 means "next extent of ADs" - not supported (rare). */
             if (etype == 3) {
                 /* Skip; a real driver follows this pointer. */
                 off += adsize;
@@ -377,7 +377,7 @@ static int udf_load_node(udf_fs_t *fs, uint32_t abs_lbn, udf_node_t *out)
     out->data.size = out->size;
 
     /* Reuse alloc-desc parser with the right base by rewriting fe layout in-place:
-     * The parser hardcodes 176 + L_EA — for EFE we shift the data so that
+     * The parser hardcodes 176 + L_EA - for EFE we shift the data so that
      * the parser sees ADs at that offset. */
     if (tag_id == UDF_TAG_EXT_FE) {
         /* Move ADs so parser's base of 176+L_EA matches. */

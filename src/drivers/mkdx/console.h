@@ -4,7 +4,7 @@
 #include "window.h"
 #include <kernel/types.h>
 
-/* Pointer table only — console buffers allocate on demand. */
+/* Pointer table only - console buffers allocate on demand. */
 #define PROC_CONSOLE_MAX      1024
 #define PROC_CONSOLE_BUF_SIZE 8192
 #define PROC_CONSOLE_COLS     80

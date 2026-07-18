@@ -16,7 +16,7 @@
 #include <arch/x86/cpu.h>
 #include <arch/x86/lapic.h>
 
-/* Slot table is pointers only — process_t + stacks come from heap / freelist. */
+/* Slot table is pointers only - process_t + stacks come from heap / freelist. */
 static process_t *g_procs[PROC_MAX];
 static process_t *g_proc_freelist;
 /* Exited (ppid==0) procs wait here until schedule() runs on another stack. */
@@ -203,7 +203,7 @@ static void user_trampoline(void (*entry)(void))
 
     scheduler_unlock_new_thread();
     p = process_current();
-    /* Authoritative entry — stack arg can be stale after context_switch. */
+    /* Authoritative entry - stack arg can be stale after context_switch. */
     if (p && p->user_entry)
         entry = p->user_entry;
     klog("[user] enter name=");
@@ -243,7 +243,7 @@ static void user_thread_trampoline(void (*entry)(void))
     gdt_set_kernel_stack(t->kstack_top);
     usp = (uint32_t *)t->ustack_top;
     *--usp = (uint32_t)(uintptr_t)t->thread_arg;
-    *--usp = 0; /* ret — SDK bootstrap calls SYS_THREAD_EXIT */
+    *--usp = 0; /* ret - SDK bootstrap calls SYS_THREAD_EXIT */
     enter_usermode((uint32_t)(uintptr_t)entry, (uint32_t)(uintptr_t)usp);
     for (;;)
         __asm__ volatile("hlt");
@@ -304,7 +304,7 @@ static void process_kill_thread_slot(process_t *t, int code)
         process_clear_slot(t);
 }
 
-/* Parents (os-ui) never waitpid — reap zombies so PROC_MAX does not fill. */
+/* Parents (os-ui) never waitpid - reap zombies so PROC_MAX does not fill. */
 static void process_reap_zombies(void)
 {
     for (int i = 0; i < PROC_MAX; i++) {
@@ -480,7 +480,7 @@ void process_snapshot_publish(void)
 
     /*
      * Only republish when the table changed, or the previous sample is stale.
-     * Callers (SYS_PROC_MAP / PROC_LIST) invoke this on demand — not per-yield.
+     * Callers (SYS_PROC_MAP / PROC_LIST) invoke this on demand - not per-yield.
      */
     if (!was_dirty && g_proc_page_last_tick != 0 &&
         now - g_proc_page_last_tick < 16)
@@ -500,7 +500,7 @@ void process_snapshot_publish(void)
         process_t *p = g_procs[i];
         if (!p || p->state == PROC_UNUSED)
             continue;
-        /* Skip unreaped zombies — they clutter Activity Monitor as "Zombie". */
+        /* Skip unreaped zombies - they clutter Activity Monitor as "Zombie". */
         if (p->state == PROC_ZOMBIE)
             continue;
         if (p->is_idle || p->group)
@@ -664,7 +664,7 @@ pid_t process_thread_create(void (*entry)(void *), void *arg)
     if (!t)
         return (pid_t)-ENOMEM;
 
-    /* Drop console fds opened by alloc_process — share leader resources. */
+    /* Drop console fds opened by alloc_process - share leader resources. */
     process_release_fds(t);
 
     t->group = lead;
@@ -918,7 +918,7 @@ int process_kill(pid_t pid)
             process_kill_thread_slot(t, 137);
     }
 
-    /* Running on another CPU — ask it to exit at next schedule point. */
+    /* Running on another CPU - ask it to exit at next schedule point. */
     if (p->state == PROC_RUNNING && p->cpu >= 0 && p->cpu != cpu_id()) {
         cpu_t *remote = cpu_get(p->cpu);
         p->kill_pending = 1;

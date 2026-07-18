@@ -16,7 +16,7 @@
  *   - Writes go through the block API sector by sector.
  *
  * readdir returns the 8.3 short name for each entry (long file name
- * entries are recognized and skipped — we always report the short
+ * entries are recognized and skipped - we always report the short
  * name in that case).
  *
  * File create is supported (8.3 short names). Not implemented:
@@ -925,7 +925,7 @@ static int fat_init(driver_t *drv, void *ctx)
         else if (api->mount("vda", "/root", "vfat", 0, NULL) == 0)
             vga_print("fat: mounted vda -> /root (vfat, persistent)\n");
         else
-            vga_print("fat: vda not mounted — /root is RAM only!\n");
+            vga_print("fat: vda not mounted - /root is RAM only!\n");
     }
     return 0;
 }

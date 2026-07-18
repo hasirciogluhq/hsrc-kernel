@@ -18,7 +18,7 @@ struct DateTime {
 /* Map shared time page once (SYS_TIME_MAP). Safe to call repeatedly. */
 bool init();
 
-/* Hot path: read shared page + RDTSC interpolate — no syscall. */
+/* Hot path: read shared page + RDTSC interpolate - no syscall. */
 uint64_t unix_ns();
 uint64_t unix_sec();
 uint64_t mono_ns();

@@ -11,7 +11,7 @@
  *
  * Every returned pointer has a real heap_block_t header immediately before
  * it (including high-alignment allocs). High alignment is done by carving
- * lead/tail scraps out of an oversized region — never by writing a fake
+ * lead/tail scraps out of an oversized region - never by writing a fake
  * ALIGN tag into another block's payload/metadata.
  */
 
@@ -184,7 +184,7 @@ static void release_span(uint8_t *start, uint8_t *end)
         return;
     sz = (size_t)(end - start);
     if (sz < HEAP_MIN_BLOCK)
-        return; /* too small — absorbed by neighbor used block instead */
+        return; /* too small - absorbed by neighbor used block instead */
     if (((uintptr_t)start) & 15u)
         return;
 
@@ -324,7 +324,7 @@ static void *alloc_aligned_locked(size_t size, size_t align)
         if (lead == 0 || lead >= HEAP_MIN_BLOCK)
             break;
 
-        /* Lead too small to free — try next aligned slot. */
+        /* Lead too small to free - try next aligned slot. */
         if (user + align < user)
             goto fail;
         user += align;

@@ -18,7 +18,7 @@ CXXFLAGS := -std=c++17 -ffreestanding -m32 -Wall -Wextra -Werror \
             -fno-exceptions -fno-rtti -fno-use-cxa-atexit -fno-threadsafe-statics \
             -I$(INC) -DUSERMODE
 
-# Separate usermode app tree (apps/imgui-demo) — C++23 + freestanding shims
+# Separate usermode app tree (apps/imgui-demo) - C++23 + freestanding shims
 IMGUI_DEMO_DIR := apps/imgui-demo
 IMGUI_DIR      := $(IMGUI_DEMO_DIR)/third_party/imgui
 IMGUI_CXXFLAGS := -std=c++23 -ffreestanding -m32 -Wall -Wextra \

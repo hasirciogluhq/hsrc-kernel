@@ -112,12 +112,12 @@ void irq_dispatch(uint32_t irq)
         drivers_poll();
         /*
          * Keep cursor/WM alive when apps are PROC_BLOCKED (Event / input wait).
-         * Timer also drives preemption via scheduler_on_timer — no yield needed.
+         * Timer also drives preemption via scheduler_on_timer - no yield needed.
          */
         api = mkdx_api_get();
         if (api && api->pump_input)
             api->pump_input();
-        /* EOI before preempt — schedule() may context-switch away. */
+        /* EOI before preempt - schedule() may context-switch away. */
         timer_eoi();
         scheduler_on_timer();
         return;

@@ -409,7 +409,7 @@ static int api_fill(const void *args, int rounded)
         gx_accel_fill_round(w->back, r, a->radius, a->color);
     else
         gx_accel_fill(w->back, r, a->color);
-    /* Visible after publish/present — do not dirty front yet. */
+    /* Visible after publish/present - do not dirty front yet. */
     return 0;
 }
 
@@ -425,7 +425,7 @@ static int api_set_wallpaper(const void *args)
     if (!a->pixels || a->width == 0 || a->height == 0) {
         next = load_default_wallpaper(s);
     } else {
-        /* Keep solid colors as 1x1 — expanding to fullscreen OOMs the bump heap. */
+        /* Keep solid colors as 1x1 - expanding to fullscreen OOMs the bump heap. */
         next = gx_surface_create(a->width, a->height);
         if (!next)
             return -1;
@@ -463,7 +463,7 @@ static int api_input_state(void *out)
     if (!o || !s)
         return -1;
 
-    /* Apps read input before present — poll so coordinates are current. */
+    /* Apps read input before present - poll so coordinates are current. */
     gx_server_pump_input();
 
     ms = mouse_get();

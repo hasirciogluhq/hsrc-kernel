@@ -7,10 +7,10 @@
 
 /*
  * Minimal boot loader: white progress arc on solid black.
- * Rotation and fill are independent — the arc spins continuously while fill
+ * Rotation and fill are independent - the arc spins continuously while fill
  * ping-pongs MIN_FILL_PCT ↔ 100% with ease-in-out.
  *
- * Hard radial band (no inner/outer ring AA — avoids FOV-style outline), angular
+ * Hard radial band (no inner/outer ring AA - avoids FOV-style outline), angular
  * sector test with soft arc-end feather only. Animation is wall-clock driven;
  * frames present as fast as the display path allows (no artificial FPS cap).
  */
@@ -32,7 +32,7 @@
 
 #define SPLASH_DURATION_MS  900    /* ~0.9 s total splash */
 #define FILL_CYCLE_MS       1860   /* full ping-pong period */
-#define ROT_ANG_PER_SEC     61440  /* ~0.94 rev/s — matches prior visual spin rate */
+#define ROT_ANG_PER_SEC     61440  /* ~0.94 rev/s - matches prior visual spin rate */
 
 static int clampi(int v, int lo, int hi)
 {
@@ -168,7 +168,7 @@ static int angle_top_cw(int dx, int dy)
     return a_q & (ANGLE_FULL - 1);
 }
 
-/* Hard radial band — no inner/outer soft ring that reads as a FOV outline. */
+/* Hard radial band - no inner/outer soft ring that reads as a FOV outline. */
 static int arc_radial_cov_q8(int dist)
 {
     if (dist < INNER_R || dist > OUTER_R)

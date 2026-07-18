@@ -11,7 +11,7 @@
 #include <user/string.h>
 
 /*
- * HSRC OS — desktop shell: menubar + dynamic macOS-style dock.
+ * HSRC OS - desktop shell: menubar + dynamic macOS-style dock.
  *
  * Dock layout:  [ pinned apps ]  |  [ running unpinned apps ]
  * Pin state comes from /etc/os-settings.ini (dock.pin.*).
@@ -395,7 +395,7 @@ void scan_windows()
         g_running[i] = false;
         g_minimized[i] = false;
 
-        /* Reuse cached id when still valid — 1 GET instead of id-space probes. */
+        /* Reuse cached id when still valid - 1 GET instead of id-space probes. */
         int id = g_win_id[i];
         WindowOptions opts;
         if (id >= 0 && hsrc::sdk::window_get(id, opts) &&
@@ -506,7 +506,7 @@ int icon_radius(int sz)
 void draw_dock_icon(Surface &s, int ix, int iy, int sz, Color fill)
 {
     const int rad = icon_radius(sz);
-    /* Light soft shadow — not a black slab. */
+    /* Light soft shadow - not a black slab. */
     s.fill_round(ix + 1, iy + 2, sz, sz, rad, rgba(0, 0, 0, 22));
     s.fill_round(ix, iy + 1, sz, sz, rad, rgba(0, 0, 0, 12));
     s.fill_round(ix, iy, sz, sz, rad, fill);
@@ -727,7 +727,7 @@ void paint_menubar()
     s.text(bat_x + bat_w + 4, text_y, pct_txt, bat_tint, 1);
     s.text(clock_x, text_y, g_clock_text, clock_tint, 1);
 
-    /* Full menubar width is acrylic — prefer band damage over full-screen escalate. */
+    /* Full menubar width is acrylic - prefer band damage over full-screen escalate. */
     g_menubar.damage(0, 0, g_sw, kMenubarH);
 }
 
@@ -751,7 +751,7 @@ void paint_dock()
     const int tray0 = (g_dock_w - g_tray_w) / 2;
     const int tray_y = kDockMagPad;
 
-    /* Light glass tray only — mag headroom above stays fully clear. */
+    /* Light glass tray only - mag headroom above stays fully clear. */
     s.fill_round(tray0, tray_y, g_tray_w, kDockTrayH, kDockRad, rgba(255, 255, 255, 48));
     s.fill_round(tray0 + 1, tray_y + 1, g_tray_w - 2, kDockTrayH - 2, kDockRad - 1,
                  rgba(255, 255, 255, 22));
@@ -898,7 +898,7 @@ void dock_activate_slot(int slot_i)
 
     WindowOptions opts;
     if (!hsrc::sdk::window_get(slot.window_id, opts)) {
-        /* Stale cache — rescan soon; do not spawn-storm on GET races. */
+        /* Stale cache - rescan soon; do not spawn-storm on GET races. */
         g_win_id[slot.app] = -1;
         g_scan_tick = kScanEvery;
         if (g_spawn_cool[slot.app] > 0 || g_spawn_fail[slot.app] > 0)
@@ -1025,7 +1025,7 @@ bool build_ui()
     if (!g_menubar.create(menubar_opts))
         return false;
 
-    /* Max tray for all apps + separator — surface stays fixed (no resize thrash). */
+    /* Max tray for all apps + separator - surface stays fixed (no resize thrash). */
     g_dock_w = compute_tray_width(APP_COUNT, true) + 40;
     g_dock_x = (g_sw - g_dock_w) / 2;
     g_dock_y = g_sh - kDockH - 14;
@@ -1107,7 +1107,7 @@ extern "C" void mke_main(void)
             if (refresh_status())
                 dirty_menu = true;
         }
-        /* Clock text from shared time page + RDTSC — no gettime syscall. */
+        /* Clock text from shared time page + RDTSC - no gettime syscall. */
         if (refresh_clock_text())
             dirty_menu = true;
 
@@ -1168,7 +1168,7 @@ extern "C" void mke_main(void)
                 dirty_dock = true;
         }
 
-        /* Flush UI before blocking — never spin with timeout 0. */
+        /* Flush UI before blocking - never spin with timeout 0. */
         if (dirty_menu) {
             (void)g_gx.begin_scene();
             paint_menubar();

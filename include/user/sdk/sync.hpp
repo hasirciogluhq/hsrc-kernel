@@ -9,7 +9,7 @@ namespace hsrc::sdk {
 
 /*
  * Kernel auto-reset Event.
- * wait() leaves Ready until signal/broadcast or timeout — no yield(0) spin.
+ * wait() leaves Ready until signal/broadcast or timeout - no yield(0) spin.
  */
 class Event {
 public:

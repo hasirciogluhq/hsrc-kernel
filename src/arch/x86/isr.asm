@@ -1,4 +1,4 @@
-; int 0x80 — Linux-like syscall entry
+; int 0x80 - Linux-like syscall entry
 
 section .text
 global isr_syscall
@@ -25,7 +25,7 @@ isr_syscall:
     add esp, 8              ; drop int_no + err
 
     ; If returning to ring 3 (CS.RPL != 0), restore user data segments.
-    ; Must NOT touch EAX — that is the syscall return value.
+    ; Must NOT touch EAX - that is the syscall return value.
     test byte [esp + 4], 3  ; CS at [esp+4] after frame adjust
     jz .iret
     push eax

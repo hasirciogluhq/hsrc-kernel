@@ -229,7 +229,7 @@ static uint64_t ext_extent_walk(ext_fs_t *fs, const uint8_t *node, uint32_t logi
         return 0;
     }
 
-    /* Internal node — binary search style but linear is fine here. */
+    /* Internal node - binary search style but linear is fine here. */
     {
         uint32_t idx_block = 0;
         for (i = 0; i < entries; i++) {

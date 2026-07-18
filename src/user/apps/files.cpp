@@ -8,7 +8,7 @@
 #include <user/string.h>
 
 /*
- * Files — gfx API explorer, terminal-clean chrome + list.
+ * Files - gfx API explorer, terminal-clean chrome + list.
  */
 
 namespace {
@@ -461,7 +461,7 @@ extern "C" void mke_main(void)
             g_prev_input = in;
         }
 
-        /* Dirty-gated paint — including during titlebar drag. */
+        /* Dirty-gated paint - including during titlebar drag. */
         if (!g_win_opts.minimized && g_dirty) {
             (void)g_gx.begin_scene();
             paint();

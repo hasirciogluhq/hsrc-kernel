@@ -176,7 +176,7 @@ int drivers_load_all(void *ctx)
 
 void drivers_poll(void)
 {
-    /* Pollable drivers (PS/2, mkdx, …) are not SMP-safe — BSP only. */
+    /* Pollable drivers (PS/2, mkdx, …) are not SMP-safe - BSP only. */
     if (cpu_id() != 0)
         return;
 

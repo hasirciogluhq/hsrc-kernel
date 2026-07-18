@@ -21,7 +21,7 @@
 static uint32_t *bootstrap_esp[CPU_MAX];
 static uint64_t g_switch_ticks;
 static spinlock_t g_sched_lock;
-/* 0 until scheduler_start — timer must not idle_halt/abandon kernel_main. */
+/* 0 until scheduler_start - timer must not idle_halt/abandon kernel_main. */
 static volatile int g_sched_active;
 static uint32_t g_slice_left[CPU_MAX];
 
@@ -30,7 +30,7 @@ static int proc_runnable(process_t *p, uint64_t now)
     if (!p || p->state == PROC_UNUSED || p->state == PROC_ZOMBIE)
         return 0;
     if (p->state == PROC_BLOCKED) {
-        /* Event-only waits use wake_tick == ~0ULL — never timer-runnable. */
+        /* Event-only waits use wake_tick == ~0ULL - never timer-runnable. */
         if (p->wake_tick == ~(uint64_t)0)
             return 0;
         return p->wake_tick <= now;
@@ -99,7 +99,7 @@ static void idle_halt(void)
         __asm__ volatile("sti; hlt" ::: "memory");
         /*
          * BSP drains PS/2 then refreshes the software cursor / wakes input
-         * waiters — apps may be PROC_BLOCKED in wait_events (C21/I08/I11).
+         * waiters - apps may be PROC_BLOCKED in wait_events (C21/I08/I11).
          */
         if (cpu_id() == 0) {
             const mkdx_api_t *api;
@@ -206,7 +206,7 @@ void schedule(void)
     /*
      * Before scheduler_start, irq_init has STI + PIT. A premature schedule()
      * from the timer would idle_halt forever (no apps yet) and never return
-     * to kernel_main — boot hangs right after heap logs.
+     * to kernel_main - boot hangs right after heap logs.
      */
     if (!g_sched_active)
         return;
@@ -264,7 +264,7 @@ void schedule(void)
         return;
     }
 
-    /* Real context switch only — not every timer peek at the same thread. */
+    /* Real context switch only - not every timer peek at the same thread. */
     if (cur && !cur->is_idle)
         g_switch_ticks++;
 
@@ -302,7 +302,7 @@ void scheduler_on_timer(void)
     if (!g_sched_active)
         return;
 
-    /* One CPU tick of work per timer IRQ — not once per schedule() peek. */
+    /* One CPU tick of work per timer IRQ - not once per schedule() peek. */
     cur = process_current();
     if (cur && !cur->is_idle && cur->state == PROC_RUNNING)
         process_account_tick(cur);

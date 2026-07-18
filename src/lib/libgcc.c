@@ -2,7 +2,7 @@
 
 /*
  * Minimal unsigned 64-bit divide/modulo for i386 freestanding kmods.
- * Do not use 64-bit / or % here — GCC would emit calls back into these helpers.
+ * Do not use 64-bit / or % here - GCC would emit calls back into these helpers.
  */
 
 uint64_t __udivmoddi4(uint64_t n, uint64_t d, uint64_t *rem)

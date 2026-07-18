@@ -201,7 +201,7 @@ int modules_load_blob(const char *name, const void *data, size_t size)
     }
     memset(image, 0, image_size);
 
-    /* Layout via offsets — identical to the size pass above. */
+    /* Layout via offsets - identical to the size pass above. */
     off = 0;
     for (i = 0; i < eh->e_shnum; i++) {
         size_t sec_end;

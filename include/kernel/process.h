@@ -8,7 +8,7 @@
 #include <kernel/argv.h>
 #include <kernel/proc_abi.h>
 
-/* Hard ceiling — slots are pointers only; structs/stacks grow on demand. */
+/* Hard ceiling - slots are pointers only; structs/stacks grow on demand. */
 #define PROC_MAX         8192
 #define PROC_KSTACK_SIZE 8192
 #define PROC_USTACK_SIZE 8192
@@ -81,8 +81,8 @@ typedef struct process {
     void        *thread_arg;   /* arg for user thread entry(void *) */
     int          thread_detached;
     pid_t        join_tid;     /* if BLOCKED joining: target tid, else 0 */
-    uid_t        uid;          /* real uid — default 0 (root) */
-    uid_t        euid;         /* effective uid — default 0 (root) */
+    uid_t        uid;          /* real uid - default 0 (root) */
+    uid_t        euid;         /* effective uid - default 0 (root) */
     char         cwd[VFS_PATH_MAX];
     int          slot;         /* index in process table, or -1 */
     uint32_t    *kstack_base;
@@ -136,7 +136,7 @@ int   process_stat(pid_t pid, proc_stat_t *out);
 int   process_sysinfo(sys_info_t *out);
 void  process_account_tick(process_t *p);
 
-/* Shared snapshot page (SYS_PROC_MAP) — publish on demand and state change. */
+/* Shared snapshot page (SYS_PROC_MAP) - publish on demand and state change. */
 proc_page_t *process_page_get(void);
 void         process_snapshot_mark_dirty(void);
 void         process_snapshot_publish(void);

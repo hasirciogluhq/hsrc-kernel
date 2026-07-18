@@ -300,7 +300,7 @@ static int virtio_present_rect(const uint32_t *src, uint32_t src_stride_px,
 /*
  * Drag path: memcpy all damage rects into guest fb, then either one fat
  * TRANSFER of the bbox (small moves) or per-rect TRANSFERs when the bbox
- * is sparse — always a single RESOURCE_FLUSH.
+ * is sparse - always a single RESOURCE_FLUSH.
  */
 static int virtio_present_rects(const uint32_t *src, uint32_t src_stride_px,
                                 const display_rect_t *rects, uint32_t n)
@@ -376,7 +376,7 @@ static int virtio_present_rects(const uint32_t *src, uint32_t src_stride_px,
 
 static int virtio_gpu_submit(const void *cmd, uint32_t size)
 {
-    /* 3D/VirGL path reserved — 2D scanout uses present() */
+    /* 3D/VirGL path reserved - 2D scanout uses present() */
     (void)cmd;
     (void)size;
     return g_ready ? 0 : -1;

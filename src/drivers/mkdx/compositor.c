@@ -8,7 +8,7 @@
 
 /* While dragging, this layer skips acrylic rebuild → opaque + corner-mask blit. */
 static int s_drag_fast_layer = -1;
-/* Pixels under the dragged window (sprite drag — keeps dock/siblings intact). */
+/* Pixels under the dragged window (sprite drag - keeps dock/siblings intact). */
 static gx_surface *s_drag_under;
 static int s_drag_under_ready;
 
@@ -297,7 +297,7 @@ static void blit_span(gx_surface *bb, int32_t dx, int32_t dy,
 
 /* Fast path: opaque solid rows via memcpy when fully opaque source.
  * Rounded layers: AA only on top/bottom corner bands; interior rows memcpy
- * (keeps drag FPS while preserving the corner mask — C03/C12).
+ * (keeps drag FPS while preserving the corner mask - C03/C12).
  * clip is in screen space; empty clip means full layer bounds. */
 static void blit_layer(gx_surface *bb, gx_layer *L, uint8_t opacity, gx_rect clip)
 {
@@ -331,7 +331,7 @@ static void blit_layer(gx_surface *bb, gx_layer *L, uint8_t opacity, gx_rect cli
         if ((y & 31) == 0 && s_drag_fast_layer < 0)
             ps2_poll();
 
-        /* Corner bands only — middle rows are fully opaque (round_span = full). */
+        /* Corner bands only - middle rows are fully opaque (round_span = full). */
         if (rr > 0 && (y < rr || y >= r.h - rr)) {
             int32_t lx0 = vis.x - r.x;
             int32_t lx1 = lx0 + vis.w;
@@ -814,7 +814,7 @@ void gx_compositor_drag_slide(gx_compositor *c, gx_surface *dst,
      * Reseed (first tick or after sibling invalidate): compose live layers
      * over old∪new∪seed_extra with the drag layer hidden, capture underlay
      * at new_r, then blit the window. Never copy uncomposed bb strips into
-     * the underlay — that froze/corrupted siblings after uncover.
+     * the underlay - that froze/corrupted siblings after uncover.
      */
     if (!s_drag_under_ready) {
         if (gx_rect_empty(old_r))
@@ -838,7 +838,7 @@ void gx_compositor_drag_slide(gx_compositor *c, gx_surface *dst,
         return;
     }
 
-    /* Sibling dirty while underlay still marked ready — force live reseed. */
+    /* Sibling dirty while underlay still marked ready - force live reseed. */
     if (!gx_rect_empty(seed_extra)) {
         s_drag_under_ready = 0;
         gx_compositor_drag_slide(c, dst, old_r, new_r, layer_id, seed_extra);
@@ -926,7 +926,7 @@ void gx_compositor_compose_rect(gx_compositor *c, gx_surface *dst, gx_rect clip)
 
     /*
      * Occlusion (P13): if a sharp opaque layer fully covers the clip, skip
-     * wallpaper and everything below it — still correct for partial damage.
+     * wallpaper and everything below it - still correct for partial damage.
      * Rounded windows: use the axis-aligned inset (exclude corner radii) so
      * hover/content damage under opaque clients does not repaint wallpaper.
      */
@@ -968,7 +968,7 @@ void gx_compositor_compose_rect(gx_compositor *c, gx_surface *dst, gx_rect clip)
         if (gx_rect_empty(gx_rect_intersect(L->bounds, clip)))
             continue;
 
-        /* Drag preview: no frost rebuild — opaque sharp blit (C03). */
+        /* Drag preview: no frost rebuild - opaque sharp blit (C03). */
         if (ids[i] == s_drag_fast_layer) {
             gx_layer tmp = *L;
             tmp.style = GX_LAYER_OPAQUE;

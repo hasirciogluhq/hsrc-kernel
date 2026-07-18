@@ -35,7 +35,7 @@
 static display_mode_t g_mode;
 static int g_ready;
 static int g_flip_ok;          /* virt-height double buffer available */
-static int g_front_page;       /* 0 or 1 — currently scanned out */
+static int g_front_page;       /* 0 or 1 - currently scanned out */
 static display_ops_t g_ops;
 
 static void bga_write(uint16_t index, uint16_t value)
@@ -165,7 +165,7 @@ static int bga_present(const uint32_t *src, uint32_t src_stride_px)
     if (g_mode.bytes_per_pixel == 4 && g_flip_ok) {
         int back = 1 - g_front_page;
         copy_page_from_src(bga_page_ptr(back), src, src_stride_px);
-        /* Atomic scanout switch — eliminates tearing vs mid-blit LFB writes. */
+        /* Atomic scanout switch - eliminates tearing vs mid-blit LFB writes. */
         bga_flip_to(back);
         return 0;
     }

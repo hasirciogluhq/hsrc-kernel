@@ -92,7 +92,7 @@ void gx_surface_clear(gx_surface *s, gx_color c)
         memset(s->pixels, 0, n * sizeof(gx_color));
         return;
     }
-    /* First row, then replicate — fewer stores than a flat fill loop. */
+    /* First row, then replicate - fewer stores than a flat fill loop. */
     gx_color *row0 = s->pixels;
     for (uint32_t x = 0; x < s->stride; x++)
         row0[x] = c;

@@ -110,10 +110,10 @@
 #define SYS_EVENT_CREATE    280  /* → event id */
 #define SYS_EVENT_DESTROY   281  /* a1=id */
 #define SYS_EVENT_WAIT      282  /* a1=id a2=timeout_ticks (<0 forever, 0 try) */
-#define SYS_EVENT_SIGNAL    283  /* a1=id — wake one / sticky */
-#define SYS_EVENT_BROADCAST 284  /* a1=id — wake all */
+#define SYS_EVENT_SIGNAL    283  /* a1=id - wake one / sticky */
+#define SYS_EVENT_BROADCAST 284  /* a1=id - wake all */
 #define SYS_THREAD_CREATE   285  /* a1=entry(void*) a2=arg → tid */
-#define SYS_THREAD_EXIT     286  /* a1=code — exit current thread only */
+#define SYS_THREAD_EXIT     286  /* a1=code - exit current thread only */
 #define SYS_THREAD_JOIN     287  /* a1=tid a2=status* → 0; blocks */
 #define SYS_THREAD_DETACH   288  /* a1=tid */
 #define SYS_INPUT_WAIT      289  /* a1=win_id(-1=any) a2=last_seq a3=timeout(<0 forever) → seq */

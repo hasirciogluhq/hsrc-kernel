@@ -4,7 +4,7 @@
 #include "surface.h"
 
 /*
- * "Hardware-accelerated" paths — kernel-side bulk pixel ops.
+ * "Hardware-accelerated" paths - kernel-side bulk pixel ops.
  * On BGA/QEMU this is optimized dword fill/blit (LFB-class throughput).
  * Rounded fills run in the same accel path.
  */

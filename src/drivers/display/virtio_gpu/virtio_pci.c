@@ -80,7 +80,7 @@ static int parse_caps(virtio_pci_dev_t *vd)
 
             volatile uint8_t *ptr;
 
-            /* Type 5 (PCI_CFG) has no BAR — skip. Only map MMIO cap types. */
+            /* Type 5 (PCI_CFG) has no BAR - skip. Only map MMIO cap types. */
             if (cfg_type < VIRTIO_PCI_CAP_COMMON_CFG || cfg_type > VIRTIO_PCI_CAP_DEVICE_CFG)
                 goto next_cap;
 

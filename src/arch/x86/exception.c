@@ -35,7 +35,7 @@ void exc_dispatch(exc_regs_t *r)
     klog("\n");
 
     /* User fault: tear down the process and keep the rest of the OS alive.
-     * Kernel faults still halt — those are not recoverable here. */
+     * Kernel faults still halt - those are not recoverable here. */
     if (p && p->is_user && (r->cs & 3) == 3) {
         klog("[exc] killing user process\n");
         process_exit(139);

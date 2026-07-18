@@ -8,7 +8,7 @@
 #include <user/string.h>
 
 /*
- * Activity Monitor — shared proc_page via seqlock; throttled publish + dirty paint.
+ * Activity Monitor - shared proc_page via seqlock; throttled publish + dirty paint.
  */
 
 namespace {
@@ -49,7 +49,7 @@ constexpr int kColState = 296;
 constexpr int kColCpu = 388;
 constexpr int kColMem = 452;
 constexpr int kColTicks = 548;
-/* User stacks are 8KiB — keep snapshot buffers in BSS, not on the stack. */
+/* User stacks are 8KiB - keep snapshot buffers in BSS, not on the stack. */
 constexpr int kMaxEntries = 96;
 constexpr int kStatusChars = 128;
 /* ~2.5 Hz sample cadence (mono time, not per-yield). */
@@ -517,7 +517,7 @@ void paint()
     const bool can_next = g_scroll + kVisibleRows < g_entry_count;
     s.text(kWinW - 120, kWinH - 16, can_prev ? "prev" : "    ", t.text_dim, 1);
     s.text(kWinW - 60, kWinH - 16, can_next ? "next" : "    ", t.text_dim, 1);
-    /* Present publishes once — no Window::damage here. */
+    /* Present publishes once - no Window::damage here. */
 }
 
 int row_hit(int lx, int ly)

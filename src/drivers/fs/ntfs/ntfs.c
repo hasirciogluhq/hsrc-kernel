@@ -20,7 +20,7 @@
  *     reading each run's clusters directly from the block device.
  *
  * NTFS is little-endian on disk.  We only support UTF-16LE filename
- * comparison by folding to ASCII for characters below 0x80 — enough for
+ * comparison by folding to ASCII for characters below 0x80 - enough for
  * typical POSIX filenames.
  */
 
@@ -482,7 +482,7 @@ static int ntfs_iter_entries(ntfs_fs_t *fs,
             de.is_dir  = (flags_fn & 0x10000000u) != 0; /* NTFS_FILE_ATTR_I30_INDEX_PRESENT */
             ntfs_utf16_to_ascii(fn + 66, name_len, de.name, sizeof(de.name));
 
-            /* Filter DOS-only namespace (2) — those are 8.3 aliases and
+            /* Filter DOS-only namespace (2) - those are 8.3 aliases and
              * always have a corresponding WIN32/POSIX entry. */
             if (namespace_id != 2) {
                 int rc = cb(ctx, &de);

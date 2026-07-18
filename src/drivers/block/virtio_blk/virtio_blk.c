@@ -121,7 +121,7 @@ static int parse_caps(vblk_t *vd)
                 ((uint32_t)pci_config_read8(vd->pci.bus, vd->pci.slot, vd->pci.func, (uint8_t)(cap + 11)) << 24);
             volatile uint8_t *ptr;
 
-            /* Type 5 (PCI_CFG) has no BAR — skip. Only map MMIO cap types. */
+            /* Type 5 (PCI_CFG) has no BAR - skip. Only map MMIO cap types. */
             if (cfg < VIRTIO_PCI_CAP_COMMON_CFG || cfg > VIRTIO_PCI_CAP_DEVICE_CFG)
                 goto next_cap;
 
@@ -239,7 +239,7 @@ static int vblk_poll(block_device_t *bdev)
         for (i = 0; i < 16; i++) {
             if (vd->pend[i].used) {
                 p = &vd->pend[i];
-                /* We store desc head in unused: use status addr trick — store head in bio private */
+                /* We store desc head in unused: use status addr trick - store head in bio private */
                 break;
             }
         }

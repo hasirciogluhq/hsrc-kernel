@@ -1,5 +1,5 @@
 /*
- * ramfs — an in-memory, tree-structured filesystem.
+ * ramfs - an in-memory, tree-structured filesystem.
  *
  * Nodes form a parent/children tree with per-node dynamic buffers for
  * regular files.  Supported operations:
@@ -154,7 +154,7 @@ static void free_node(ramfs_node_t *n)
         kfree(n->data);
         n->data = NULL;
     }
-    /* No cascading free of children — callers must ensure empty. */
+    /* No cascading free of children - callers must ensure empty. */
     kfree(n);
 }
 

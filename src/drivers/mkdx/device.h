@@ -5,7 +5,7 @@
 #include <drivers/display.h>
 
 /*
- * MKDX scanout device — double-buffered:
+ * MKDX scanout device - double-buffered:
  *   backbuffer  = compose / draw target (CPU surface)
  *   framebuffer = display LFB / GPU scanout resource (mode.addr)
  * Present copies or page-flips backbuffer → framebuffer via display_ops

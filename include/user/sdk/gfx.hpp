@@ -158,7 +158,7 @@ public:
     void text_centered(int cx, int cy, const char *s, Color c, int scale = 1);
     static int text_width(const char *s, int scale = 1);
     static int text_height(int scale = 1);
-    /* Internal / tests only — apps use GxDevice; chrome is kernel publish. */
+    /* Internal / tests only - apps use GxDevice; chrome is kernel publish. */
     void draw_window_chrome(int win_w, const char *title, const WindowOptions &opts,
                             Color bar_bg, Color title_color, Color border);
 
@@ -169,7 +169,7 @@ private:
 class Window {
 public:
     Window() = default;
-    ~Window() = default; /* no atexit / static dtor — call close() if needed */
+    ~Window() = default; /* no atexit / static dtor - call close() if needed */
 
     Window(const Window &) = delete;
     Window &operator=(const Window &) = delete;
@@ -273,7 +273,7 @@ public:
     void draw_rect(int x, int y, int w, int h, Color c, int thickness = 1);
     void draw_text(int x, int y, const char *s, Color c, int scale = 1);
 
-    /* Block until input (SDK-owned wait — apps do not manage seq). */
+    /* Block until input (SDK-owned wait - apps do not manage seq). */
     Input wait(uint32_t timeout_ticks = kGxWaitForever);
     Input wait_input(uint32_t timeout_ticks = kGxWaitForever) { return wait(timeout_ticks); }
 
@@ -291,7 +291,7 @@ private:
     int wait_win_id_ = -1;
     int ready_ = 0;
     int in_scene_ = 0;
-    int scene_ready_ = 0; /* end_scene completed — present will submit */
+    int scene_ready_ = 0; /* end_scene completed - present will submit */
     int last_drag_id_ = -1;
     uint32_t seq_ = 0;
     uint8_t keys_prev_[32]{};

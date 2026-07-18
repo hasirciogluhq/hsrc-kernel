@@ -453,7 +453,7 @@ void Surface::text_centered(int cx, int cy, const char *s, Color c, int scale)
     text(cx - tw / 2, cy - th / 2, s, c, scale);
 }
 
-/* Fast opaque disc for traffic lights — no 4×4 AA (chrome redraw hot path). */
+/* Fast opaque disc for traffic lights - no 4×4 AA (chrome redraw hot path). */
 void chrome_btn_disc(Surface &s, int x, int y, int size, Color c)
 {
     const int r = size / 2;
@@ -529,7 +529,7 @@ bool Window::set_options(const WindowOptions &opts)
     ugx_window_opts raw = to_ugx(opts);
     if (syscall2(SYS_WM_SET, id_, (long)&raw) < 0)
         return false;
-    /* Minimize/show/focus flags keep the same buffer — skip WM_MAP. */
+    /* Minimize/show/focus flags keep the same buffer - skip WM_MAP. */
     if (surf_.valid() && (uint32_t)opts.w == old_w && (uint32_t)opts.h == old_h)
         return true;
     return remap_surface();
@@ -549,7 +549,7 @@ bool Window::get_options(WindowOptions &out) const
 bool Window::close()
 {
     int id = id_;
-    /* Always clear local state — CRT-less globals may start as id_=0 (BSS),
+    /* Always clear local state - CRT-less globals may start as id_=0 (BSS),
      * and a failed WM_CLOSE must not leave a stale id that blocks recreate. */
     id_ = -1;
     surf_ = Surface();
@@ -565,7 +565,7 @@ void Window::destroy()
 
 void Window::fill(int x, int y, int w, int h, Color c)
 {
-    /* Userspace mapped surface — avoid per-primitive kernel round-trips (S01/P01). */
+    /* Userspace mapped surface - avoid per-primitive kernel round-trips (S01/P01). */
     if (surf_.valid())
         surf_.fill(x, y, w, h, c);
 }
@@ -679,7 +679,7 @@ bool Window::handle_chrome_hit(ChromeHit hit)
     switch (hit) {
     case ChromeHit::Close:
         (void)close();
-        /* Never return from mke_main — usermode has no return address (eip→junk/#UD). */
+        /* Never return from mke_main - usermode has no return address (eip→junk/#UD). */
         exit(0);
     case ChromeHit::Minimize:
         return minimize();
@@ -926,7 +926,7 @@ Input GxDevice::wait(uint32_t timeout_ticks)
         keys_cur_[i] = in.keys[i];
     }
 
-    /* WM chrome buttons — handled here so apps stay client-only. */
+    /* WM chrome buttons - handled here so apps stay client-only. */
     if (win_ && win_->ok() && in.hits(win_->id())) {
         WindowOptions o;
         if (win_->get_options(o) && !o.minimized && o.visible) {

@@ -8,7 +8,7 @@
 #include <kernel/string.h>
 #include <kernel/sync.h>
 
-/* Traffic-light layout — keep in sync with userspace kChrome* */
+/* Traffic-light layout - keep in sync with userspace kChrome* */
 #define WM_CHROME_BTN      12
 #define WM_CHROME_BTN_Y    8
 #define WM_CHROME_BTN0_X   10
@@ -199,7 +199,7 @@ static void apply_layer_style(wm_window *w, gx_layer *layer)
         if (class_name_is(&w->opts, "shell.menubar")) {
             layer->tint = GX_RGBA(248, 249, 252, 178);
         } else if (class_name_is(&w->opts, "shell.dock")) {
-            /* Light frosted glass — never a dark slab over mag headroom. */
+            /* Light frosted glass - never a dark slab over mag headroom. */
             layer->tint = GX_RGBA(255, 255, 255, 96);
         } else {
             layer->tint = GX_RGBA(255, 255, 255, 120);
@@ -567,7 +567,7 @@ int wm_publish(wm_t *wm, int id, uint32_t chrome_bar, uint32_t chrome_title,
     }
 
     /*
-     * Swapchain publish must be opaque memcpy — NOT alpha blit.
+     * Swapchain publish must be opaque memcpy - NOT alpha blit.
      * Alpha blit skips A=0 and leaves stale front pixels (ghost + O(n) crawl).
      * During drag, front must still update so drag_slide blits live content.
      */
@@ -586,7 +586,7 @@ int wm_publish(wm_t *wm, int id, uint32_t chrome_bar, uint32_t chrome_title,
 
     dragging = (wm->drag_id == id);
     if (dragging) {
-        /* Don't steal the slide frame — in-place blit on next drag tick. */
+        /* Don't steal the slide frame - in-place blit on next drag tick. */
         gx_server_mark_drag_content();
         return 0;
     }
@@ -624,7 +624,7 @@ int wm_publish_rect(wm_t *wm, int id, int32_t x, int32_t y, int32_t w, int32_t h
                row_bytes);
     }
 
-    /* Blit may have stomped chrome — restore if titlebar touched. */
+    /* Blit may have stomped chrome - restore if titlebar touched. */
     if (local.y < WM_TITLEBAR_H)
         wm_paint_chrome(win);
 
@@ -695,7 +695,7 @@ void wm_move(wm_t *wm, int id, int32_t x, int32_t y)
     if (L)
         L->bounds = w->frame;
 
-    /* Drag uses a split old/new path — bounding-box union is what made it lag. */
+    /* Drag uses a split old/new path - bounding-box union is what made it lag. */
     if (wm->drag_id == id)
         gx_server_mark_drag_move(old, w->frame);
     else {

@@ -24,7 +24,7 @@ void copy_page_entry(ProcListEntry *dst, const proc_page_entry_t *src)
 }
 
 /*
- * Seqlock-read the mapped proc page in place — never memcpy the full page
+ * Seqlock-read the mapped proc page in place - never memcpy the full page
  * (~17KiB) onto the 8KiB user stack.
  */
 bool read_snapshot(ProcListEntry *entries, int max_entries, int *count_out, SysInfo *info_out)

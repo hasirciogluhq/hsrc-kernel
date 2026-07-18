@@ -11,7 +11,7 @@
 #include <drivers/keyboard.h>
 
 /*
- * System Settings — gfx API with dropdown / toggle / slider widgets,
+ * System Settings - gfx API with dropdown / toggle / slider widgets,
  * native wheel scrolling, and a content scrollbar + thumb.
  */
 
@@ -1019,7 +1019,7 @@ void update_hover(int lx, int ly)
     int old_setting = g_hover_setting;
     g_hover_sidebar = next_sidebar;
     g_hover_setting = next_setting;
-    /* Hover only: local row redraw — never full-window clear/paint. */
+    /* Hover only: local row redraw - never full-window clear/paint. */
     paint_hover_delta(old_sidebar, next_sidebar, old_setting, next_setting);
 }
 

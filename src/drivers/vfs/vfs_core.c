@@ -16,7 +16,7 @@
 
 #define VFS_MAX_MOUNTS   16
 
-/* Allocated once in vfs_drv_init — avoids huge .bss prealloc. */
+/* Allocated once in vfs_drv_init - avoids huge .bss prealloc. */
 static file_t *g_files;
 static vfsmount_t g_mounts[VFS_MAX_MOUNTS];
 static file_system_type_t *g_fs_types;

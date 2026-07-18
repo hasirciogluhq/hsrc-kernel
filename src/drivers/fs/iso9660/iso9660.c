@@ -202,7 +202,7 @@ static int iso_iterate_dir(iso_node_t *dir, iso_dir_cb cb, void *ctx)
         int      rc;
 
         /* If we walk past a sector boundary and hit a zero-length record,
-         * jump to the next sector — ISO 9660 forbids records crossing a
+         * jump to the next sector - ISO 9660 forbids records crossing a
          * sector boundary. */
         rec_len = buf[off];
         if (rec_len == 0) {

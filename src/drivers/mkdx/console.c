@@ -17,7 +17,7 @@ typedef struct proc_console {
     struct proc_console *free_next;
 } proc_console_t;
 
-/* Pointer slots only — 8KiB buffers allocate/recycle on demand. */
+/* Pointer slots only - 8KiB buffers allocate/recycle on demand. */
 static proc_console_t *g_consoles[PROC_CONSOLE_MAX];
 static proc_console_t *g_console_freelist;
 

@@ -1,6 +1,6 @@
 #include "font.h"
 
-/* 8x8 bitmap font — covering printable ASCII subset (32..126). */
+/* 8x8 bitmap font - covering printable ASCII subset (32..126). */
 static const uint8_t font8x8[95][8] = {
     {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}, /* space */
     {0x18,0x3C,0x3C,0x18,0x18,0x00,0x18,0x00}, /* ! */

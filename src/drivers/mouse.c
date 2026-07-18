@@ -29,7 +29,7 @@ static void ev_push(mouse_event_t *e)
 
     unsigned next = (ev_h + 1u) % MOUSE_EVQ;
     if (next == ev_t) {
-        /* Full: drop oldest — never drop the newest packet. */
+        /* Full: drop oldest - never drop the newest packet. */
         ev_t = (ev_t + 1u) % MOUSE_EVQ;
     }
     evq[ev_h] = *e;
@@ -48,7 +48,7 @@ static void clamp_pos(void)
         state.y = bound_h - 1;
 }
 
-/* Mild ballistic acceleration — keep fine motion 1:1; only boost large flicks. */
+/* Mild ballistic acceleration - keep fine motion 1:1; only boost large flicks. */
 static int32_t accel_delta(int32_t d)
 {
     int32_t a = d < 0 ? -d : d;
@@ -140,7 +140,7 @@ void mouse_init(void)
     /* controller config: enable mouse clock */
     ps2_write_cmd(0x20);
     uint8_t cfg = ps2_read_data();
-    cfg |= 0x02;  /* IRQ12 — unused while masked, but enable channel */
+    cfg |= 0x02;  /* IRQ12 - unused while masked, but enable channel */
     cfg &= ~0x20; /* clear disable mouse clock */
     ps2_write_cmd(0x60);
     ps2_write_data(cfg);
@@ -149,7 +149,7 @@ void mouse_init(void)
     if (ps2_write_mouse(0xF6) != 0xFA)
         return;
 
-    /* Prefer 4 counts/mm (res=2) — res=3 felt ultra-fast on QEMU when idle.
+    /* Prefer 4 counts/mm (res=2) - res=3 felt ultra-fast on QEMU when idle.
      * 100Hz is enough; 200Hz flooded the poll path under full-frame presents. */
     (void)mouse_try_set_res(2);
 
@@ -198,7 +198,7 @@ void mouse_handle_byte(uint8_t b)
     if (flags & 0x20)
         dy |= ~0xFF; /* sign extend Y */
     if (flags & 0x40 || flags & 0x80) {
-        /* overflow — drop */
+        /* overflow - drop */
         return;
     }
 

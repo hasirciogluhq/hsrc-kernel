@@ -10,7 +10,7 @@
  *   - Multiboot modules (initrd) wherever the loader placed them
  *   - .mke apps: [MKE_LOAD_MIN, MKE_LOAD_MAX + 8MiB)
  *   - Kernel heap: largest available span after the .mke window (fallback:
- *     classic 16–32MiB window below .mke when RAM is small)
+ *     classic 16-32MiB window below .mke when RAM is small)
  */
 
 extern char _kernel_end[];

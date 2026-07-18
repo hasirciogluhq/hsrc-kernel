@@ -130,7 +130,7 @@ static int parse_caps(vnet_t *vd)
                 ((uint32_t)pci_config_read8(vd->pci.bus, vd->pci.slot, vd->pci.func, (uint8_t)(cap + 11)) << 24);
             volatile uint8_t *ptr;
 
-            /* Type 5 (PCI_CFG) has no BAR — skip. Only map MMIO cap types. */
+            /* Type 5 (PCI_CFG) has no BAR - skip. Only map MMIO cap types. */
             if (cfg < VIRTIO_PCI_CAP_COMMON_CFG || cfg > VIRTIO_PCI_CAP_DEVICE_CFG)
                 goto next_cap;
 

@@ -1,4 +1,4 @@
-; Hardware IRQ stubs (PIC remapped to vectors 32–47)
+; Hardware IRQ stubs (PIC remapped to vectors 32-47)
 
 section .text
 global irq_common

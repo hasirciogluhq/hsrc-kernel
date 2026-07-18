@@ -3,7 +3,7 @@
 
 #include <kernel/types.h>
 
-/* ARGB8888 — alpha in high byte */
+/* ARGB8888 - alpha in high byte */
 typedef uint32_t gx_color;
 
 #define GX_A(c) (((c) >> 24) & 0xFFu)

@@ -182,7 +182,7 @@ bool verts_form_aa_quad(const ImDrawVert *vs, int count,
     return true;
 }
 
-/* Slow path: only for rare non-AA triangles (kept cheap — skip tiny / clipped). */
+/* Slow path: only for rare non-AA triangles (kept cheap - skip tiny / clipped). */
 void draw_triangle_slow(hsrc::sdk::Surface &surf, BackendData *b,
                         const ImDrawVert &v0, const ImDrawVert &v1, const ImDrawVert &v2,
                         int clip_x0, int clip_y0, int clip_x1, int clip_y1)
@@ -208,7 +208,7 @@ void draw_triangle_slow(hsrc::sdk::Surface &surf, BackendData *b,
     if (y1 > clip_y1) y1 = clip_y1;
     if (x0 >= x1 || y0 >= y1)
         return;
-    /* Skip huge slow fills — AA path should have handled real UI quads. */
+    /* Skip huge slow fills - AA path should have handled real UI quads. */
     if ((x1 - x0) * (y1 - y0) > 4096)
         return;
 
@@ -277,7 +277,7 @@ bool ImGui_ImplUgx_Init()
     b->font_h = h;
     io.Fonts->SetTexID((ImTextureID)(uintptr_t)1);
 
-    /* Timer preemption handles fairness — no voluntary yield required. */
+    /* Timer preemption handles fairness - no voluntary yield required. */
     return pixels != nullptr && w > 0 && h > 0;
 }
 

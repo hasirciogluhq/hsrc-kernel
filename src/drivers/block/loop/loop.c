@@ -92,7 +92,7 @@ int loop_attach(const char *path, char *out_name, size_t out_len)
     lp->fd = fd;
     lp->capacity = 4096; /* default 2MiB until stat */
     if (vfs->fstat) {
-        /* optional size via fstat if available — keep default */
+        /* optional size via fstat if available - keep default */
     }
     lp->name[0] = 'l';
     lp->name[1] = 'o';

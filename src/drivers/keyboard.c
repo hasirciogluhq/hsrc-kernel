@@ -30,7 +30,7 @@ static void key_set(uint8_t vk, int down)
         g_keys[idx] &= (uint8_t)~bit;
 }
 
-/* Turkish Q (ISO-8859-9) — physical scancode set 1 positions */
+/* Turkish Q (ISO-8859-9) - physical scancode set 1 positions */
 static const uint8_t keymap[128] = {
     /* 00 */ 0,    27,  '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '*', '-', '\b',
     /* 0F */ '\t', 'q', 'w', 'e', 'r', 't', 'y', 'u', TR_idotless, 'o', 'p', TR_gbreve, TR_udiaer, '\n', 0,
@@ -47,7 +47,7 @@ static const uint8_t keymap_shift[128] = {
 
 /* AltGr layer for common symbols on TRQ */
 static const uint8_t keymap_altgr[128] = {
-    /* sparse — only filled where needed */
+    /* sparse - only filled where needed */
     [0x02] = '!',  /* 1 */
     [0x03] = '\'', /* 2 → £ often; keep ' */
     [0x04] = '#',  /* 3 */
@@ -62,7 +62,7 @@ static const uint8_t keymap_altgr[128] = {
     [0x0D] = '|',  /* - */
     [0x10] = '@',  /* q */
     [0x11] = 0,    /* w */
-    [0x12] = 0x80, /* € placeholder — skip */
+    [0x12] = 0x80, /* € placeholder - skip */
     [0x1A] = 0xA8, /* ¨ */
     [0x1B] = '~',
     [0x1E] = 0xE6, /* æ */

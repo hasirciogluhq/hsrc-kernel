@@ -14,7 +14,7 @@
 #include <kernel/errno.h>
 
 /*
- * HSRC Terminal — ring-3 shell window (root by default).
+ * HSRC Terminal - ring-3 shell window (root by default).
  * Builtins: help, clear, pwd, cd, ls, mkdir, cat, touch, echo, write, run,
  *           ps, kill, whoami, id, uname, env, export, ping, nc, connect
  * Write:  echo hello > file   |  echo more >> file  |  write path text...
@@ -139,7 +139,7 @@ void paint()
     const bool full = (g_damage_line < 0);
 
     if (full) {
-        /* Client only — chrome is WM decorate on GxDevice::present. */
+        /* Client only - chrome is WM decorate on GxDevice::present. */
         s.fill(0, kChromeTitleH, kWinW, kWinH - kChromeTitleH, t.term_bg);
     }
 
@@ -1486,7 +1486,7 @@ extern "C" void mke_main(void)
     (void)hsrc::sdk::chdir("/root");
     refresh_cwd();
 
-    line_push("HSRC Terminal — running as root (uid 0)", col_accent());
+    line_push("HSRC Terminal - running as root (uid 0)", col_accent());
     line_push("Type 'help' for builtins.", col_dim());
 
     if (!g_gx.create(g_win))

@@ -149,11 +149,11 @@ void smp_init(void)
         if (!c)
             break;
 
-        /* AP parks on the barrier until smp_start_scheduling — idle later. */
+        /* AP parks on the barrier until smp_start_scheduling - idle later. */
         if (smp_start_ap(c) < 0) {
             klog("[smp] AP start timeout apic=");
             serial_print_uint(apic);
-            klog(" — stopping probe\n");
+            klog(" - stopping probe\n");
             cpu_rollback_last();
             break;
         }

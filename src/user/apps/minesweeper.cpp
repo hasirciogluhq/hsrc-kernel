@@ -5,7 +5,7 @@
 #include <user/sdk/time.hpp>
 
 /*
- * Minesweeper — classic 9×9 / 10 mines on MKDX/ugx.
+ * Minesweeper - classic 9×9 / 10 mines on MKDX/ugx.
  * Left click reveal · right click flag · [new] resets.
  */
 
@@ -29,7 +29,7 @@ constexpr int kCols = 9;
 constexpr int kRows = 9;
 constexpr int kMines = 10;
 constexpr int kCell = 42;
-constexpr int kGap = 3; /* soft gap between tiles — no chunky grid lines */
+constexpr int kGap = 3; /* soft gap between tiles - no chunky grid lines */
 constexpr int kPad = 16;
 constexpr int kHeaderH = 44;
 constexpr int kFooterH = 32;
@@ -247,7 +247,7 @@ Color digit_color(int n)
     }
 }
 
-/* Vector digits — scaled 8×8 bitmap looks crunchy at large cells. */
+/* Vector digits - scaled 8×8 bitmap looks crunchy at large cells. */
 void hbar(Surface &s, int x, int y, int w, int th, Color c)
 {
     s.fill_round(x, y, w, th, th / 2, c);
@@ -352,7 +352,7 @@ void paint()
 
     const char *status = "left: dig  right: flag";
     if (g_dead)
-        status = "boom — hit [new]";
+        status = "boom - hit [new]";
     else if (g_won)
         status = "cleared!";
     s.text(kPad + 110, kChromeTitleH + 14, status,
@@ -363,7 +363,7 @@ void paint()
     s.fill_round(nbx, nby, kNewBtnW, kNewBtnH, 6, t.accent);
     s.text(nbx + 16, nby + 6, "new", rgb(255, 255, 255), 1);
 
-    /* Board tray behind tiles — makes gaps read as separators. */
+    /* Board tray behind tiles - makes gaps read as separators. */
     const int board_w = kCols * kCell + (kCols - 1) * kGap;
     const int board_h = kRows * kCell + (kRows - 1) * kGap;
     const int tray_pad = 6;

@@ -50,7 +50,7 @@ int      netif_get_info(const char *name, netif_info_t *out);
 int      netif_set_info(const char *name, const netif_info_t *cfg);
 int      netif_dhcp_renew(const char *name);
 
-/* Driver RX path — feeds Ethernet frames into the IP stack. */
+/* Driver RX path - feeds Ethernet frames into the IP stack. */
 void netif_input(netif_t *nif, const void *frame, size_t len);
 
 /* Poll all registered interfaces (and ARP wait loops). */

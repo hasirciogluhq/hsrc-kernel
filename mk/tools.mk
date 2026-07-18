@@ -2,7 +2,7 @@
 
 ENV_ASSET := $(BUILD)/environment
 # Desktop wallpaper for mkdx (BMP; decoded by load_default_wallpaper).
-# Source art: assets/os/default-wallpaper.png — regenerate with:
+# Source art: assets/os/default-wallpaper.png - regenerate with:
 #   magick assets/os/default-wallpaper.png -resize '1280x720^' -gravity center \
 #     -extent 1280x720 -type TrueColor BMP3:assets/os/wallpaper-default.bmp
 # Menubar status icons (SVG; rasterized in userspace by hsrc::sdk::SvgIcon).
@@ -43,7 +43,7 @@ ugx-font: $(BAKE_UGX_FONT)
 	$(BAKE_UGX_FONT) assets/fonts/Inter-Regular.ttf src/user/ugx_font.inc 16.0
 
 # Persistent virtio disk (kept outside build/ so `make clean` does not wipe data).
-# Only create when missing — never rewrite an existing image (that wiped /root files).
+# Only create when missing - never rewrite an existing image (that wiped /root files).
 $(DISKIMG): | $(MKFATIMG)
 	@if [ ! -f $@ ]; then \
 		echo "creating fresh $(DISKIMG) ($(DISK_MB) MiB)"; \

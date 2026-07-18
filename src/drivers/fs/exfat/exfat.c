@@ -242,7 +242,7 @@ static int exfat_iterate_dir(exfat_node_t *dir, exfat_dir_cb cb, void *ctx)
                 int have_stream = 0;
 
                 if (off + needed > fs->bytes_per_cluster) {
-                    /* Entry set crosses cluster boundary — treat as
+                    /* Entry set crosses cluster boundary - treat as
                      * end for simplicity. Real drivers can span here. */
                     off = fs->bytes_per_cluster;
                     continue;

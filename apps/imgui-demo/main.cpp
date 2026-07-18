@@ -100,7 +100,7 @@ void paint()
     s.fill(0, kChromeTitleH, g_win_opts.w, g_win_opts.h - kChromeTitleH, t.bg);
 
     ImGui_ImplUgx_RenderDrawData(ImGui::GetDrawData(), s, kChromeTitleH);
-    /* Present publishes once — no Window::damage here. */
+    /* Present publishes once - no Window::damage here. */
 }
 
 } // namespace
