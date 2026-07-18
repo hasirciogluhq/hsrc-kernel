@@ -6,6 +6,7 @@ SDK_SRCS := $(SRC)/user/sdk/syscall.cpp \
             $(SRC)/user/sdk/time.cpp \
             $(SRC)/user/sdk/process.cpp \
             $(SRC)/user/sdk/settings.cpp \
+            $(SRC)/user/sdk/thread.cpp \
             $(SRC)/user/string.c
 SDK_OBJS := $(BUILD)/user/sdk/syscall.o \
             $(BUILD)/user/sdk/gfx.o \
@@ -13,6 +14,7 @@ SDK_OBJS := $(BUILD)/user/sdk/syscall.o \
             $(BUILD)/user/sdk/time.o \
             $(BUILD)/user/sdk/process.o \
             $(BUILD)/user/sdk/settings.o \
+            $(BUILD)/user/sdk/thread.o \
             $(BUILD)/user/string.o
 
 LIBGCC := $(shell $(CXX) -print-libgcc-file-name)

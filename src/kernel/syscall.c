@@ -4,6 +4,7 @@
 #include <kernel/argv.h>
 #include <kernel/service.h>
 #include <kernel/scheduler.h>
+#include <kernel/sync.h>
 #include <kernel/time.h>
 #include <kernel/vfs.h>
 #include <kernel/vfs_api.h>
@@ -161,6 +162,7 @@ static int resolve_path(process_t *p, const char *in, char *out, size_t outsz)
 {
     size_t cl, il, n;
 
+    p = process_leader(p);
     if (!p || !in || !out || outsz < 2)
         return -1;
     if (in[0] == '/') {
@@ -306,8 +308,9 @@ static long do_write(long fd, long buf, long count)
         }
         if (n > 0 && ((int)fd == STDOUT_FILENO || (int)fd == STDERR_FILENO)) {
             const mkdx_api_t *api = mkdx_api_get();
-            if (api && api->console_write)
-                (void)api->console_write((int)p->pid, tmp, (size_t)n);
+            process_t *lead = process_leader(p);
+            if (api && api->console_write && lead)
+                (void)api->console_write((int)lead->pid, tmp, (size_t)n);
         }
         total += n;
         if ((size_t)n < chunk)
@@ -383,8 +386,37 @@ static long do_close(long fd)
 
 static long do_getpid(void)
 {
-    process_t *p = process_current();
-    return p ? (long)p->pid : -1;
+    return (long)process_getpid();
+}
+
+static long do_thread_create(long entry, long arg)
+{
+    if (!entry)
+        return -EINVAL;
+    return (long)process_thread_create((void (*)(void *))(uintptr_t)entry,
+                                      (void *)(uintptr_t)arg);
+}
+
+static long do_thread_exit(long code)
+{
+    process_thread_exit((int)code);
+    return 0;
+}
+
+static long do_thread_join(long tid, long status_ptr)
+{
+    int status = 0;
+    long r = process_thread_join((pid_t)tid, status_ptr ? &status : NULL);
+    if (r == 0 && status_ptr) {
+        if (copy_to_user((void *)(uintptr_t)status_ptr, &status, sizeof(status)) < 0)
+            return -EFAULT;
+    }
+    return r;
+}
+
+static long do_thread_detach(long tid)
+{
+    return process_thread_detach((pid_t)tid);
 }
 
 static long do_getppid(void)
@@ -397,8 +429,8 @@ static long do_yield(long sleep_ticks)
     const mkdx_api_t *api = mkdx_api_get();
     process_t *p = process_current();
 
-    /* Cooperative scheduler: drain input every yield so PS/2 isn't starved.
-     * Poll/mkdx are BSP-only (see drivers_poll). */
+    /* Optional coop reschedule (sleep_ticks==0). sleep_ticks>0 → PROC_BLOCKED.
+     * Fairness does not require yield — timer preemption handles CPU hogs. */
     if (cpu_id() == 0) {
         drivers_poll();
         if (api && api->pump_input)
@@ -409,8 +441,7 @@ static long do_yield(long sleep_ticks)
         uint64_t now = scheduler_tick_count();
         if (sleep_ticks > 1000)
             sleep_ticks = 1000;
-        p->wake_tick = now + (uint64_t)sleep_ticks;
-        p->state = PROC_BLOCKED;
+        process_block(now + (uint64_t)sleep_ticks);
     }
 
     schedule();
@@ -440,8 +471,7 @@ static long do_proc_wait(long last_gen, long timeout_ticks)
 
     now = scheduler_tick_count();
     p->proc_wait_gen = lg;
-    p->wake_tick = now + (uint64_t)timeout_ticks;
-    p->state = PROC_BLOCKED;
+    process_block(now + (uint64_t)timeout_ticks);
     schedule();
     p->proc_wait_gen = 0;
 
@@ -732,7 +762,7 @@ static long do_mkdir(long path, long mode)
 
 static long do_chdir(long path)
 {
-    process_t *p = process_current();
+    process_t *p = process_leader(process_current());
     char upath[VFS_PATH_MAX];
     char kpath[VFS_PATH_MAX];
     int len, vfd;
@@ -756,7 +786,7 @@ static long do_chdir(long path)
 
 static long do_getcwd(long buf, long size)
 {
-    process_t *p = process_current();
+    process_t *p = process_leader(process_current());
     size_t n;
     if (!p || !buf || size <= 0)
         return -EFAULT;
@@ -916,7 +946,7 @@ static long do_wm_create(long argp)
 {
     ugx_window_opts args;
     const mkdx_api_t *api = mkdx();
-    process_t *p = process_current();
+    process_t *p = process_leader(process_current());
     if (!api || !api->wm_create)
         return -1;
     if (copy_from_user(&args, (const void *)argp, sizeof(args)) < 0)
@@ -1413,7 +1443,7 @@ long syscall_dispatch(long n, long a1, long a2, long a3, long a4, long a5)
             memset(&fl, 0, sizeof(fl));
             fl.l_type = (int16_t)a2;
         }
-        fl.l_pid = p->pid;
+        fl.l_pid = process_leader(p)->pid;
         return api->flock(vfd, (int)a2, &fl);
     }
     case SYS_GETXATTR: {
@@ -1708,6 +1738,16 @@ long syscall_dispatch(long n, long a1, long a2, long a3, long a4, long a5)
         return time_set_flags((uint32_t)a1);
     case SYS_GETPID: return do_getpid();
     case SYS_GETPPID: return do_getppid();
+    case SYS_GETTID: return (long)process_gettid();
+    case SYS_EVENT_CREATE: return (long)kevent_create();
+    case SYS_EVENT_DESTROY: return (long)kevent_destroy((int)a1);
+    case SYS_EVENT_WAIT: return kevent_wait((int)a1, a2);
+    case SYS_EVENT_SIGNAL: return kevent_signal((int)a1);
+    case SYS_EVENT_BROADCAST: return kevent_broadcast((int)a1);
+    case SYS_THREAD_CREATE: return do_thread_create(a1, a2);
+    case SYS_THREAD_EXIT: return do_thread_exit(a1);
+    case SYS_THREAD_JOIN: return do_thread_join(a1, a2);
+    case SYS_THREAD_DETACH: return do_thread_detach(a1);
     case SYS_YIELD:  return do_yield(a1);
     case SYS_FORK:   return -1;
 

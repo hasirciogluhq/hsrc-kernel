@@ -5,6 +5,7 @@
 #include <user/sdk/svg.hpp>
 #include <user/sdk/time.hpp>
 #include <user/sdk/syscall.hpp>
+#include <user/sdk/sync.hpp>
 #include <user/sdk/fs.hpp>
 #include <user/string.h>
 
@@ -1057,7 +1058,7 @@ extern "C" void mke_main(void)
     ScreenInfo info{};
     if (!hsrc::sdk::screen_info(info) || info.width == 0 || info.height == 0) {
         for (;;)
-            hsrc::sdk::yield(32u);
+            hsrc::sdk::wait_idle(32u);
     }
 
     g_sw = (int)info.width;
@@ -1070,7 +1071,7 @@ extern "C" void mke_main(void)
         (void)hsrc::sdk::set_wallpaper_color(rgb(160, 30, 30));
         (void)hsrc::sdk::present();
         for (;;)
-            hsrc::sdk::yield(32u);
+            hsrc::sdk::wait_idle(32u);
     }
 
     (void)hsrc::sdk::present();
@@ -1228,20 +1229,14 @@ extern "C" void mke_main(void)
             (void)hsrc::sdk::present();
 
         /*
-         * yield(0) keeps Ready forever — only after present for one quantum.
-         * Near chrome / animating: short Blocked wake (1 tick) so dock mag
-         * and menubar stay responsive without a CPU spin.
-         * Truly idle: longer Blocked sleep.
+         * Always leave Ready via wait_idle (PROC_BLOCKED). Timer/input wake
+         * the desktop — no yield(0) Ready spin.
          */
         const bool near_chrome = g_hover >= 0 || g_menu_hover >= 0 ||
                                  g_status_hover >= 0 || g_mag_cursor_x >= 0;
-        uint32_t sleep_ticks;
-        if (did_work)
-            sleep_ticks = 0u;
-        else if (animating() || near_chrome)
+        uint32_t sleep_ticks = 8u;
+        if (did_work || animating() || near_chrome)
             sleep_ticks = 1u;
-        else
-            sleep_ticks = 8u;
-        hsrc::sdk::yield(sleep_ticks);
+        hsrc::sdk::wait_idle(sleep_ticks);
     }
 }

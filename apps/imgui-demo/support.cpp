@@ -3,6 +3,7 @@
 #include <stdarg.h>
 
 #include "mykernel_imconfig.h"
+#include <user/sdk/sync.hpp>
 #include <user/sdk/syscall.hpp>
 
 namespace {
@@ -192,9 +193,8 @@ void *realloc(void *p, size_t n)
 
 void abort(void)
 {
-    /* Blocked sleep — bare yield(0) keeps Ready forever and burns CPU. */
     for (;;)
-        hsrc::sdk::yield(32u);
+        hsrc::sdk::wait_idle(32u);
 }
 
 char *strchr(const char *s, int c)

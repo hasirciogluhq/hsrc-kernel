@@ -111,15 +111,15 @@ void irq_dispatch(uint32_t irq)
             g_idle_ticks++;
         drivers_poll();
         /*
-         * Keep cursor/WM alive when apps sleep (os-ui yield(N)). Without this,
-         * only a busy yield(0) app (e.g. settings) paced input — close it and
-         * the desktop feels dead.
+         * Keep cursor/WM alive when apps are PROC_BLOCKED (wait_idle / Event).
+         * Timer also drives preemption via scheduler_on_timer — no yield needed.
          */
         api = mkdx_api_get();
         if (api && api->pump_input)
             api->pump_input();
-        scheduler_on_timer();
+        /* EOI before preempt — schedule() may context-switch away. */
         timer_eoi();
+        scheduler_on_timer();
         return;
     }
 

@@ -19,6 +19,7 @@
 #include <kernel/env.h>
 #include <kernel/service.h>
 #include <kernel/scheduler.h>
+#include <kernel/sync.h>
 #include <kernel/time.h>
 #include <arch/x86/irq.h>
 #include <kernel/mke.h>
@@ -72,16 +73,19 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     gdt_init();
     idt_init();
     cpu_init_bsp();
-    irq_init();
+    irq_init(); /* STI+PIT: timer must not schedule until scheduler_start */
+    klog("[boot] irq ready\n");
     syscall_init();
     vfs_init();
     netif_init();
     socket_init();
     ksym_init();
     process_init();
+    sync_init();
     env_init();
     service_init();
     scheduler_init();
+    klog("[boot] scheduler_init done\n");
     smp_init();
     time_init();
     klog("[boot] core init done\n");

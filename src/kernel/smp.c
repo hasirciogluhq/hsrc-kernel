@@ -47,8 +47,10 @@ static void smp_install_trampoline(void)
 
 void ipi_dispatch(void)
 {
-    /* Wake from HLT only — scheduling happens in idle/yield paths. */
+    /* Reschedule request: leave HLT or preempt a running thread. */
     lapic_eoi();
+    /* schedule() no-ops until scheduler_start (same as timer path). */
+    schedule();
 }
 
 void smp_ap_main(uint32_t cpu_index)

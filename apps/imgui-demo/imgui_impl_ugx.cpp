@@ -15,22 +15,11 @@ struct BackendData {
     int      font_w = 0;
     int      font_h = 0;
     uint32_t frame = 0;
-    uint32_t tri_budget = 0;
 };
 
 BackendData *bd()
 {
     return reinterpret_cast<BackendData *>(ImGui::GetIO().BackendRendererUserData);
-}
-
-/* Cooperative scheduler: never burn the CPU for a full frame without yielding. */
-void maybe_yield(BackendData *b)
-{
-    if (!b)
-        return;
-    b->tri_budget++;
-    if ((b->tri_budget & 63u) == 0u)
-        hsrc::sdk::yield();
 }
 
 uint32_t blend_argb(uint32_t dst, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
@@ -288,7 +277,7 @@ bool ImGui_ImplUgx_Init()
     b->font_h = h;
     io.Fonts->SetTexID((ImTextureID)(uintptr_t)1);
 
-    hsrc::sdk::yield();
+    /* Timer preemption handles fairness — no voluntary yield required. */
     return pixels != nullptr && w > 0 && h > 0;
 }
 
@@ -421,8 +410,6 @@ void ImGui_ImplUgx_RenderDrawData(ImDrawData *draw_data, hsrc::sdk::Surface &sur
     if (client_top < 0)
         client_top = 0;
 
-    b->tri_budget = 0;
-
     for (int n = 0; n < draw_data->CmdListsCount; n++) {
         const ImDrawList *cmd_list = draw_data->CmdLists[n];
         const ImDrawVert *vtx = cmd_list->VtxBuffer.Data;
@@ -460,7 +447,6 @@ void ImGui_ImplUgx_RenderDrawData(ImDrawData *draw_data, hsrc::sdk::Surface &sur
                 if (verts_form_aa_quad(vs, 6, qmin, qmax)) {
                     (void)try_draw_aa_quad(surf, b, qmin, qmax,
                                            clip_x0, clip_y0, clip_x1, clip_y1);
-                    maybe_yield(b);
                     i += 6;
                     continue;
                 }
@@ -469,7 +455,6 @@ void ImGui_ImplUgx_RenderDrawData(ImDrawData *draw_data, hsrc::sdk::Surface &sur
                                    clip_x0, clip_y0, clip_x1, clip_y1);
                 draw_triangle_slow(surf, b, vs[3], vs[4], vs[5],
                                    clip_x0, clip_y0, clip_x1, clip_y1);
-                maybe_yield(b);
                 i += 6;
             }
 
@@ -482,7 +467,6 @@ void ImGui_ImplUgx_RenderDrawData(ImDrawData *draw_data, hsrc::sdk::Surface &sur
                                    offset_vert(vtx[pcmd->VtxOffset + i1], client_top),
                                    offset_vert(vtx[pcmd->VtxOffset + i2], client_top),
                                    clip_x0, clip_y0, clip_x1, clip_y1);
-                maybe_yield(b);
             }
         }
     }

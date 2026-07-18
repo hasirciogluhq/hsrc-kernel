@@ -24,6 +24,7 @@ KERNEL_C := $(SRC)/kernel/main.c \
             $(SRC)/kernel/env.c \
             $(SRC)/kernel/argv.c \
             $(SRC)/kernel/scheduler.c \
+            $(SRC)/kernel/sync.c \
             $(SRC)/kernel/smp.c \
             $(SRC)/kernel/time.c \
             $(SRC)/kernel/syscall.c \

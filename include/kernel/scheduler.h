@@ -8,7 +8,7 @@ struct cpu;
 
 void scheduler_init(void);
 void scheduler_start(void);   /* never returns — run ready queue forever */
-void schedule(void);          /* cooperative yield to next ready process */
+void schedule(void);          /* pick next ready thread (coop or timer preempt) */
 void scheduler_unlock_new_thread(void); /* first entry after context_switch */
 void scheduler_wake_sleepers(uint64_t now);
 void scheduler_on_exit(process_t *p);

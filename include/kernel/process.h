@@ -55,16 +55,32 @@ typedef struct sys_info {
     uint32_t process_count;
 } sys_info_t;
 
+/*
+ * Schedulable unit = process_t slot.
+ * Process leader (main thread): group == NULL, tid == pid.
+ * Extra threads: group → leader, tid == slot pid; share leader fds/cwd/vma/env.
+ */
+/*
+ * Per-process cap: 1 main + (PROC_THREADS_MAX-1) custom threads.
+ * Bound by heap stack alloc (kstack+ustack each) and global PROC_MAX slots.
+ */
+#define PROC_THREADS_MAX 256
+
 typedef struct process {
     pid_t        pid;
     pid_t        ppid;
+    pid_t        tid;          /* thread id (main: tid == pid) */
     proc_state_t state;
     char         name[PROC_NAME_MAX];
     int          is_user;      /* 1 = ring-3 userspace */
     int          is_idle;      /* 1 = kernel idle thread (HLT when scheduled) */
-    int          cpu;          /* CPU currently running this process (-1 if none) */
+    int          cpu;          /* CPU currently running this thread (-1 if none) */
     int          cpu_affinity; /* -1 = any CPU; else only that cpu id */
     int          kill_pending; /* remote kill request observed at schedule() */
+    struct process *group;     /* NULL = process leader; else owning process */
+    void        *thread_arg;   /* arg for user thread entry(void *) */
+    int          thread_detached;
+    pid_t        join_tid;     /* if BLOCKED joining: target tid, else 0 */
     uid_t        uid;          /* real uid — default 0 (root) */
     uid_t        euid;         /* effective uid — default 0 (root) */
     char         cwd[VFS_PATH_MAX];
@@ -79,8 +95,10 @@ typedef struct process {
     int          exit_code;
     uint64_t     cpu_ticks;
     uint64_t     start_ticks;
-    uint64_t     wake_tick;    /* scheduler tick when BLOCKED process wakes */
+    uint64_t     wake_tick;    /* scheduler tick when BLOCKED may wake (~0 = event-only) */
     uint32_t     proc_wait_gen; /* non-zero: wait until snapshot generation changes */
+    int          wait_event;   /* kevent id while waiting, or -1 */
+    struct process *wait_next; /* kevent waiter list link */
     uint32_t     image_bytes; /* .mke image+bss at load_addr (0 for kernel threads) */
     int          fds[VFS_MAX_FD];
     vma_t        vmas[VMA_MAX];
@@ -97,7 +115,14 @@ void        process_reap_graveyard(void);
 
 pid_t process_create(const char *name, void (*entry)(void));
 pid_t process_create_user(const char *name, void (*entry)(void));
+pid_t process_getpid(void);  /* process group / leader pid */
 pid_t process_getppid(void);
+pid_t process_gettid(void);  /* current thread id */
+process_t *process_leader(process_t *p);
+pid_t process_thread_create(void (*entry)(void *), void *arg);
+void  process_thread_exit(int code);
+long  process_thread_join(pid_t tid, int *status_out);
+long  process_thread_detach(pid_t tid);
 pid_t process_waitpid(pid_t pid, int *status_out, int options);
 void  process_exit(int code);
 int   process_kill(pid_t pid);

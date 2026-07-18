@@ -105,6 +105,18 @@
 #define SYS_TIME_SETTZ      273  /* a1=offset_sec, a2=name ptr */
 #define SYS_TIME_SETFLAGS   274  /* a1=flags */
 
+/* Threading / sync (leader = main thread; extra threads share flat AS). */
+#define SYS_GETTID          279  /* → current tid (main: tid == pid) */
+#define SYS_EVENT_CREATE    280  /* → event id */
+#define SYS_EVENT_DESTROY   281  /* a1=id */
+#define SYS_EVENT_WAIT      282  /* a1=id a2=timeout_ticks (<0 forever, 0 try) */
+#define SYS_EVENT_SIGNAL    283  /* a1=id — wake one / sticky */
+#define SYS_EVENT_BROADCAST 284  /* a1=id — wake all */
+#define SYS_THREAD_CREATE   285  /* a1=entry(void*) a2=arg → tid */
+#define SYS_THREAD_EXIT     286  /* a1=code — exit current thread only */
+#define SYS_THREAD_JOIN     287  /* a1=tid a2=status* → 0; blocks */
+#define SYS_THREAD_DETACH   288  /* a1=tid */
+
 /* SYS_SPAWN flags (Wave O). */
 #define SPAWN_CONSOLE_VISIBLE  0x01u
 #define SPAWN_CONSOLE_HIDDEN   0x02u

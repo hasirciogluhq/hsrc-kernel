@@ -2,6 +2,7 @@
 #include <user/sdk/gfx.hpp>
 #include <user/sdk/process.hpp>
 #include <user/sdk/settings.hpp>
+#include <user/sdk/sync.hpp>
 #include <user/sdk/time.hpp>
 #include <user/string.h>
 
@@ -648,7 +649,7 @@ extern "C" void mke_main(void)
 
     if (!hsrc::sdk::screen_info(g_screen) || g_screen.width == 0 || g_screen.height == 0) {
         for (;;)
-            hsrc::sdk::yield(32u);
+            hsrc::sdk::wait_idle(32u);
     }
 
     g_self_pid = (pid_t)hsrc::sdk::process::getpid();
@@ -736,16 +737,16 @@ extern "C" void mke_main(void)
         if (g_dirty && !g_win_opts.minimized) {
             paint();
             (void)hsrc::sdk::present();
-            hsrc::sdk::yield(0);
+            hsrc::sdk::wait_idle(1u);
         } else if (!g_win_opts.minimized && hsrc::sdk::process::map_proc_page() &&
                    !g_need_sample) {
             const uint32_t gen = hsrc::sdk::process::snapshot_generation();
             if (gen == g_last_applied_gen)
                 (void)hsrc::sdk::process::wait_snapshot(gen, 5u);
             else
-                hsrc::sdk::yield(16u);
+                hsrc::sdk::wait_idle(16u);
         } else {
-            hsrc::sdk::yield(g_win_opts.minimized ? 32u : 16u);
+            hsrc::sdk::wait_idle(g_win_opts.minimized ? 32u : 16u);
         }
     }
 }

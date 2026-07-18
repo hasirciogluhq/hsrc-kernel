@@ -9,16 +9,29 @@
 #include <arch/x86/cpu.h>
 #include <drivers/driver.h>
 
+/*
+ * Max timeslice before forced preemption (PIT ticks). Timer IRQ always
+ * context-switches after this quantum — apps need not yield for fairness.
+ */
+#define SCHED_TIMESLICE_TICKS 1
+
 static uint32_t *bootstrap_esp[CPU_MAX];
 static uint64_t g_switch_ticks;
 static spinlock_t g_sched_lock;
+/* 0 until scheduler_start — timer must not idle_halt/abandon kernel_main. */
+static volatile int g_sched_active;
+static uint32_t g_slice_left[CPU_MAX];
 
 static int proc_runnable(process_t *p, uint64_t now)
 {
     if (!p || p->state == PROC_UNUSED || p->state == PROC_ZOMBIE)
         return 0;
-    if (p->state == PROC_BLOCKED)
+    if (p->state == PROC_BLOCKED) {
+        /* Event-only waits use wake_tick == ~0ULL — never timer-runnable. */
+        if (p->wake_tick == ~(uint64_t)0)
+            return 0;
         return p->wake_tick <= now;
+    }
     return p->state == PROC_READY || p->state == PROC_RUNNING;
 }
 
@@ -140,7 +153,9 @@ void scheduler_init(void)
 
     spin_init(&g_sched_lock);
     memset(bootstrap_esp, 0, sizeof(bootstrap_esp));
+    memset(g_slice_left, 0, sizeof(g_slice_left));
     g_switch_ticks = 0;
+    g_sched_active = 0;
 
     if (!bsp)
         bsp = cpu_current();
@@ -163,6 +178,8 @@ void scheduler_wake_sleepers(uint64_t now)
         process_t *p = table[i];
         if (!p || p->state != PROC_BLOCKED)
             continue;
+        if (p->wake_tick == ~(uint64_t)0)
+            continue;
         if (p->wake_tick <= now)
             p->state = PROC_READY;
     }
@@ -178,6 +195,14 @@ void schedule(void)
     uint32_t **old_esp;
     uint32_t flags;
 
+    /*
+     * Before scheduler_start, irq_init has STI + PIT. A premature schedule()
+     * from the timer would idle_halt forever (no apps yet) and never return
+     * to kernel_main — boot hangs right after heap logs.
+     */
+    if (!g_sched_active)
+        return;
+
     cpu = cpu_id();
 
     process_reap_graveyard();
@@ -185,7 +210,10 @@ void schedule(void)
 
     cur = process_current();
     if (cur && cur->kill_pending && !cur->is_idle) {
-        process_exit(137);
+        if (cur->group)
+            process_thread_exit(cur->exit_code ? cur->exit_code : 137);
+        else
+            process_exit(137);
         return;
     }
 
@@ -256,9 +284,19 @@ void scheduler_on_exit(process_t *p)
 
 void scheduler_on_timer(void)
 {
+    process_t **table;
+    uint64_t now;
+    int need_ipi = 0;
+    int cpu;
+
+    /* PIT runs during bring-up; never preempt until scheduler_start. */
+    if (!g_sched_active)
+        return;
+
     /* Wake APs only when some non-idle task might run there. */
-    process_t **table = process_table();
-    uint64_t now = irq_timer_ticks();
+    table = process_table();
+    now = irq_timer_ticks();
+    cpu = cpu_id();
 
     for (int i = 0; i < PROC_MAX; i++) {
         process_t *p = table[i];
@@ -266,11 +304,24 @@ void scheduler_on_timer(void)
             continue;
         if (!proc_runnable(p, now))
             continue;
-        if (p->cpu_affinity != 0) {
-            smp_reschedule_others();
-            return;
-        }
+        if (p->cpu_affinity != 0)
+            need_ipi = 1;
     }
+    if (need_ipi)
+        smp_reschedule_others();
+
+    /*
+     * Forced preemption: even a never-yielding CPU hog is switched after
+     * SCHED_TIMESLICE_TICKS. pick_next round-robins other Ready threads.
+     */
+    if (cpu >= 0 && cpu < CPU_MAX && g_slice_left[cpu] > 0)
+        g_slice_left[cpu]--;
+    if (cpu >= 0 && cpu < CPU_MAX && g_slice_left[cpu] > 0)
+        return;
+    if (cpu >= 0 && cpu < CPU_MAX)
+        g_slice_left[cpu] = SCHED_TIMESLICE_TICKS;
+
+    schedule();
 }
 
 int scheduler_current_is_idle(void)
@@ -307,6 +358,9 @@ uint64_t scheduler_idle_ticks(void)
 
 void scheduler_start(void)
 {
+    /* Enable preemption before releasing APs / entering the run loop. */
+    __asm__ volatile("" ::: "memory");
+    g_sched_active = 1;
     smp_start_scheduling();
     process_set_current(NULL);
     schedule();

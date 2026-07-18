@@ -5,6 +5,7 @@
 #include <user/sdk/net.hpp>
 #include <user/sdk/settings.hpp>
 #include <user/sdk/syscall.hpp>
+#include <user/sdk/sync.hpp>
 #include <user/string.h>
 #include <kernel/vfs.h>
 #include <kernel/argv.h>
@@ -1451,7 +1452,7 @@ extern "C" void mke_main(void)
     ScreenInfo info{};
     if (!hsrc::sdk::screen_info(info) || info.width == 0) {
         for (;;)
-            hsrc::sdk::yield(32u);
+            hsrc::sdk::wait_idle(32u);
     }
 
     (void)refresh_theme();
@@ -1536,10 +1537,9 @@ extern "C" void mke_main(void)
         if (g_dirty && !g_win_opts.minimized) {
             paint();
             (void)hsrc::sdk::present();
-            hsrc::sdk::yield(0);
+            hsrc::sdk::wait_idle(1u);
         } else {
-            /* Idle: Blocked sleep — bare yield(0) keeps the process Ready forever. */
-            hsrc::sdk::yield(g_win_opts.minimized ? 32u : 12u);
+            hsrc::sdk::wait_idle(g_win_opts.minimized ? 32u : 12u);
         }
     }
 }

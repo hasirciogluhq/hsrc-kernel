@@ -5,6 +5,7 @@
 #include <kernel/bootmem.h>
 #include <kernel/string.h>
 #include <kernel/scheduler.h>
+#include <kernel/sync.h>
 #include <kernel/socket.h>
 #include <kernel/syscall.h>
 #include <kernel/vfs.h>
@@ -224,6 +225,85 @@ static void user_trampoline(void (*entry)(void))
         __asm__ volatile("hlt");
 }
 
+/* Extra threads: cdecl entry(void *arg) with arg on the user stack. */
+static void user_thread_trampoline(void (*entry)(void))
+{
+    process_t *t;
+    uint32_t *usp;
+
+    scheduler_unlock_new_thread();
+    t = process_current();
+    if (t && t->user_entry)
+        entry = t->user_entry;
+    if (!t || !entry) {
+        klog("[user] FATAL: bad thread trampoline\n");
+        for (;;)
+            __asm__ volatile("hlt");
+    }
+    gdt_set_kernel_stack(t->kstack_top);
+    usp = (uint32_t *)t->ustack_top;
+    *--usp = (uint32_t)(uintptr_t)t->thread_arg;
+    *--usp = 0; /* ret — SDK bootstrap calls SYS_THREAD_EXIT */
+    enter_usermode((uint32_t)(uintptr_t)entry, (uint32_t)(uintptr_t)usp);
+    for (;;)
+        __asm__ volatile("hlt");
+}
+
+process_t *process_leader(process_t *p)
+{
+    if (!p)
+        return NULL;
+    return p->group ? p->group : p;
+}
+
+static int process_count_threads(process_t *lead)
+{
+    int n = 0;
+
+    if (!lead)
+        return 0;
+    for (int i = 0; i < PROC_MAX; i++) {
+        process_t *p = g_procs[i];
+        if (!p || p->state == PROC_UNUSED)
+            continue;
+        if (p == lead || p->group == lead)
+            n++;
+    }
+    return n;
+}
+
+static void process_wake_joiners(pid_t tid)
+{
+    for (int i = 0; i < PROC_MAX; i++) {
+        process_t *p = g_procs[i];
+        if (!p || p->state != PROC_BLOCKED || p->join_tid == 0)
+            continue;
+        if (p->join_tid == tid)
+            process_wake(p);
+    }
+}
+
+static void process_kill_thread_slot(process_t *t, int code)
+{
+    if (!t || t->state == PROC_UNUSED || t->state == PROC_ZOMBIE)
+        return;
+    if (t->state == PROC_RUNNING && t->cpu >= 0 && t->cpu != cpu_id()) {
+        cpu_t *remote = cpu_get(t->cpu);
+        t->kill_pending = 1;
+        t->exit_code = code;
+        if (remote)
+            lapic_send_ipi(remote->apic_id, LAPIC_IPI_VECTOR);
+        return;
+    }
+    t->exit_code = code;
+    t->kill_pending = 0;
+    t->state = PROC_ZOMBIE;
+    t->cpu = -1;
+    process_wake_joiners(t->tid);
+    if (t->thread_detached)
+        process_clear_slot(t);
+}
+
 /* Parents (os-ui) never waitpid — reap zombies so PROC_MAX does not fill. */
 static void process_reap_zombies(void)
 {
@@ -271,13 +351,21 @@ static process_t *alloc_process(const char *name)
     p->ustack_base = ubase;
     p->slot = idx;
     p->pid = next_pid++;
+    p->tid = p->pid; /* main thread: tid == pid */
     {
         process_t *cur = process_current();
-        p->ppid = cur ? cur->pid : 0;
+        process_t *lead = process_leader(cur);
+        p->ppid = lead ? lead->pid : 0;
         p->state = PROC_READY;
         p->cpu = -1;
         p->cpu_affinity = -1;
         p->kill_pending = 0;
+        p->group = NULL;
+        p->thread_arg = NULL;
+        p->thread_detached = 0;
+        p->join_tid = 0;
+        p->wait_event = -1;
+        p->wait_next = NULL;
         strncpy(p->name, name, PROC_NAME_MAX - 1);
         p->kstack_top = (uint32_t)((uint8_t *)kbase + PROC_KSTACK_SIZE);
         p->ustack_top = (uint32_t)((uint8_t *)ubase + PROC_USTACK_SIZE);
@@ -285,10 +373,10 @@ static process_t *alloc_process(const char *name)
         for (int f = 0; f < VFS_MAX_FD; f++)
             p->fds[f] = -1;
 
-        if (cur) {
-            p->uid = cur->uid;
-            p->euid = cur->euid;
-            strncpy(p->cwd, cur->cwd, sizeof(p->cwd) - 1);
+        if (lead) {
+            p->uid = lead->uid;
+            p->euid = lead->euid;
+            strncpy(p->cwd, lead->cwd, sizeof(p->cwd) - 1);
         } else {
             /* Default credentials: root. Shell / desktop spawn with full rights. */
             p->uid = 0;
@@ -296,7 +384,7 @@ static process_t *alloc_process(const char *name)
             strcpy(p->cwd, "/");
         }
 
-        env_inherit(p, cur);
+        env_inherit(p, lead);
     }
 
     int cfd = vfs_open("/dev/console", O_RDWR);
@@ -377,7 +465,7 @@ static void process_wake_proc_waiters(uint32_t gen)
         if (!p || p->state != PROC_BLOCKED || p->proc_wait_gen == 0)
             continue;
         if (gen != p->proc_wait_gen)
-            p->state = PROC_READY;
+            process_wake(p);
     }
 }
 
@@ -415,21 +503,32 @@ void process_snapshot_publish(void)
         /* Skip unreaped zombies — they clutter Activity Monitor as "Zombie". */
         if (p->state == PROC_ZOMBIE)
             continue;
-        if (p->is_idle)
+        if (p->is_idle || p->group)
             continue;
         if (filled < PROC_PAGE_MAX) {
             proc_page_entry_t *dst = &g_proc_page.entries[filled++];
+            uint64_t ticks = p->cpu_ticks;
+            uint32_t stacks = process_stack_bytes(p);
+
+            for (int j = 0; j < PROC_MAX; j++) {
+                process_t *th = g_procs[j];
+                if (!th || th->group != p || th->state == PROC_UNUSED)
+                    continue;
+                ticks += th->cpu_ticks;
+                stacks += process_stack_bytes(th);
+            }
+
             memset(dst, 0, sizeof(*dst));
             dst->pid = p->pid;
             dst->ppid = p->ppid;
             dst->state = (uint32_t)p->state;
             dst->is_user = (uint32_t)p->is_user;
-            dst->cpu_ticks = p->cpu_ticks;
+            dst->cpu_ticks = ticks;
             dst->uptime_ticks = process_uptime_ticks(p, now);
-            dst->stack_bytes = process_stack_bytes(p);
+            dst->stack_bytes = stacks;
             dst->image_bytes = p->image_bytes;
             dst->vma_bytes = process_vma_bytes(p);
-            dst->mem_bytes = process_mem_bytes(p);
+            dst->mem_bytes = process_mem_bytes(p) + (stacks - process_stack_bytes(p));
             strncpy(dst->name, p->name, sizeof(dst->name) - 1);
         }
         count++;
@@ -477,7 +576,17 @@ process_t *process_get(pid_t pid)
 {
     for (int i = 0; i < PROC_MAX; i++) {
         process_t *p = g_procs[i];
-        if (p && p->state != PROC_UNUSED && p->pid == pid)
+        if (p && p->state != PROC_UNUSED && p->pid == pid && !p->group)
+            return p;
+    }
+    return NULL;
+}
+
+static process_t *thread_get(pid_t tid)
+{
+    for (int i = 0; i < PROC_MAX; i++) {
+        process_t *p = g_procs[i];
+        if (p && p->state != PROC_UNUSED && p->tid == tid)
             return p;
     }
     return NULL;
@@ -510,16 +619,163 @@ pid_t process_create_user(const char *name, void (*entry)(void))
     return p->pid;
 }
 
+pid_t process_getpid(void)
+{
+    process_t *lead = process_leader(process_current());
+    return lead ? lead->pid : 0;
+}
+
 pid_t process_getppid(void)
 {
+    process_t *lead = process_leader(process_current());
+    return lead ? lead->ppid : 0;
+}
+
+pid_t process_gettid(void)
+{
     process_t *cur = process_current();
-    return cur ? cur->ppid : 0;
+    return cur ? cur->tid : 0;
+}
+
+pid_t process_thread_create(void (*entry)(void *), void *arg)
+{
+    process_t *cur = process_current();
+    process_t *lead;
+    process_t *t;
+    int cfd;
+
+    if (!cur || !entry)
+        return (pid_t)-EINVAL;
+    lead = process_leader(cur);
+    if (!lead || !lead->is_user)
+        return (pid_t)-EPERM;
+    if (process_count_threads(lead) >= PROC_THREADS_MAX)
+        return (pid_t)-EAGAIN;
+
+    t = alloc_process(lead->name);
+    if (!t)
+        return (pid_t)-ENOMEM;
+
+    /* Drop console fds opened by alloc_process — share leader resources. */
+    process_release_fds(t);
+
+    t->group = lead;
+    t->tid = t->pid;
+    t->ppid = lead->ppid;
+    t->is_user = 1;
+    t->user_entry = (void (*)(void))(uintptr_t)entry;
+    t->thread_arg = arg;
+    t->thread_detached = 0;
+    t->join_tid = 0;
+    t->cpu_affinity = lead->cpu_affinity;
+    t->uid = lead->uid;
+    t->euid = lead->euid;
+    t->image_bytes = 0;
+    strncpy(t->cwd, lead->cwd, sizeof(t->cwd) - 1);
+    memset(&t->env, 0, sizeof(t->env));
+    memset(&t->argv, 0, sizeof(t->argv));
+    memset(t->vmas, 0, sizeof(t->vmas));
+
+    /* Keep stdin/out/err usable via leader lookup; no private console. */
+    (void)cfd;
+
+    setup_kstack(t, user_thread_trampoline, (void (*)(void))(uintptr_t)entry);
+    process_snapshot_mark_dirty();
+    smp_reschedule_others();
+    return t->tid;
+}
+
+void process_thread_exit(int code)
+{
+    process_t *cur = process_current();
+
+    if (!cur)
+        return;
+
+    /* Main thread exit tears down the whole process. */
+    if (!cur->group) {
+        process_exit(code);
+        return;
+    }
+
+    cur->exit_code = code;
+    cur->kill_pending = 0;
+    cur->state = PROC_ZOMBIE;
+    cur->cpu = -1;
+    process_wake_joiners(cur->tid);
+    if (cur->thread_detached) {
+        int slot = cur->slot;
+        if (slot >= 0 && slot < PROC_MAX && g_procs[slot] == cur)
+            g_procs[slot] = NULL;
+        cur->state = PROC_UNUSED;
+        cur->slot = -1;
+        cur->free_next = g_exit_graveyard;
+        g_exit_graveyard = cur;
+    }
+    process_snapshot_mark_dirty();
+    schedule();
+    for (;;)
+        __asm__ volatile("hlt");
+}
+
+long process_thread_join(pid_t tid, int *status_out)
+{
+    process_t *cur = process_current();
+    process_t *lead;
+    process_t *t;
+
+    if (!cur || tid <= 0)
+        return -EINVAL;
+    lead = process_leader(cur);
+    t = thread_get(tid);
+    if (!t || process_leader(t) != lead)
+        return -ESRCH;
+    if (t == cur)
+        return -EINVAL;
+    if (t->thread_detached)
+        return -EINVAL;
+
+    while (t->state != PROC_ZOMBIE && t->state != PROC_UNUSED) {
+        cur->join_tid = tid;
+        process_block(~(uint64_t)0);
+        schedule();
+        cur->join_tid = 0;
+        if (cur->kill_pending)
+            return -EINTR;
+        t = thread_get(tid);
+        if (!t)
+            return -ESRCH;
+    }
+
+    if (status_out)
+        *status_out = t->exit_code;
+    if (t->state == PROC_ZOMBIE)
+        process_clear_slot(t);
+    return 0;
+}
+
+long process_thread_detach(pid_t tid)
+{
+    process_t *cur = process_current();
+    process_t *lead;
+    process_t *t;
+
+    if (!cur || tid <= 0)
+        return -EINVAL;
+    lead = process_leader(cur);
+    t = thread_get(tid);
+    if (!t || process_leader(t) != lead)
+        return -ESRCH;
+    t->thread_detached = 1;
+    if (t->state == PROC_ZOMBIE)
+        process_clear_slot(t);
+    return 0;
 }
 
 pid_t process_waitpid(pid_t pid, int *status_out, int options)
 {
     int found_child = 0;
-    process_t *cur = process_current();
+    process_t *cur = process_leader(process_current());
     (void)options;
 
     if (!cur)
@@ -529,7 +785,7 @@ pid_t process_waitpid(pid_t pid, int *status_out, int options)
         process_t *p = g_procs[i];
         pid_t child_pid;
 
-        if (!p || p->state == PROC_UNUSED || p->ppid != cur->pid)
+        if (!p || p->state == PROC_UNUSED || p->group || p->ppid != cur->pid)
             continue;
         if (pid > 0 && p->pid != pid)
             continue;
@@ -555,20 +811,45 @@ void process_exit(int code)
 {
     pid_t pid;
     process_t *cur = process_current();
+    process_t *lead;
 
     if (!cur)
         return;
-    pid = cur->pid;
-    process_release_fds(cur);
+
+    /* Secondary thread: SYS_EXIT still ends the whole process. */
+    lead = process_leader(cur);
+    if (cur->group && lead && lead != cur) {
+        /* Ask leader to exit; if we are not on leader stack, kill group here. */
+        for (int i = 0; i < PROC_MAX; i++) {
+            process_t *t = g_procs[i];
+            if (!t || t == cur || t->state == PROC_UNUSED)
+                continue;
+            if (t == lead || t->group == lead)
+                process_kill_thread_slot(t, code);
+        }
+    } else {
+        for (int i = 0; i < PROC_MAX; i++) {
+            process_t *t = g_procs[i];
+            if (!t || t == cur || t->state == PROC_UNUSED)
+                continue;
+            if (t->group == cur)
+                process_kill_thread_slot(t, code);
+        }
+        lead = cur;
+    }
+
+    pid = lead->pid;
+    sync_cleanup_process(pid);
+    process_release_fds(lead);
     process_free_windows(pid);
     process_free_console(pid);
+    lead->exit_code = code;
+    lead->kill_pending = 0;
     cur->exit_code = code;
     cur->kill_pending = 0;
-    if (cur->ppid == 0) {
-        /*
-         * Detach from the table but keep struct/stack alive until
-         * process_reap_graveyard() runs on another process's stack.
-         */
+
+    if (cur != lead) {
+        /* Exiting from a worker: park this stack in the graveyard. */
         int slot = cur->slot;
         if (slot >= 0 && slot < PROC_MAX && g_procs[slot] == cur)
             g_procs[slot] = NULL;
@@ -577,13 +858,33 @@ void process_exit(int code)
         cur->cpu = -1;
         cur->free_next = g_exit_graveyard;
         g_exit_graveyard = cur;
+    }
+
+    if (lead->ppid == 0) {
+        /*
+         * Detach from the table but keep struct/stack alive until
+         * process_reap_graveyard() runs on another process's stack.
+         */
+        int slot = lead->slot;
+        if (slot >= 0 && slot < PROC_MAX && g_procs[slot] == lead)
+            g_procs[slot] = NULL;
+        lead->state = PROC_UNUSED;
+        lead->slot = -1;
+        lead->cpu = -1;
+        if (lead != cur) {
+            lead->free_next = g_exit_graveyard;
+            g_exit_graveyard = lead;
+        } else {
+            lead->free_next = g_exit_graveyard;
+            g_exit_graveyard = lead;
+        }
     } else {
-        cur->state = PROC_ZOMBIE;
-        cur->cpu = -1;
+        lead->state = PROC_ZOMBIE;
+        lead->cpu = -1;
     }
     process_snapshot_mark_dirty();
     process_snapshot_publish();
-    scheduler_on_exit(cur);
+    scheduler_on_exit(lead);
     schedule();
     for (;;)
         __asm__ volatile("hlt");
@@ -598,8 +899,17 @@ int process_kill(pid_t pid)
         return -ESRCH;
     if (!p->is_user)
         return -EPERM; /* kernel threads only exit themselves */
-    if (p == cur)
+    if (process_leader(cur) == p)
         process_exit(137);
+
+    for (int i = 0; i < PROC_MAX; i++) {
+        process_t *t = g_procs[i];
+        if (!t || t == p || t->state == PROC_UNUSED)
+            continue;
+        if (t->group == p)
+            process_kill_thread_slot(t, 137);
+    }
+
     /* Running on another CPU — ask it to exit at next schedule point. */
     if (p->state == PROC_RUNNING && p->cpu >= 0 && p->cpu != cpu_id()) {
         cpu_t *remote = cpu_get(p->cpu);
@@ -609,6 +919,7 @@ int process_kill(pid_t pid)
         smp_reschedule_others();
         return 0;
     }
+    sync_cleanup_process(p->pid);
     process_release_fds(p);
     process_free_windows(p->pid);
     process_free_console(p->pid);
@@ -649,24 +960,35 @@ int process_list_range(proc_list_entry_t *out, size_t max_entries, size_t skip)
     for (int i = 0; i < PROC_MAX; i++) {
         process_t *p = g_procs[i];
 
-        if (!p || p->state == PROC_UNUSED)
+        if (!p || p->state == PROC_UNUSED || p->group)
             continue;
         if (p->is_idle)
             continue;
 
         if (total >= skip && out && filled < max_entries) {
             proc_list_entry_t *dst = &out[filled++];
+            uint64_t ticks = p->cpu_ticks;
+            uint32_t stacks = process_stack_bytes(p);
+
+            for (int j = 0; j < PROC_MAX; j++) {
+                process_t *th = g_procs[j];
+                if (!th || th->group != p || th->state == PROC_UNUSED)
+                    continue;
+                ticks += th->cpu_ticks;
+                stacks += process_stack_bytes(th);
+            }
+
             memset(dst, 0, sizeof(*dst));
             dst->pid = p->pid;
             dst->ppid = p->ppid;
             dst->state = (uint32_t)p->state;
             dst->is_user = (uint32_t)p->is_user;
-            dst->cpu_ticks = p->cpu_ticks;
+            dst->cpu_ticks = ticks;
             dst->uptime_ticks = process_uptime_ticks(p, now_ticks);
-            dst->stack_bytes = process_stack_bytes(p);
+            dst->stack_bytes = stacks;
             dst->image_bytes = p->image_bytes;
             dst->vma_bytes = process_vma_bytes(p);
-            dst->mem_bytes = process_mem_bytes(p);
+            dst->mem_bytes = process_mem_bytes(p) + (stacks - process_stack_bytes(p));
             strncpy(dst->name, p->name, sizeof(dst->name) - 1);
         }
         total++;
@@ -684,26 +1006,41 @@ int process_stat(pid_t pid, proc_stat_t *out)
 {
     process_t *p;
     uint64_t now_ticks = scheduler_tick_count();
+    uint64_t ticks;
+    uint32_t stacks;
 
     if (!out)
         return -EFAULT;
 
-    p = pid > 0 ? process_get(pid) : process_current();
+    p = pid > 0 ? process_get(pid) : process_leader(process_current());
     if (!p || p->state == PROC_UNUSED)
         return -ESRCH;
+    p = process_leader(p);
+    if (!p)
+        return -ESRCH;
+
+    ticks = p->cpu_ticks;
+    stacks = process_stack_bytes(p);
+    for (int j = 0; j < PROC_MAX; j++) {
+        process_t *th = g_procs[j];
+        if (!th || th->group != p || th->state == PROC_UNUSED)
+            continue;
+        ticks += th->cpu_ticks;
+        stacks += process_stack_bytes(th);
+    }
 
     memset(out, 0, sizeof(*out));
     out->pid = p->pid;
     out->ppid = p->ppid;
     out->state = (uint32_t)p->state;
     out->is_user = (uint32_t)p->is_user;
-    out->cpu_ticks = p->cpu_ticks;
+    out->cpu_ticks = ticks;
     out->start_ticks = p->start_ticks;
     out->uptime_ticks = process_uptime_ticks(p, now_ticks);
-    out->stack_bytes = process_stack_bytes(p);
+    out->stack_bytes = stacks;
     out->image_bytes = p->image_bytes;
     out->vma_bytes = process_vma_bytes(p);
-    out->mem_bytes = process_mem_bytes(p);
+    out->mem_bytes = process_mem_bytes(p) + (stacks - process_stack_bytes(p));
     strncpy(out->name, p->name, sizeof(out->name) - 1);
     return 0;
 }
@@ -725,7 +1062,8 @@ int process_sysinfo(sys_info_t *out)
         out->used_ram_bytes = out->total_ram_bytes - out->free_ram_bytes;
 
     for (int i = 0; i < PROC_MAX; i++) {
-        if (g_procs[i] && g_procs[i]->state != PROC_UNUSED && !g_procs[i]->is_idle)
+        process_t *p = g_procs[i];
+        if (p && p->state != PROC_UNUSED && !p->is_idle && !p->group)
             out->process_count++;
     }
 
@@ -734,6 +1072,9 @@ int process_sysinfo(sys_info_t *out)
 
 int process_alloc_fd(process_t *p, int vfs_fd)
 {
+    p = process_leader(p);
+    if (!p)
+        return -1;
     for (int i = 0; i < VFS_MAX_FD; i++) {
         if (p->fds[i] < 0) {
             p->fds[i] = vfs_fd;
@@ -745,6 +1086,9 @@ int process_alloc_fd(process_t *p, int vfs_fd)
 
 int process_alloc_sock_fd(process_t *p, int sock_id)
 {
+    p = process_leader(p);
+    if (!p)
+        return -1;
     for (int i = 0; i < VFS_MAX_FD; i++) {
         if (p->fds[i] < 0) {
             p->fds[i] = PROC_FD_MAKE_SOCK(sock_id);
@@ -756,6 +1100,7 @@ int process_alloc_sock_fd(process_t *p, int sock_id)
 
 int process_lookup_fd(process_t *p, int user_fd)
 {
+    p = process_leader(p);
     if (!p || user_fd < 0 || user_fd >= VFS_MAX_FD)
         return -1;
     return p->fds[user_fd];
@@ -763,6 +1108,7 @@ int process_lookup_fd(process_t *p, int user_fd)
 
 void process_free_fd(process_t *p, int user_fd)
 {
+    p = process_leader(p);
     if (!p || user_fd < 0 || user_fd >= VFS_MAX_FD)
         return;
     p->fds[user_fd] = -1;

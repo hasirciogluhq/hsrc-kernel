@@ -252,6 +252,7 @@ void env_inherit(process_t *child, const process_t *parent)
 
 int env_get(const process_t *p, const char *key, char *val, size_t valsz)
 {
+    p = process_leader((process_t *)p);
     if (!p)
         return -ESRCH;
     return env_table_get(p->env.entries, p->env.count, key, val, valsz);
@@ -261,6 +262,7 @@ int env_set(process_t *p, const char *key, const char *val, int global)
 {
     if (global)
         return env_table_set(g_global, &g_global_count, ENV_GLOBAL_MAX, key, val);
+    p = process_leader(p);
     if (!p)
         return -ESRCH;
     return env_table_set(p->env.entries, &p->env.count, ENV_PROC_MAX, key, val);
@@ -270,6 +272,7 @@ int env_unset(process_t *p, const char *key, int global)
 {
     if (global)
         return env_table_unset(g_global, &g_global_count, key);
+    p = process_leader(p);
     if (!p)
         return -ESRCH;
     return env_table_unset(p->env.entries, &p->env.count, key);

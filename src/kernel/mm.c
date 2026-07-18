@@ -24,6 +24,7 @@ void mm_free_pages(void *ptr, size_t npages)
 
 static vma_t *proc_vmas(process_t *p)
 {
+    p = process_leader(p);
     return p ? p->vmas : NULL;
 }
 

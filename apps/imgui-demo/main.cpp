@@ -9,6 +9,7 @@
 #include <user/sdk/gfx.hpp>
 #include <user/sdk/process.hpp>
 #include <user/sdk/settings.hpp>
+#include <user/sdk/sync.hpp>
 #include <user/sdk/syscall.hpp>
 
 namespace {
@@ -129,7 +130,7 @@ extern "C" void mke_main(void)
 
     if (!hsrc::sdk::screen_info(g_screen) || g_screen.width == 0) {
         for (;;)
-            hsrc::sdk::yield(32u);
+            hsrc::sdk::wait_idle(32u);
     }
 
     (void)refresh_theme();
@@ -254,10 +255,9 @@ extern "C" void mke_main(void)
             paint();
             (void)hsrc::sdk::present();
             g_dirty = false;
-            hsrc::sdk::yield(0);
+            hsrc::sdk::wait_idle(1u);
         } else {
-            /* Idle: Blocked sleep — bare yield(0)/yield(2) spun Ready forever. */
-            hsrc::sdk::yield(g_win_opts.minimized ? 32u : 12u);
+            hsrc::sdk::wait_idle(g_win_opts.minimized ? 32u : 12u);
         }
     }
 }
