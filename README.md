@@ -18,15 +18,24 @@ Boots. Paints windows. Runs ImGui for fun. Cool. Don't care. Doing it anyway.
 
 Desktop in the wild. Activity Monitor flexing next to ImGui. Minesweeper because why not. Sexy and we know it.
 
-<p align="center">
-  <img src="assets/showcase/os-ui.png" alt="hsrc-kernel desktop" width="32%" />
-  &nbsp;
-  <img src="assets/showcase/activity-mon-plus-imgui-demo.png" alt="Activity Monitor + ImGui Demo" width="32%" />
-  &nbsp;
-  <img src="assets/showcase/minesweeper.png" alt="Minesweeper on hsrc-kernel" width="32%" />
-</p>
-
-<p align="center"><em>Desktop · Activity + ImGui · Minesweeper</em></p>
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="assets/showcase/os-ui.png" alt="hsrc-kernel desktop" width="100%" />
+      <br /><sub>Desktop shell</sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="assets/showcase/activity-mon-plus-imgui-demo.png" alt="Activity Monitor + ImGui Demo" width="100%" />
+      <br /><sub>Activity Monitor + ImGui</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2">
+      <img src="assets/showcase/minesweeper.png" alt="Minesweeper on hsrc-kernel" width="55%" />
+      <br /><sub>Minesweeper</sub>
+    </td>
+  </tr>
+</table>
 
 ---
 
