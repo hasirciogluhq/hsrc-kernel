@@ -1,8 +1,12 @@
-# mykernel
+<p align="center">
+  <img src="assets/showcase/logo.png" alt="mykernel" width="280">
+</p>
 
-**bare metal. multiboot. your own damn desktop.**
+<h1 align="center">mykernel</h1>
 
-> *Hobi OS — kernel'den dock'a, sıfırdan.*
+<p align="center"><strong>bare metal. multiboot. your own damn desktop.</strong></p>
+
+<p align="center"><em>Hobi OS — kernel'den dock'a, sıfırdan.</em></p>
 
 i386 Multiboot kernel + loadable `.kmod` drivers + usermode C++ `.mke` apps, all running under QEMU with SMP, virtio, and an actual compositor. Not a toy shell loop. A tiny OS that boots, paints windows, and lets you open ImGui for fun.
 
