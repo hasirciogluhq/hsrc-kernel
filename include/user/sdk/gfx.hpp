@@ -158,6 +158,7 @@ public:
     void text_centered(int cx, int cy, const char *s, Color c, int scale = 1);
     static int text_width(const char *s, int scale = 1);
     static int text_height(int scale = 1);
+    /* Internal / tests only — apps use GxDevice; chrome is kernel publish. */
     void draw_window_chrome(int win_w, const char *title, const WindowOptions &opts,
                             Color bar_bg, Color title_color, Color border);
 
@@ -213,26 +214,22 @@ private:
 /*
  * DirectX-style swap semantics (Begin/End/Present).
  *
- * Userspace (this class):
- *   backbuffer()  = draw target (window-mapped client pixels)
- *   framebuffer() = compositor commit surface (same map; Present publishes it)
+ * Userspace:
+ *   backbuffer() = SYS_WM_MAP draw target (window back)
+ * Present publishes back→front in kernel (+ chrome), then composes.
  *
- * Kernel MKDX scanout (true tear-free pair):
- *   device.backbuffer  = composed scene
- *   device.framebuffer = display LFB / GPU scanout
- *   present            = copy/flip via display_ops (virtio-gpu else BGA)
- *
- *   WM (kernel)     = hit-test, drag, stacking
- *   GxDevice        = client pixels + chrome decorate on Present
- *   App             = only draws client (y >= client_top())
+ * Kernel:
+ *   window.back / window.front = per-window swapchain
+ *   device.backbuffer / framebuffer = screen compose + LFB
  *
  *   gx.create(win);
  *   for (;;) {
  *     Input in = gx.wait();
+ *     if (in.drag_id == win.id()) continue;
  *     gx.begin_scene();
- *     // draw to gx.backbuffer() / window surface
+ *     // client draw only
  *     gx.end_scene();
- *     gx.present();   // chrome + damage + MKDX compose → display FB
+ *     gx.present();
  *   }
  *   gx.release();
  */
@@ -249,12 +246,9 @@ public:
 
     bool ok() const { return ready_; }
     Window *window() const { return win_; }
-    /* App draw target (window map). Prefer this over Window::surface(). */
+    /* App draw target (window back map). Prefer this over Window::surface(). */
     Surface &backbuffer();
     const Surface &backbuffer() const;
-    /* Surface published to the compositor on Present (window map). */
-    Surface &framebuffer();
-    const Surface &framebuffer() const;
 
     /* Titlebar height reserved for WM chrome (0 if shell / no frame). */
     int client_top() const;
@@ -263,14 +257,12 @@ public:
     bool begin_scene();
     bool end_scene();
     /*
-     * Decorate chrome, mark damage, then SYS_GX_PRESENT.
-     * MKDX composes into device.backbuffer and flips/copies to the
-     * display framebuffer (GPU driver if active, else BGA LFB).
+     * Publish back→front (+ chrome colors), then SYS_GX_PRESENT compose.
      * Skips while this window is dragged.
      */
     bool present();
 
-    /* Chrome colors used by Present decorate pass. */
+    /* Chrome colors applied by kernel on publish (framed windows). */
     void set_chrome_colors(Color bar, Color title, Color border);
 
     /* Client-space draws (y=0 is first pixel below titlebar when framed). */
@@ -288,8 +280,10 @@ public:
     bool key_pressed(int vk) const;
     bool key_released(int vk) const;
 
+    /* True while WM is dragging this device's window. */
+    bool dragging() const;
+
 private:
-    void decorate_chrome();
     int map_y(int client_y) const { return client_y + client_top(); }
 
     Window *win_ = nullptr;

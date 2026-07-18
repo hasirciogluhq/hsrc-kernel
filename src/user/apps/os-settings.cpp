@@ -1165,6 +1165,8 @@ extern "C" void mke_main(void)
             wait_to = 8u;
 
         Input in = g_gx.wait(wait_to);
+        if (g_gx.dragging())
+            continue;
 
         {
             const uint8_t btn_delta = (uint8_t)(in.buttons ^ g_prev_input.buttons);

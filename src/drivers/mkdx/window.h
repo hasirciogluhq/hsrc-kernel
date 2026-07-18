@@ -14,9 +14,11 @@
 #define WM_KEYBUF_SIZE     64
 
 /*
- * Kernel WM owns hit-test / drag / stacking.
- * Frame chrome is painted by GxDevice::present (decoration pass);
- * apps only draw the client area below WM_TITLEBAR_H.
+ * Kernel WM owns hit-test / drag / stacking + chrome on publish.
+ * Per-window swapchain:
+ *   back  = app draw target (SYS_WM_MAP)
+ *   front = compositor / drag source (kernel-private)
+ * Present/publish: blit back→front, paint chrome on front titlebar.
  */
 typedef struct wm_window {
     int         used;
@@ -24,8 +26,13 @@ typedef struct wm_window {
     int         layer_id;
     gx_rect     frame;
     gx_rect     restore_frame;
-    gx_surface *surface;   /* mapped to userspace via SYS_WM_MAP */
+    gx_surface *back;    /* userspace map / app draw */
+    gx_surface *front;   /* compose + drag */
     ugx_window_opts opts;
+    uint32_t    chrome_bar;    /* ARGB */
+    uint32_t    chrome_title;
+    uint32_t    chrome_border;
+    int         chrome_set;
     int         focused;
     int         has_restore_frame;
     int         owner_pid;
@@ -64,6 +71,11 @@ int        wm_get_opts(wm_t *wm, int id, ugx_window_opts *out);
 int        wm_find_by_title(wm_t *wm, const char *title);
 int        wm_find_by_class(wm_t *wm, const char *class_name);
 int        wm_map(wm_t *wm, int id, wm_map_info *out);
+/* Publish back→front (+ chrome). chrome_* ignored if chrome_set==0 (keep stored). */
+int        wm_publish(wm_t *wm, int id, uint32_t chrome_bar, uint32_t chrome_title,
+                      uint32_t chrome_border, int chrome_set);
+/* Partial publish: window-local rect → front + screen damage (not full frame). */
+int        wm_publish_rect(wm_t *wm, int id, int32_t x, int32_t y, int32_t w, int32_t h);
 void       wm_move(wm_t *wm, int id, int32_t x, int32_t y);
 void       wm_resize(wm_t *wm, int id, int32_t w, int32_t h);
 void       wm_focus(wm_t *wm, int id);

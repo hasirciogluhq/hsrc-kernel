@@ -76,6 +76,19 @@ typedef struct ugx_damage_args {
     int32_t x, y, w, h;
 } ugx_damage_args;
 
+/*
+ * SYS_GX_PRESENT a1 = &ugx_present_args (or 0 = compose only).
+ * win > 0 → publish that window's back→front (+ chrome) then compose.
+ */
+typedef struct ugx_present_args {
+    int32_t  win;
+    uint32_t chrome_bar;
+    uint32_t chrome_title;
+    uint32_t chrome_border;
+    uint8_t  chrome_set; /* 1 = update stored chrome colors */
+    uint8_t  _pad[3];
+} ugx_present_args;
+
 typedef struct ugx_wallpaper {
     const uint32_t *pixels;
     uint32_t width;

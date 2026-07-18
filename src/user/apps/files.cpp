@@ -451,6 +451,8 @@ extern "C" void mke_main(void)
         const uint32_t wait_to =
             g_win_opts.minimized ? 200u : kGxWaitForever;
         Input in = g_gx.wait(wait_to);
+        if (g_gx.dragging())
+            continue;
 
         {
             const uint8_t pressed = (uint8_t)(in.buttons & ~g_prev_input.buttons);

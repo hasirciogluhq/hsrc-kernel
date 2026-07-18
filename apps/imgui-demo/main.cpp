@@ -191,6 +191,8 @@ extern "C" void mke_main(void)
         const uint32_t wait_to =
             g_win_opts.minimized ? 200u : kGxWaitForever;
         Input in = g_gx.wait(wait_to);
+        if (g_gx.dragging())
+            continue;
 
         {
             ImGui_ImplUgx_NewFrame(g_win, in, g_win_opts, g_prev.buttons,
@@ -213,7 +215,7 @@ extern "C" void mke_main(void)
             ImGui::Text("Clicks: %d", g_clicks);
             ImGui::Separator();
             ImGui::TextWrapped(
-                "Client paint + WM chrome decorate on Present.");
+                "Client paint; chrome on kernel publish.");
             static char buf[64] = "type here";
             (void)ImGui::InputText("Name", buf, sizeof(buf));
             ImGui::End();

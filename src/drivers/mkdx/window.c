@@ -1,10 +1,81 @@
 #include "window.h"
 #include "accel.h"
+#include "draw.h"
+#include "font.h"
 #include "server.h"
 #include <drivers/serial.h>
 #include <kernel/heap.h>
 #include <kernel/string.h>
 #include <kernel/sync.h>
+
+/* Traffic-light layout — keep in sync with userspace kChrome* */
+#define WM_CHROME_BTN      12
+#define WM_CHROME_BTN_Y    8
+#define WM_CHROME_BTN0_X   10
+#define WM_CHROME_BTN_GAP  8
+
+static int chrome_btn_x(int index)
+{
+    return WM_CHROME_BTN0_X + index * (WM_CHROME_BTN + WM_CHROME_BTN_GAP);
+}
+
+static void chrome_btn_disc(gx_surface *s, int x, int y, int size, gx_color c)
+{
+    int r = size / 2;
+    int rr = r * r;
+    int ly, lx, dy, dx;
+
+    for (ly = 0; ly < size; ly++) {
+        dy = ly - r;
+        for (lx = 0; lx < size; lx++) {
+            dx = lx - r;
+            if (dx * dx + dy * dy <= rr)
+                gx_surface_set(s, x + lx, y + ly, c);
+        }
+    }
+}
+
+static void wm_paint_chrome(wm_window *w)
+{
+    gx_surface *s;
+    int win_w;
+    int tx, ty;
+    gx_color bar, title_c, border;
+
+    if (!w || !w->front)
+        return;
+    if (w->opts.no_title || !w->opts.framed)
+        return;
+
+    s = w->front;
+    win_w = (int)s->width;
+    bar = w->chrome_set ? w->chrome_bar : GX_RGB(45, 45, 48);
+    title_c = w->chrome_set ? w->chrome_title : GX_RGB(240, 240, 240);
+    border = w->chrome_set ? w->chrome_border : GX_RGB(60, 60, 64);
+
+    gx_fill_rect(s, gx_rect_make(0, 0, win_w, WM_TITLEBAR_H), bar);
+    gx_fill_rect(s, gx_rect_make(0, WM_TITLEBAR_H - 1, win_w, 1), border);
+
+    if (w->opts.closable)
+        chrome_btn_disc(s, chrome_btn_x(0), WM_CHROME_BTN_Y, WM_CHROME_BTN,
+                        GX_RGB(255, 95, 87));
+    if (w->opts.can_minimize)
+        chrome_btn_disc(s, chrome_btn_x(1), WM_CHROME_BTN_Y, WM_CHROME_BTN,
+                        GX_RGB(255, 189, 46));
+    if (w->opts.can_maximize)
+        chrome_btn_disc(s, chrome_btn_x(2), WM_CHROME_BTN_Y, WM_CHROME_BTN,
+                        GX_RGB(40, 200, 64));
+
+    if (w->opts.title[0]) {
+        tx = chrome_btn_x(3) + 4;
+        if (tx < WM_CHROME_BTN_ZONE)
+            tx = WM_CHROME_BTN_ZONE;
+        ty = (WM_TITLEBAR_H - GX_FONT_H) / 2;
+        if (ty < 0)
+            ty = 0;
+        gx_draw_text(s, tx, ty, w->opts.title, title_c);
+    }
+}
 
 static wm_window *slot_by_id(wm_t *wm, int id)
 {
@@ -77,19 +148,31 @@ static gx_rect screen_frame(wm_t *wm)
                         (int32_t)wm->comp->device->mode.height);
 }
 
-static int resize_surface(wm_window *w, int32_t width, int32_t height)
+static int resize_surfaces(wm_window *w, int32_t width, int32_t height)
 {
-    if (!w || !w->surface)
+    gx_surface *nb, *nf;
+
+    if (!w || !w->back || !w->front)
         return -1;
-    if (width == (int32_t)w->surface->width && height == (int32_t)w->surface->height)
+    if (width == (int32_t)w->back->width && height == (int32_t)w->back->height &&
+        width == (int32_t)w->front->width && height == (int32_t)w->front->height)
         return 0;
 
-    gx_surface *ns = gx_surface_create((uint32_t)width, (uint32_t)height);
-    if (!ns)
+    nb = gx_surface_create((uint32_t)width, (uint32_t)height);
+    nf = gx_surface_create((uint32_t)width, (uint32_t)height);
+    if (!nb || !nf) {
+        if (nb)
+            gx_surface_destroy(nb);
+        if (nf)
+            gx_surface_destroy(nf);
         return -1;
-    gx_accel_blit(ns, 0, 0, w->surface);
-    gx_surface_destroy(w->surface);
-    w->surface = ns;
+    }
+    gx_accel_blit(nb, 0, 0, w->back);
+    gx_accel_blit(nf, 0, 0, w->front);
+    gx_surface_destroy(w->back);
+    gx_surface_destroy(w->front);
+    w->back = nb;
+    w->front = nf;
     return 0;
 }
 
@@ -140,7 +223,7 @@ void wm_sync_layer(wm_t *wm, int id)
         return;
     prev = L->bounds;
     L->bounds = w->frame;
-    L->surface = w->surface;
+    L->surface = w->front;
     L->visible = effective_visible(&w->opts);
     apply_layer_style(w, L);
     /* Geometry/style sync: damage previous and new bounds (not full screen). */
@@ -197,8 +280,9 @@ wm_window *wm_create(wm_t *wm, const ugx_window_opts *opts, int owner_pid)
     sanitize_opts(&w->opts);
     w->frame = gx_rect_make(w->opts.x, w->opts.y, w->opts.w, w->opts.h);
 
-    w->surface = gx_surface_create((uint32_t)w->frame.w, (uint32_t)w->frame.h);
-    if (!w->surface) {
+    w->back = gx_surface_create((uint32_t)w->frame.w, (uint32_t)w->frame.h);
+    w->front = gx_surface_create((uint32_t)w->frame.w, (uint32_t)w->frame.h);
+    if (!w->back || !w->front) {
         klog("[wm] create failed: surface OOM ");
         serial_print_uint((uint32_t)w->frame.w);
         klog("x");
@@ -208,22 +292,36 @@ wm_window *wm_create(wm_t *wm, const ugx_window_opts *opts, int owner_pid)
         klog(" heap_used=");
         serial_print_uint((uint32_t)heap_used());
         klog("\n");
+        if (w->back)
+            gx_surface_destroy(w->back);
+        if (w->front)
+            gx_surface_destroy(w->front);
+        w->back = NULL;
+        w->front = NULL;
         w->used = 0;
         return NULL;
     }
-    gx_surface_clear(w->surface, GX_TRANSPARENT);
+    gx_surface_clear(w->back, GX_TRANSPARENT);
+    gx_surface_clear(w->front, GX_TRANSPARENT);
+    w->chrome_bar = GX_RGB(45, 45, 48);
+    w->chrome_title = GX_RGB(240, 240, 240);
+    w->chrome_border = GX_RGB(60, 60, 64);
+    w->chrome_set = 1;
 
     gx_layer layer;
     memset(&layer, 0, sizeof(layer));
     layer.visible = 1;
     layer.z = w->opts.always_on_bottom ? 0 : w->id;
     layer.bounds = w->frame;
-    layer.surface = w->surface;
+    layer.surface = w->front;
     apply_layer_style(w, &layer);
 
     w->layer_id = gx_compositor_add_layer(wm->comp, &layer);
     if (w->layer_id < 0) {
-        gx_surface_destroy(w->surface);
+        gx_surface_destroy(w->back);
+        gx_surface_destroy(w->front);
+        w->back = NULL;
+        w->front = NULL;
         w->used = 0;
         return NULL;
     }
@@ -248,8 +346,10 @@ void wm_destroy(wm_t *wm, int id)
         return;
 
     gx_compositor_remove_layer(wm->comp, w->layer_id);
-    if (w->surface)
-        gx_surface_destroy(w->surface);
+    if (w->back)
+        gx_surface_destroy(w->back);
+    if (w->front)
+        gx_surface_destroy(w->front);
     if (wm->focus_id == id)
         wm->focus_id = -1;
     if (wm->drag_id == id)
@@ -335,7 +435,7 @@ int wm_apply_opts(wm_t *wm, int id, const ugx_window_opts *opts)
     if (next.max_h > 0 && frame.h > next.max_h)
         frame.h = next.max_h;
 
-    if (resize_surface(w, frame.w, frame.h) < 0)
+    if (resize_surfaces(w, frame.w, frame.h) < 0)
         return -1;
 
     w->frame = frame;
@@ -434,12 +534,105 @@ int wm_find_by_class(wm_t *wm, const char *class_name)
 int wm_map(wm_t *wm, int id, wm_map_info *out)
 {
     wm_window *w = slot_by_id(wm, id);
-    if (!w || !w->surface || !out)
+    if (!w || !w->back || !out)
         return -1;
-    out->pixels = w->surface->pixels;
-    out->width = w->surface->width;
-    out->height = w->surface->height;
-    out->stride = w->surface->stride;
+    /* App draws to back only; front is compositor-private. */
+    out->pixels = w->back->pixels;
+    out->width = w->back->width;
+    out->height = w->back->height;
+    out->stride = w->back->stride;
+    return 0;
+}
+
+int wm_publish(wm_t *wm, int id, uint32_t chrome_bar, uint32_t chrome_title,
+               uint32_t chrome_border, int chrome_set)
+{
+    wm_window *w;
+    gx_layer *L;
+    uint32_t y;
+    uint32_t row_bytes;
+
+    if (!wm)
+        return -1;
+    w = slot_by_id(wm, id);
+    if (!w || !w->back || !w->front)
+        return -1;
+
+    /* During drag, front stays frozen — kernel slides existing front pixels. */
+    if (wm->drag_id == id)
+        return 0;
+
+    if (chrome_set) {
+        w->chrome_bar = chrome_bar;
+        w->chrome_title = chrome_title;
+        w->chrome_border = chrome_border;
+        w->chrome_set = 1;
+    }
+
+    /*
+     * Swapchain publish must be opaque memcpy — NOT alpha blit.
+     * Alpha blit skips A=0 and leaves stale front pixels (ghost + O(n) crawl).
+     */
+    if (w->front->width != w->back->width || w->front->height != w->back->height)
+        return -1;
+    row_bytes = w->back->width * sizeof(gx_color);
+    for (y = 0; y < w->back->height; y++) {
+        memcpy(&w->front->pixels[y * w->front->stride],
+               &w->back->pixels[y * w->back->stride], row_bytes);
+    }
+    wm_paint_chrome(w);
+
+    L = gx_compositor_layer(wm->comp, w->layer_id);
+    if (L)
+        L->surface = w->front;
+
+    gx_server_mark_dirty_rect(w->frame);
+    return 0;
+}
+
+int wm_publish_rect(wm_t *wm, int id, int32_t x, int32_t y, int32_t w, int32_t h)
+{
+    wm_window *win;
+    gx_layer *L;
+    gx_rect local, screen;
+    int32_t row;
+    uint32_t row_bytes;
+
+    if (!wm || w <= 0 || h <= 0)
+        return -1;
+    win = slot_by_id(wm, id);
+    if (!win || !win->back || !win->front)
+        return -1;
+
+    /* During drag, front stays frozen — kernel slides existing front pixels. */
+    if (wm->drag_id == id)
+        return 0;
+
+    local = gx_rect_make(x, y, w, h);
+    local = gx_rect_intersect(local,
+                              gx_rect_make(0, 0, win->frame.w, win->frame.h));
+    if (gx_rect_empty(local))
+        return 0;
+
+    row_bytes = (uint32_t)local.w * sizeof(gx_color);
+    for (row = 0; row < local.h; row++) {
+        uint32_t sy = (uint32_t)(local.y + row);
+        memcpy(&win->front->pixels[sy * win->front->stride + (uint32_t)local.x],
+               &win->back->pixels[sy * win->back->stride + (uint32_t)local.x],
+               row_bytes);
+    }
+
+    /* Blit may have stomped chrome — restore if titlebar touched. */
+    if (local.y < WM_TITLEBAR_H)
+        wm_paint_chrome(win);
+
+    L = gx_compositor_layer(wm->comp, win->layer_id);
+    if (L)
+        L->surface = win->front;
+
+    screen = gx_rect_make(win->frame.x + local.x, win->frame.y + local.y,
+                          local.w, local.h);
+    gx_server_mark_dirty_rect(screen);
     return 0;
 }
 

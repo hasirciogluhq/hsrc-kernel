@@ -937,12 +937,20 @@ static long do_gx_info(long outp)
     return 0;
 }
 
-static long do_gx_present(void)
+static long do_gx_present(long argp)
 {
     const mkdx_api_t *api = mkdx();
+    ugx_present_args args;
+    const void *pargs = NULL;
+
     if (!api || !api->present)
         return -1;
-    return api->present();
+    if (argp) {
+        if (copy_from_user(&args, (const void *)argp, sizeof(args)) < 0)
+            return -1;
+        pargs = &args;
+    }
+    return api->present(pargs);
 }
 
 static long do_wm_create(long argp)
@@ -1758,7 +1766,7 @@ long syscall_dispatch(long n, long a1, long a2, long a3, long a4, long a5)
     case SYS_FORK:   return -1;
 
     case SYS_GX_INFO:          return do_gx_info(a1);
-    case SYS_GX_PRESENT:       return do_gx_present();
+    case SYS_GX_PRESENT:       return do_gx_present(a1);
     case SYS_WM_CREATE:        return do_wm_create(a1);
     case SYS_WM_SET:           return do_wm_set(a1, a2);
     case SYS_WM_GET:           return do_wm_get(a1, a2);

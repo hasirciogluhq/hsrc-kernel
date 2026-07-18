@@ -9,7 +9,8 @@
  */
 typedef struct mkdx_api {
     int  (*info)(uint32_t *w, uint32_t *h, uint32_t *bpp);
-    int  (*present)(void);
+    /* args = ugx_present_args* or NULL (compose only). */
+    int  (*present)(const void *args);
     /* win_id > 0 → damage that window's frame; else full-screen dirty. */
     void (*mark_dirty)(int win_id);
     /* Optional: window-local damage rect (x,y,w,h). NULL = unsupported. */

@@ -107,10 +107,10 @@ static void paint_console(wm_t *wm, proc_console_t *c)
         return;
 
     w = wm_get(wm, c->win_id);
-    if (!w || !w->surface)
+    if (!w || !w->back || !w->front)
         return;
 
-    s = w->surface;
+    s = w->back;
     gx_accel_fill(s, gx_rect_make(0, 0, (int32_t)s->width, (int32_t)s->height), bg);
 
     x0 = 8;
@@ -147,7 +147,7 @@ static void paint_console(wm_t *wm, proc_console_t *c)
         col++;
     }
 
-    wm_sync_layer(wm, c->win_id);
+    (void)wm_publish(wm, c->win_id, 0, 0, 0, 0);
     c->dirty = 0;
 }
 

@@ -645,7 +645,7 @@ static void present_full_frame(gx_server *s, display_ops_t *ops,
 
 /*
  * Live drag: sprite slide with cursor erased from bb before every capture.
- * Multi-hop catch-up keeps the window glued when the pointer runs ahead.
+ * Apply latest pointer once, then one union present (old∪new∪cursor).
  */
 static int frame_tick_drag(gx_server *s, display_ops_t *ops)
 {
@@ -653,8 +653,7 @@ static int frame_tick_drag(gx_server *s, display_ops_t *ops)
     gx_surface *bb = s->device.backbuffer;
     gx_rect old_r;
     gx_rect new_r;
-    gx_rect present_old;
-    gx_rect present_new;
+    gx_rect present_u;
     wm_window *dw;
     int layer_id = -1;
     int32_t mx, my;
@@ -671,14 +670,12 @@ static int frame_tick_drag(gx_server *s, display_ops_t *ops)
     /* Cursor off bb before underlay capture — otherwise ghosts bake into drag. */
     cursor_erase_from_bb(s);
 
-    present_old = gx_rect_make(0, 0, 0, 0);
-    present_new = gx_rect_make(0, 0, 0, 0);
-
+    present_u = gx_rect_make(0, 0, 0, 0);
     g_frame_busy = 1;
 
     /*
-     * Hop to the latest pointer: each deferred move coalesces into g_drag_*.
-     * Present only the first old + final new (skip intermediate flash).
+     * Catch up to the tip: slide every hop in the backbuffer, but only track
+     * first-old ∪ last-new for a single LFB present (avoids 2–3× memcpy).
      */
     for (hops = 0; hops < 8; hops++) {
         if (!g_drag_damage || layer_id < 0)
@@ -688,18 +685,19 @@ static int frame_tick_drag(gx_server *s, display_ops_t *ops)
         new_r = g_drag_new;
         g_drag_damage = 0;
 
-        if (hops == 0)
-            present_old = old_r;
-        present_new = new_r;
+        if (gx_rect_empty(present_u))
+            present_u = old_r;
+        else
+            present_u = gx_rect_union(present_u, old_r);
+        present_u = gx_rect_union(present_u, new_r);
 
         gx_compositor_drag_slide(&s->comp, bb, old_r, new_r, layer_id);
 
-        /* Drain moves that arrived mid-slide; apply without leaving busy. */
+        /* Drain moves mid-slide without nested LFB presents. */
         g_frame_busy = 0;
         gx_server_poll_input();
         flush_deferred_btn(s);
         flush_deferred_move(s);
-        flush_pending_cursor(s);
         end_drag_if_released(s);
         if (s->wm.drag_id < 0)
             break;
@@ -714,18 +712,13 @@ static int frame_tick_drag(gx_server *s, display_ops_t *ops)
     my = ms ? ms->y : 0;
     cursor_paint_at(s, mx, my);
 
-    if (!gx_rect_empty(present_old))
-        present_rect(s, present_old.x, present_old.y, present_old.w, present_old.h);
-    if (!gx_rect_empty(present_new) &&
-        !(present_new.x == present_old.x && present_new.y == present_old.y &&
-          present_new.w == present_old.w && present_new.h == present_old.h))
-        present_rect(s, present_new.x, present_new.y, present_new.w, present_new.h);
-    present_rect(s, mx, my, CURSOR_W, CURSOR_H);
+    present_u = gx_rect_union(present_u, gx_rect_make(mx, my, CURSOR_W, CURSOR_H));
+    if (!gx_rect_empty(present_u))
+        present_rect(s, present_u.x, present_u.y, present_u.w, present_u.h);
 
     s->frame_seq++;
     g_frame_busy = 0;
 
-    /* Keep pending app damage parked until drag ends. */
     gx_server_poll_input();
     flush_pending_cursor(s);
     ms = mouse_get();

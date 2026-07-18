@@ -796,7 +796,7 @@ void GxDevice::release()
 Surface &GxDevice::backbuffer()
 {
     static Surface empty;
-    /* Draw target = window-mapped pixels (published on Present). */
+    /* Draw target = window back (published to front on Present). */
     return win_ ? win_->surface() : empty;
 }
 
@@ -804,17 +804,6 @@ const Surface &GxDevice::backbuffer() const
 {
     static const Surface empty;
     return win_ ? win_->surface() : empty;
-}
-
-Surface &GxDevice::framebuffer()
-{
-    /* Compositor-facing surface; same map until a private swapchain exists. */
-    return backbuffer();
-}
-
-const Surface &GxDevice::framebuffer() const
-{
-    return backbuffer();
 }
 
 int GxDevice::client_top() const
@@ -845,17 +834,9 @@ void GxDevice::set_chrome_colors(Color bar, Color title, Color border)
     chrome_set_ = 1;
 }
 
-void GxDevice::decorate_chrome()
+bool GxDevice::dragging() const
 {
-    if (!win_ || !chrome_set_)
-        return;
-    WindowOptions o;
-    if (!win_->get_options(o))
-        return;
-    if (!o.framed || o.no_title)
-        return;
-    backbuffer().draw_window_chrome(o.w, o.title, o, chrome_bar_, chrome_title_,
-                                    chrome_border_);
+    return win_ && last_drag_id_ == win_->id();
 }
 
 bool GxDevice::begin_scene()
@@ -882,17 +863,20 @@ bool GxDevice::present()
         return true;
     scene_ready_ = 0;
 
-    /* During WM drag, kernel slides the layer — skip app present (no hitch). */
-    if (win_ && last_drag_id_ == win_->id())
+    /* During WM drag, kernel slides front — skip publish. */
+    if (dragging())
         return true;
 
-    /* Publish backbuffer/framebuffer (window map) → MKDX compose → display FB. */
-    decorate_chrome();
-    if (win_ && win_->id() >= 0)
-        (void)syscall1(SYS_GX_DAMAGE, win_->id());
-    else
-        (void)syscall1(SYS_GX_DAMAGE, 0);
-    /* Routes to virtio-gpu present when registered, else BGA page-flip/copy. */
+    if (win_ && win_->id() >= 0) {
+        ugx_present_args a{};
+        a.win = win_->id();
+        a.chrome_bar = chrome_bar_;
+        a.chrome_title = chrome_title_;
+        a.chrome_border = chrome_border_;
+        a.chrome_set = chrome_set_ ? 1 : 0;
+        return syscall1(SYS_GX_PRESENT, (long)&a) == 0;
+    }
+    /* Shell: windows already published via Window::damage. */
     return syscall1(SYS_GX_PRESENT, 0) == 0;
 }
 

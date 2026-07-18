@@ -192,24 +192,32 @@ static int api_info(uint32_t *w, uint32_t *h, uint32_t *bpp)
     return 0;
 }
 
-static int api_present(void)
+static int api_present(const void *args)
 {
-    return mkdx_present();
+    gx_server *s = gx_server_get();
+    const ugx_present_args *a = (const ugx_present_args *)args;
+
+    if (!s)
+        return -1;
+    if (a && a->win > 0) {
+        if (wm_publish(&s->wm, a->win, a->chrome_bar, a->chrome_title,
+                       a->chrome_border, a->chrome_set ? 1 : 0) < 0)
+            return -1;
+    }
+    gx_server_present();
+    return 0;
 }
 
 static void api_mark_dirty(int win_id)
 {
     gx_server *s = gx_server_get();
-    wm_window *w;
 
     if (!s)
         return;
     if (win_id > 0) {
-        w = wm_get(&s->wm, win_id);
-        if (w) {
-            gx_server_mark_dirty_rect(w->frame);
-            return;
-        }
+        /* Shell/legacy: damage implies publish back→front. */
+        (void)wm_publish(&s->wm, win_id, 0, 0, 0, 0);
+        return;
     }
     gx_server_mark_dirty();
 }
@@ -217,25 +225,16 @@ static void api_mark_dirty(int win_id)
 static void api_mark_dirty_rect(int win_id, int32_t x, int32_t y, int32_t w, int32_t h)
 {
     gx_server *s = gx_server_get();
-    wm_window *win;
-    gx_rect r;
 
     if (!s || w <= 0 || h <= 0)
         return;
     if (win_id <= 0) {
+        /* Screen-space damage (no window publish). */
         gx_server_mark_dirty_rect(gx_rect_make(x, y, w, h));
         return;
     }
-    win = wm_get(&s->wm, win_id);
-    if (!win) {
-        gx_server_mark_dirty();
-        return;
-    }
-    /* Window-local → screen space; clamp to frame. */
-    r = gx_rect_make(win->frame.x + x, win->frame.y + y, w, h);
-    r = gx_rect_intersect(r, win->frame);
-    if (!gx_rect_empty(r))
-        gx_server_mark_dirty_rect(r);
+    /* Window-local: partial back→front + tight screen damage. */
+    (void)wm_publish_rect(&s->wm, win_id, x, y, w, h);
 }
 
 static long api_wm_create(const void *args, uint32_t owner_pid)
@@ -402,15 +401,15 @@ static int api_fill(const void *args, int rounded)
     if (!a || !s)
         return -1;
     w = wm_get(&s->wm, a->win);
-    if (!w || !w->surface)
+    if (!w || !w->back)
         return -1;
 
     r = gx_rect_make(a->x, a->y, a->w, a->h);
     if (rounded)
-        gx_accel_fill_round(w->surface, r, a->radius, a->color);
+        gx_accel_fill_round(w->back, r, a->radius, a->color);
     else
-        gx_accel_fill(w->surface, r, a->color);
-    gx_server_mark_dirty_rect(w->frame);
+        gx_accel_fill(w->back, r, a->color);
+    /* Visible after publish/present — do not dirty front yet. */
     return 0;
 }
 
