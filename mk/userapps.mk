@@ -25,13 +25,15 @@ MKE_SETTINGS := $(USEROUT)/os-settings.mke
 MKE_FILES := $(USEROUT)/files.mke
 MKE_ACTIVITY := $(USEROUT)/activity-monitor.mke
 MKE_IMGUI_DEMO := $(USEROUT)/imgui-demo.mke
-MKES     := $(MKE_OSUI) $(MKE_TERM) $(MKE_SETTINGS) $(MKE_FILES) $(MKE_ACTIVITY) $(MKE_IMGUI_DEMO)
+MKE_MINES := $(USEROUT)/minesweeper.mke
+MKES     := $(MKE_OSUI) $(MKE_TERM) $(MKE_SETTINGS) $(MKE_FILES) $(MKE_ACTIVITY) $(MKE_IMGUI_DEMO) $(MKE_MINES)
 LOAD_OSUI := 0x02000000
 LOAD_TERM := 0x02200000
 LOAD_SETTINGS := 0x02400000
 LOAD_FILES := 0x02600000
 LOAD_ACTIVITY := 0x02800000
 LOAD_IMGUI_DEMO := 0x02A00000
+LOAD_MINES := 0x02C00000
 
 IMGUI_DEMO_SRCS := $(IMGUI_DEMO_DIR)/main.cpp \
                    $(IMGUI_DEMO_DIR)/imgui_impl_ugx.cpp \
@@ -115,6 +117,14 @@ $(USEROUT)/imgui-demo.elf: $(IMGUI_DEMO_OBJS) $(SDK_OBJS) user.ld
 
 $(MKE_IMGUI_DEMO): $(USEROUT)/imgui-demo.elf $(PACK_MKE)
 	$(call pack_mke_from_elf,$<,$(USEROUT)/imgui-demo.bin,$@,$(LOAD_IMGUI_DEMO),imgui-demo)
+
+$(USEROUT)/minesweeper.elf: $(BUILD)/user/apps/minesweeper.o $(SDK_OBJS) user.ld
+	@mkdir -p $(dir $@)
+	$(LD) $(USERLDFLAGS) --defsym=LOAD_ADDR=$(LOAD_MINES) -o $@ \
+		$(BUILD)/user/apps/minesweeper.o $(SDK_OBJS) $(LIBGCC)
+
+$(MKE_MINES): $(USEROUT)/minesweeper.elf $(PACK_MKE)
+	$(call pack_mke_from_elf,$<,$(USEROUT)/minesweeper.bin,$@,$(LOAD_MINES),minesweeper)
 
 $(BUILD)/user/%.o: $(SRC)/user/%.c
 	@mkdir -p $(dir $@)

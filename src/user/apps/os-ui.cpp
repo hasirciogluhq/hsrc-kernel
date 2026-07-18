@@ -74,6 +74,7 @@ enum AppId {
     APP_FILES,
     APP_SETTINGS,
     APP_IMGUI,
+    APP_MINES,
     APP_COUNT
 };
 
@@ -99,6 +100,8 @@ constexpr AppDef kApps[APP_COUNT] = {
       "/applications/os-settings.mke",      "dock.pin.settings", rgb(150, 150, 160), true },
     { "imgui",    "ImGui","ImGui Demo",       "imgui.demo",
       "/applications/imgui-demo.mke",       "dock.pin.imgui",    rgb(90, 140, 220),  true },
+    { "mines",    "Mine", "Minesweeper",      "os.minesweeper",
+      "/applications/minesweeper.mke",      "dock.pin.mines",    rgb(220, 90, 90),   true },
 };
 
 struct DockSlot {
