@@ -40,6 +40,8 @@ isProject: false
 
 # GPU / Display / Reed + Kilim — End-to-End Teslimat
 
+**İlişki:** Bu dosya **grafik + display + WM omurgasının** tek gerçek kaynağıdır. Geniş OS dalgaları (process/fs/net/Settings/Explorer/…) [god-level_window_api_87fb7031.plan.md](god-level_window_api_87fb7031.plan.md) içinde kalır; o plandaki eski “kernel mkdx / BGA / ugx” maddeleri buraya göre **güncellenmiştir**.
+
 Bu planın çıktısı **tek seferde çalışan tam grafik yığınıdır**. “Sonra”, “ileride”, “v1 stub”, “future update”, TODO ertelemesi, dipnot ile kaçış **yok**. Kernel, driver’lar, display orchestrator, Reed, Kilim, WM, shell, app’ler ve docs aynı teslimatta biter.
 
 ## İsimlendirme

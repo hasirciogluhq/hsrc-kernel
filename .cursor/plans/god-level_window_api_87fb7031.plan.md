@@ -1,18 +1,18 @@
 ---
 name: God-level window API
-overview: ABI kırılır, first-version mükemmeliyetçi. God-level OS — WM/GX/Settings/net/wallpaper (A–J) + shell/Explorer/services/monitor/console/env (K–Q). Split workstreams. Plan kısaltılmaz.
+overview: "God-level OS (A–Q) korunur. GRAFİK omurgası güncellendi: bkz. gpu_display_stack_bc5f6172 — Reed/Kilim, usermode WM, GpuProvider, display.kmod, BGA yok. Net/FS/process/shell dalgaları aynı."
 todos:
   - id: wave-a-gfx-abi
-    content: "Wave A1: boolean WindowOptions create/set/get + tam WM syscall katalogu (asagidaki A0/A1); bitflag sil"
+    content: "Wave A1 (GÜNCEL): Reed + Kilim ABI; ugx/gx.h/mkdx_api sil; window opts boolean; SYS_DISP_* + WM IPC"
     status: pending
   - id: wave-a-wm-god
-    content: "Wave A2: min/max/hide/ constrains/parent/z/cursor/clip/hit-test + damage + event queue + wait"
+    content: "Wave A2 (GÜNCEL): usermode window-manager — min/max/z/cursor/hit-test/events; focus≠hover"
     status: pending
   - id: wave-a-console
-    content: "Wave A3: AllocConsole open/write/read/set/close + kernel paint"
+    content: "Wave A3 (GÜNCEL): AllocConsole usermode (Kilim/Reed); kernel paint yok"
     status: pending
   - id: wave-a-draw-sdk
-    content: "Wave A4: draw+coord+enum SDK; Window/Surface/Console/Event; os-ui+terminal fix"
+    content: "Wave A4 (GÜNCEL): Reed LL + Kilim HL SDK; Window/Event; app rewrite"
     status: pending
   - id: wave-b-process
     content: "Wave B: fork/execve/waitpid/exit status, spawn .mke, getppid, kill-lite"
@@ -42,19 +42,19 @@ todos:
     content: "Wave G: boot+apps+net dogrulama (UDP/TCP IP); eski UGX_STYLE/eksik SYS kalmasin"
     status: pending
   - id: phase-h-headers
-    content: "Phase H1: syscall.h sys.h errno.h gx.h mkdx_api.h socket.h netif.h guncelle"
+    content: "Phase H1 (GÜNCEL): syscall.h sys.h errno.h reed.h kilim.h; mkdx_api/gx sil; socket.h netif.h"
     status: pending
   - id: phase-h-kernel-core
-    content: "Phase H2: syscall.c process.c mke.c ksym.c main.c mkdx_api.c netstack socket netif"
+    content: "Phase H2 (GÜNCEL): syscall SYS_DISP_*; process/mke/ksym/main; netstack; mkdx_api kaldır"
     status: pending
   - id: phase-h-mkdx
-    content: "Phase H3: mkdx.kmod tum dosyalar window compositor server mkdx_mod"
+    content: "Phase H3 (GÜNCEL): mkdx.kmod WM/compositor SİL; display.kmod orchestrator; usermode WM"
     status: pending
   - id: phase-h-display
-    content: "Phase H4: display_virtio.kmod + display_bga.kmod present_rect/vsync uyumu"
+    content: "Phase H4 (GÜNCEL): gpu_virtio.kmod + gpu_vga.kmod; BGA kalıcı sil; GpuProvider ops"
     status: pending
   - id: phase-h-input
-    content: "Phase H5: PS/2 + PCI virtio-input keyboard/mouse discover; layout API; WM event feed"
+    content: "Phase H5 (GÜNCEL): PS/2 + virtio-input; event feed usermode WM (focus≠hover)"
     status: pending
   - id: wave-i-settings
     content: "Wave I: usermode System Settings app (SDK/syscall) — tum sayfalar + OS info; OS menu"
@@ -93,7 +93,7 @@ todos:
     content: "Wave L: File Explorer + terminal run/./ exec + /applications"
     status: pending
   - id: wave-m-services
-    content: "Wave M: usermode system services; kernel registry; os-ui respawn"
+    content: "Wave M (GÜNCEL): generic service roles; window-manager + os-shell critical/respawn (WM-özel kod yok)"
     status: pending
   - id: wave-n-monitor
     content: "Wave N: Activity Monitor app + SYS_PROC_STAT cpu/ram"
@@ -112,68 +112,97 @@ isProject: false
 
 # Ultra God-level Graphics + OS Syscall Surface (v1, ABI break OK)
 
+## GÜNCELLEME — Grafik omurgası (bağlayıcı)
+
+Kaynak plan: [`.cursor/plans/gpu_display_stack_bc5f6172.plan.md`](gpu_display_stack_bc5f6172.plan.md).
+
+Aşağıdaki maddeler **bu dosyadaki eski grafik kararlarını geçersiz kılar**. Wave B–Q (process/fs/net/settings/Explorer/services/monitor/env) ve boolean window-opts / deep-link / dock pin kuralları **aynı kalır**; yalnızca **nasıl çizildiği / nerede WM yaşadığı** değişir.
+
+| Eski (bu planda yazılmıştı) | Yeni (geçerli) |
+|-----------------------------|----------------|
+| WM/compositor kernel `mkdx` | **Usermode** `window-manager`; kernel’de WM yok |
+| `ugx` / `gx.h` / `mkdx_api` | **Reed** (low-level) + **Kilim** (high-level); `mk*` / ugx branding yok |
+| `display_virtio` + **BGA** | **GpuProvider**: `gpu_virtio` + `gpu_vga` (LFB); **BGA silinir** |
+| App → SYS_WM_* / present | App → WM IPC + Reed/Kilim; kernel **display.kmod** (`SYS_DISP_*`) |
+| Tek focus + global input | **Focus ≠ hover**; scroll varsayılan hover; key → focus |
+| Menubar/dock sadece shell paint | **Hibrit:** chrome shell; item = app `ReedImage`; dropdown = app window |
+| Draw/fill/font kernel mkdx | Draw **userspace** (Reed/Kilim); display sadece orchestrator |
+| Ertelenmiş grafik stub | Grafik stack **end-to-end** aynı teslimatta (gpu_display_stack) |
+
+Docs (teslimatta): `docs/graphics-reed-kilim.tr.md` + `.en.md`.
+
 ## İlkeler
 
 - **ABI kırılır, first version mükemmellik öncelikli** — geriye uyumluluk yok; tüm driver/usermode tüketiciler aynı PR dalgasında fixlenir.
-- **Window options = sadece boolean + düz alanlar** — bit shift / `1u << n` yok. C: `uint8_t` 0/1. Override: **get → değiştir → set** (tam struct pointer).
-- **App development sırasında eksik kernel call kalmayacak** — Linux i386 benzeri numaralar + private range; Windows hissi SDK isimleriyle (`CreateWindow`, `AllocConsole`, `Sleep`, …) C++ sarmalayıcıda.
-- **User-mode WindowServer yok** — WM/compositor kernel `mkdx` içinde kalır (mevcut omurga).
+- **Window options = sadece boolean + düz alanlar** — bit shift / `1u << n` yok. C: `uint8_t` 0/1. Override: **get → değiştir → set** (tam struct pointer). WM usermode’da; ABI shape aynı fikir, taşıyıcı ugx değil.
+- **App development sırasında eksik kernel call kalmayacak** — Linux i386 benzeri numaralar + private range; Windows hissi SDK isimleriyle (`CreateWindow`, `AllocConsole`, `Sleep`, …) C++ sarmalayıcıda — grafik yolu Reed/Kilim + WM IPC.
+- **Usermode Window Manager var** — compositor + window policy usermode `window-manager` process’te; kernel yalnızca GpuProvider + `display.kmod` + ham input queue + generic service supervisor.
 - **Networking full-ready** — QEMU’da PCI NIC (virtio-net, gerekirse e1000) + IP stack + socket ile gerçek IP’ye UDP/TCP bağlanabilme; app development için eksik net call kalmaz.
-- **System Settings (yönetim masası)** — **usermode** `.mke` uygulama (`os-settings`); Windows/macOS Settings gibi sidebar + sayfalar. **Şimdilik öncelik:** tüm ayar sayfalarını UI olarak sunmak + genel OS bilgisini (ve mevcut syscall/SDK ile okunabilen her şeyi) göstermek. Kernel’e gömülü settings servisi yok — `hsrc::sdk` + syscall (veya usermode’da hesaplanan bilgi). Keyboard layout vb. H5 syscall’ları gelince aynı app’e bağlanır.
-- **Dock özelleştirme** — os-ui alttaki uygulama barı (dock) Settings’ten yapılandırılır: hangi app pin’li / gizli. **Kural: çalışan (aktif) her uygulama dock’ta zorunlu görünür**; pin kapalı olsa bile running iken ikon durur, çıkınca pin yoksa kaybolur.
-- **Menubar + deep-link** — Hiçbir app focus’ta değilken üst bar sahte File/Edit menüsü göstermez; OS ikonu + **Settings** / **System Information** (ve benzeri) sistem öğeleri durur. Tıklanınca Settings usermode app **deep-link** ile açılır (örn. About / system info sayfası). Deep-link mekanizması plana dahil **zorunlu implementasyon** (opsiyonel değil).
-- **Image + wallpaper** — Image decode **geniş format**: PNG, WebP, JPEG, BMP, TGA, GIF (statik), vs. (aşağıda Wave J katalog); os-ui wallpaper cover-scale; 4K default asset; menubar/dock ~%70 frosted blur; ikon/metin opak siyah veya beyaz.
-- **Input cihaz keşfi** — mevcut PS/2 (`keyboard.c`/`mouse.c`/`ps2.c`) kullanılır; ayrıca PCI’den `virtio-input` (keyboard/tablet) algılanırsa o path aktif olur. Cihaz yoksa net log; varsa o driver üzerinden çalışır.
-- **Profesyonel shell** — os-ui tıklanabilir topbar + window yönetimi (aç/kapa/focus); önceki Settings/deep-link/dock/frosted maddeleriyle **birleşik** (çakışma yok, üzerine eklenir).
-- **Apps & launch** — usermode binary’ler VFS `/applications`; File Explorer; terminal `run` / `./` exec.
-- **System services** — usermode servisler Linux-like; kernel registry + boot scan + os-ui öldürülürse respawn.
-- **Activity Monitor** — Windows benzeri process/CPU/RAM UI + kernel syscalls.
-- **Per-process console** — her process’in konsolu var; GUI gizleyebilir; `./` vs Explorer double-click kuralları.
-- **Env + PATH** — global ve process-level env; PATH ile tool register (`my-text-app --help`).
-- Uygulama **dalga dalga / split workstream**; her dalga kendi başına boot edilebilir olmalı.
+- **System Settings (yönetim masası)** — **usermode** `.mke` uygulama (`os-settings`); Windows/macOS Settings gibi sidebar + sayfalar. Kernel’e gömülü settings servisi yok — SDK + syscall. UI Kilim/Reed ile çizilir.
+- **Dock özelleştirme** — os-shell dock Settings’ten pin/gizli. **Kural: çalışan her uygulama dock’ta zorunlu görünür**; pin kapalı olsa bile running iken ikon durur. İkon içeriği hibrit modelde app surface olabilir.
+- **Menubar + deep-link** — Sahte File/Edit yok; OS ikonu + Settings / System Information; deep-link zorunlu. Hibrit: chrome shell, custom item pixels app’ten, dropdown app window.
+- **Image + wallpaper** — geniş decode katalogu (Wave J); wallpaper cover-scale; frosted chrome; opak ikon/metin.
+- **Input cihaz keşfi** — PS/2 + PCI virtio-input; event’ler usermode WM’e (focus≠hover).
+- **Profesyonel shell** — tıklanır topbar + window yönetimi; deep-link/dock/frosted ile birleşik; grafik Reed/Kilim.
+- **Apps & launch** — VFS `/applications`; File Explorer; terminal `run` / `./`.
+- **System services** — usermode servisler; kernel **generic roles** (`CRITICAL`, `SESSION_UI`); `window-manager` + `os-shell` respawn; isimle WM özel-case yok.
+- **Activity Monitor** — process/CPU/RAM UI + kernel syscalls.
+- **Per-process console** — usermode console (Kilim/Reed); GUI gizleyebilir.
+- **Env + PATH** — global ve process-level env; PATH tool register.
+- Uygulama **dalga dalga / split workstream**; grafik omurgası `gpu_display_stack` ile end-to-end; OS dalgaları (B–Q) bu dosyada.
 
 ## Split workstream indeksi (paralel planlar)
 
-Tek bu dosya kaynak gerçeklik olmaya devam eder. Uygulama sırası/workstream bölünmesi:
+Tek bu dosya **OS dalgaları (B–Q)** için kaynak gerçeklik olmaya devam eder. **Grafik omurgası** için kaynak: [gpu_display_stack_bc5f6172.plan.md](gpu_display_stack_bc5f6172.plan.md). Uygulama sırası/workstream bölünmesi:
 
 | Workstream | Dalgalar | Odak |
 |------------|----------|------|
-| **WS1 Desktop Shell** | A, H3–H5, H9, I, J, **K** | WM, Settings, wallpaper, frosted UI, tıklanır menubar, window chrome |
+| **WS1 Desktop Shell** | A, H3–H5, H9, I, J, **K** + **gpu_display_stack** | Usermode WM, Reed/Kilim, display.kmod, GpuProvider, hibrit shell, Settings, wallpaper |
 | **WS2 Apps & Files** | B, D, H7, H10, **L**, **O**, **Q** | `/applications`, Explorer, run/./, console attach, PATH terminal |
-| **WS3 Services & Supervisor** | B, **M**, H11 | system services, boot install, os-ui respawn |
+| **WS3 Services & Supervisor** | B, **M**, H11 | generic roles; window-manager + os-shell respawn |
 | **WS4 Observe & Env** | E, **N**, **P** | Activity Monitor, CPU/RAM API, global/process env |
 
 AI bir workstream’i bitirmeden diğerine “shell kırarak” geçmesin; bağımlılık: WS1 ↔ K önce tıklanır shell; L/Q için B spawn; M için B+L path; N için proc stats syscall.
 
-## Mimari
+## Mimari (grafik güncellemesi uygulanmış)
 
 ```mermaid
 flowchart TB
-  Apps["os-ui / terminal / future apps"]
+  Apps["os-shell / terminal / settings / apps"]
   SDK["hsrc::sdk Window Console Fs Process Net Time"]
-  UGX["user/gx.h + user/sys.h"]
+  ReedKilim["Reed LL + Kilim HL"]
+  WM["usermode window_manager"]
   Sys["syscall_dispatch"]
-  Mkdx["mkdx_api WM compositor console events"]
+  Disp["display.kmod SYS_DISP"]
+  Gpu["GpuProvider virtio or vga"]
   Vfs["VFS FS pipe fd"]
   Proc["process exec wait"]
   Net["socket stack"]
+  Svc["service roles supervisor"]
 
   Apps --> SDK
-  SDK --> UGX
-  UGX --> Sys
-  Sys --> Mkdx
+  SDK --> ReedKilim
+  Apps --> WM
+  ReedKilim --> Disp
+  WM --> Disp
+  Disp --> Gpu
+  SDK --> Sys
   Sys --> Vfs
   Sys --> Proc
   Sys --> Net
+  Svc --> WM
+  Svc --> Apps
 ```
 
 ---
 
 # WAVE A — God Graphics / Window / Console / Events
 
+> **GÜNCEL:** Wave A’nın taşıyıcısı artık kernel `mkdx` / `ugx` değil. Katalogdaki window/event/console **davranışları** geçerli kalır; implementasyon = **usermode WM + Reed + Kilim + display.kmod** ([gpu_display_stack](gpu_display_stack_bc5f6172.plan.md)). Aşağıdaki `ugx_*` / `SYS_WM_*` isimleri **eski taslak**; yeni isimler Reed/Kilim/WM IPC / `SYS_DISP_*` ile değiştirilir — semantik korunur, ABI kırılır.
+
 ## A0) Neden mevcut gx’den daha profesyonel? (dürüst karşılaştırma)
 
-Bugünkü API ([`include/user/gx.h`](include/user/gx.h)) **çalışan bir MVP**: create + bitflag style + map + move/resize/show/focus + global input snapshot + pop_key + full damage + fill. Eksikleri app yazarken can yakar:
+Bugünkü API ([`include/user/gx.h`](include/user/gx.h)) **eski MVP** (silinecek): create + bitflag + map + move/resize/show/focus + global input + pop_key + fill. Hedef semantik:
 
 | Konu | Şu an (gx) | Plan (v1 god) |
 |------|------------|----------------|
@@ -757,7 +786,9 @@ Bu bölüm **kasıtlı olarak uzun**. ABI kırılınca dokunulması gereken her 
 
 ---
 
-## Phase H3 — Driver `mkdx.kmod` (window manager + compositor + server)
+## Phase H3 — `display.kmod` + usermode WM (eski: `mkdx.kmod` SİLİNİR)
+
+> **GÜNCEL:** Kernel `mkdx` WM/compositor/server **kaldırılır**. Yerine: `display.kmod` (orchestrator) + `/applications/window-manager.mke`. Aşağıdaki dosya listesi tarihsel referans; iş = gpu_display_stack H3 eşdeğeri.
 
 **Amaç:** Tüm god-level WM/GX/console/clipboard/cursor/events burada yaşar.
 
@@ -802,7 +833,9 @@ Bu bölüm **kasıtlı olarak uzun**. ABI kırılınca dokunulması gereken her 
 
 ---
 
-## Phase H4 — Display drivers (`display_virtio.kmod`, `display_bga.kmod`)
+## Phase H4 — GpuProvider drivers (`gpu_virtio.kmod`, `gpu_vga.kmod`; BGA YOK)
+
+> **GÜNCEL:** `display_bga` **kalıcı silinir**. `display_virtio` → `gpu_virtio` (GpuProvider ops). `gpu_vga` = LFB provider (text VGA değil). Present yolu display.kmod üzerinden.
 
 **Amaç:** Compositor’un `present` / `present_rect` / (mümkünse) vsync ihtiyaçlarını karşıla; WM ABI kırığı display’i bozmasın.
 
@@ -1664,12 +1697,14 @@ Boot/build (H11): initrd veya disk image’a `.mke` dosyalarını **`/applicatio
 
 # WAVE M — Usermode system services (madde 4)
 
+> **GÜNCEL:** Kernel **isimle** “window manager” / “os-ui” özel-case etmez. `roles` bitmask (`CRITICAL`, `SESSION_UI`, …); critical session UI = `window-manager` + `os-shell` (eski os-ui). Registry + respawn semantiği aynı.
+
 ## M1) Model
 
 Linux systemd-lite:
 
 - Unit dosyası veya `/etc/services.d/*.service` + binary `/applications` veya `/usr/lib/services/`
-- Kernel **service registry** (isim, pid, path, restart policy, state)
+- Kernel **service registry** (isim, path, pid, restart policy, **roles**, state)
 
 ```c
 typedef struct kservice {
@@ -1698,7 +1733,7 @@ Syscalls: `SYS_SERVICE_LIST`, `SYS_SERVICE_START`, `SYS_SERVICE_STOP`, `SYS_SERV
 
 ## M4) Kabul
 
-- Boot’ta service list dolu; os-ui kill edilince respawn
+- Boot’ta service list dolu; `SESSION_UI` role’lü process (window-manager / os-shell) kill edilince respawn
 - `service list` terminal veya Activity Monitor’da görünür
 
 ---
