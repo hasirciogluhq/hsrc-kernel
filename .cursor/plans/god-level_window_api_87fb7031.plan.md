@@ -1,77 +1,112 @@
 ---
 name: God-level window API
-overview: "ABI kırılır, first-version mükemmeliyetçi. God-level OS — WM/GX/Settings/net/wallpaper (A–J) + shell/Explorer/services/monitor/console/env (K–Q). Split workstreams. Plan kısaltılmaz."
+overview: ABI kırılır, first-version mükemmeliyetçi. God-level OS — WM/GX/Settings/net/wallpaper (A–J) + shell/Explorer/services/monitor/console/env (K–Q). Split workstreams. Plan kısaltılmaz.
 todos:
   - id: wave-a-gfx-abi
     content: "Wave A1: boolean WindowOptions create/set/get + tam WM syscall katalogu (asagidaki A0/A1); bitflag sil"
+    status: pending
   - id: wave-a-wm-god
     content: "Wave A2: min/max/hide/ constrains/parent/z/cursor/clip/hit-test + damage + event queue + wait"
+    status: pending
   - id: wave-a-console
     content: "Wave A3: AllocConsole open/write/read/set/close + kernel paint"
+    status: pending
   - id: wave-a-draw-sdk
     content: "Wave A4: draw+coord+enum SDK; Window/Surface/Console/Event; os-ui+terminal fix"
+    status: pending
   - id: wave-b-process
     content: "Wave B: fork/execve/waitpid/exit status, spawn .mke, getppid, kill-lite"
+    status: pending
   - id: wave-c-fd-ipc
     content: "Wave C: pipe/dup/dup2/fcntl; poll/select-lite; ioctl stub tablosu"
+    status: pending
   - id: wave-d-fs
     content: "Wave D: stat/fstat/lstat, access, chmod, readlink/symlink, truncate, utimens, sync"
+    status: pending
   - id: wave-e-time-mem
     content: "Wave E: clock_gettime/nanosleep/gettimeofday; brk/sbrk/mprotect"
+    status: pending
   - id: wave-f-net-driver
     content: "Wave F1: QEMU virtio-net-pci dogrula/fix; eksikse PCI e1000 fallback driver; TX/RX paket yolu"
+    status: pending
   - id: wave-f-net-stack
     content: "Wave F2: ARP/IPv4/ICMP + DHCP client; routing/gateway; netif config syscalls"
+    status: pending
   - id: wave-f-net-tcp-udp
     content: "Wave F3: UDP sertlestir + TCP SOCK_STREAM connect/listen/accept/send/recv; socket opts"
+    status: pending
   - id: wave-f-net-sdk
     content: "Wave F4: net SDK (connect IP, TcpClient/Server) + errno/sys.h; fs/process/time SDK glue"
+    status: pending
   - id: wave-g-verify
     content: "Wave G: boot+apps+net dogrulama (UDP/TCP IP); eski UGX_STYLE/eksik SYS kalmasin"
+    status: pending
   - id: phase-h-headers
     content: "Phase H1: syscall.h sys.h errno.h gx.h mkdx_api.h socket.h netif.h guncelle"
+    status: pending
   - id: phase-h-kernel-core
     content: "Phase H2: syscall.c process.c mke.c ksym.c main.c mkdx_api.c netstack socket netif"
+    status: pending
   - id: phase-h-mkdx
     content: "Phase H3: mkdx.kmod tum dosyalar window compositor server mkdx_mod"
+    status: pending
   - id: phase-h-display
     content: "Phase H4: display_virtio.kmod + display_bga.kmod present_rect/vsync uyumu"
+    status: pending
   - id: phase-h-input
     content: "Phase H5: PS/2 + PCI virtio-input keyboard/mouse discover; layout API; WM event feed"
+    status: pending
   - id: wave-i-settings
     content: "Wave I: usermode System Settings app (SDK/syscall) — tum sayfalar + OS info; OS menu"
+    status: pending
   - id: phase-h-app-settings
     content: "Phase H13: os-settings — tum sayfalar + Desktop/Dock pin UI; OS info; SDK"
+    status: pending
   - id: phase-h-dock-custom
     content: "Phase H9/H13: dinamik dock; menubar deeplink; frosted blur chrome; wallpaper"
+    status: pending
   - id: wave-j-image-wallpaper
     content: "Wave J: PNG/WebP/JPEG/BMP/TGA/GIF/QOI/ICO decode; 4K wallpaper; frosted chrome"
+    status: pending
   - id: phase-h-net-drv
     content: "Phase H6: virtio_net.kmod + yeni e1000.kmod + Makefile QEMU"
+    status: pending
   - id: phase-h-vfs-fs
     content: "Phase H7: vfs.kmod + fs kmods stat/chmod/symlink/pipe destekleri"
+    status: pending
   - id: phase-h-sdk
     content: "Phase H8: user SDK gfx process fs net time settings deeplink syscall errno"
+    status: pending
   - id: phase-h-app-osui
     content: "Phase H9: os-ui — OS menubar Settings/System Info deeplink; dinamik dock"
+    status: pending
   - id: phase-h-app-term
     content: "Phase H10: usermode process terminal.cpp tam migrasyon + net builtins"
+    status: pending
   - id: phase-h-makefile-boot
     content: "Phase H11: Makefile kmod list/order initrd mke spawn boot dogrulama"
+    status: pending
   - id: wave-k-shell
     content: "Wave K: os-ui profesyonel shell — tiklanir topbar, window yonetimi, terminal ac/kapa"
+    status: pending
   - id: wave-l-files
     content: "Wave L: File Explorer + terminal run/./ exec + /applications"
+    status: pending
   - id: wave-m-services
     content: "Wave M: usermode system services; kernel registry; os-ui respawn"
+    status: pending
   - id: wave-n-monitor
     content: "Wave N: Activity Monitor app + SYS_PROC_STAT cpu/ram"
+    status: pending
   - id: wave-o-console
     content: "Wave O: her process konsol; GUI hide; ./ vs double-click kurallari"
+    status: pending
   - id: wave-p-env
     content: "Wave P: global + process env; PATH; tool register"
+    status: pending
   - id: wave-q-term-path
     content: "Wave Q: terminal PATH/run zenginlestirme; my-tool --help"
+    status: pending
 isProject: false
 ---
 
