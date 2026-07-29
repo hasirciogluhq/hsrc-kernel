@@ -8,21 +8,19 @@ function kmod_order()
     }
 end
 
--- Only init stays in initrd (RAM). Everything else is on the FAT disk.
+-- Initrd: kmods only (no userspace binaries in RAM).
 function initrd_mke_names()
-    return {"init"}
+    return {}
 end
 
+-- Disk FAT: /init (+ apps). Dev installs defaults here; prod ISO does the same.
 function disk_mke_names()
     return {
-        "systemd", "window-manager", "os-shell", "os-settings",
+        "init", "window-manager", "os-shell", "os-settings",
         "terminal", "files", "activity-monitor", "minesweeper", "imgui-demo",
     }
 end
 
 function app_mke_names()
-    local t = {}
-    for _, n in ipairs(initrd_mke_names()) do table.insert(t, n) end
-    for _, n in ipairs(disk_mke_names()) do table.insert(t, n) end
-    return t
+    return disk_mke_names()
 end

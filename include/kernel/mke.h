@@ -4,9 +4,13 @@
 #include <kernel/types.h>
 #include <multiboot.h>
 
-#define MKE_MAGIC    0x31454B4Du /* 'MKE1' */
+#define MKE_MAGIC    0x31454B4Du /* 'MKE1' — MyKernel Executable */
 #define MKE_VERSION  1
 #define MKE_NAME_MAX 32
+
+/* On-disk usermode binary extension (PATH may omit it: `hello` → hello.mke). */
+#define MKE_EXT      ".mke"
+#define MKE_EXT_LEN  4
 
 /* Minimum / maximum identity load addresses (below 128MiB QEMU default) */
 #define MKE_LOAD_MIN 0x02000000u
@@ -32,8 +36,13 @@ int mke_spawn_path(const char *path);
 int mke_spawn_path_flags(const char *path, uint32_t spawn_flags,
                          const char *const *argv, int argc);
 
-/* Scan multiboot modules / initrd for MKE1 blobs and spawn each. */
-int mke_spawn_from_mbi(multiboot_info_t *mbi);
-int mke_spawn_from_initrd(const void *data, size_t size);
+/*
+ * Resolve a command to an on-disk .mke path (Linux-like PATH).
+ * - absolute / relative paths used as-is (optional .mke suffix tried)
+ * - bare names searched in $PATH (default /applications:/usr/bin)
+ * - `/init` also tries `/applications/init` (+ .mke)
+ * Accepts both `hello` and `hello.mke`.
+ */
+int exe_resolve(const char *in, char *out, size_t outsz);
 
 #endif

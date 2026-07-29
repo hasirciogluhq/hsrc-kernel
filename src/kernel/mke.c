@@ -1,6 +1,7 @@
 #include <kernel/mke.h>
 #include <kernel/argv.h>
 #include <kernel/errno.h>
+#include <kernel/env.h>
 #include <kernel/process.h>
 #include <kernel/string.h>
 #include <kernel/initrd.h>
@@ -18,50 +19,149 @@ static int name_ends_with_mke(const char *name)
     if (!name)
         return 0;
     n = strlen(name);
-    if (n < 4)
+    if (n < MKE_EXT_LEN)
         return 0;
-    return strcmp(name + n - 4, ".mke") == 0;
+    return strcmp(name + n - MKE_EXT_LEN, MKE_EXT) == 0;
 }
 
-static int mke_name_is(const char *name, const char *stem)
+static int exe_file_readable(const char *path)
 {
-    size_t sn;
-    size_t nn;
+    int fd;
 
-    if (!name || !stem)
+    if (!path || !path[0])
         return 0;
-    sn = strlen(stem);
-    nn = strlen(name);
-    if (strcmp(name, stem) == 0)
-        return 1;
-    if (nn == sn + 4 && strncmp(name, stem, sn) == 0 &&
-        strcmp(name + sn, ".mke") == 0)
-        return 1;
+    fd = vfs_open(path, O_RDONLY);
+    if (fd < 0)
+        return 0;
+    (void)vfs_close(fd);
+    return 1;
+}
+
+static int exe_try_path(const char *path, char *out, size_t outsz)
+{
+    char with_ext[VFS_PATH_MAX];
+
+    if (!path || !out || outsz < 2)
+        return -EINVAL;
+    if (strlen(path) >= outsz)
+        return -ENAMETOOLONG;
+    if (exe_file_readable(path)) {
+        strcpy(out, path);
+        return 0;
+    }
+    if (name_ends_with_mke(path))
+        return -ENOENT;
+    {
+        size_t plen = strlen(path);
+        if (plen + MKE_EXT_LEN >= sizeof(with_ext))
+            return -ENAMETOOLONG;
+        strcpy(with_ext, path);
+        strcpy(with_ext + plen, MKE_EXT);
+    }
+    if (!exe_file_readable(with_ext))
+        return -ENOENT;
+    if (strlen(with_ext) >= outsz)
+        return -ENAMETOOLONG;
+    strcpy(out, with_ext);
     return 0;
 }
 
-/* Boot: only init; systemd starts the rest of userspace. */
-static const char *mke_path_basename(const char *path)
+static int exe_path_has_slash(const char *s)
 {
-    const char *base = path;
-
-    if (!path)
-        return "";
-    while (*path) {
-        if (*path == '/')
-            base = path + 1;
-        path++;
+    if (!s)
+        return 0;
+    while (*s) {
+        if (*s == '/')
+            return 1;
+        s++;
     }
-    return base;
+    return 0;
 }
 
-static int mke_boot_should_spawn(const char *name)
+int exe_resolve(const char *in, char *out, size_t outsz)
 {
-    const char *base = mke_path_basename(name);
+    process_t *p = process_current();
+    char pathbuf[ENV_VAL_MAX];
+    char cand[VFS_PATH_MAX];
+    const char *pathenv;
+    const char *start;
+    const char *colon;
+    size_t dirlen;
+    int rc;
 
-    if (!base || !base[0])
-        return 0;
-    return mke_name_is(base, "init");
+    if (!in || !in[0] || !out || outsz < 2)
+        return -EINVAL;
+
+    /* Conventional PID1 path: /init may live under /applications on the disk FS. */
+    if (strcmp(in, "/init") == 0) {
+        if (exe_try_path("/init", out, outsz) == 0)
+            return 0;
+        if (exe_try_path("/applications/init", out, outsz) == 0)
+            return 0;
+        return -ENOENT;
+    }
+
+    /* Absolute or relative path: try as-is, then with .mke */
+    if (in[0] == '/' || exe_path_has_slash(in)) {
+        if (in[0] == '/') {
+            if (strlen(in) >= sizeof(cand))
+                return -ENAMETOOLONG;
+            strcpy(cand, in);
+        } else {
+            /* cwd-relative — mirror spawn resolve_path lightly */
+            size_t cl, il;
+            p = process_leader(p);
+            if (!p)
+                return -ESRCH;
+            cl = strlen(p->cwd);
+            il = strlen(in);
+            if (strcmp(p->cwd, "/") == 0) {
+                if (1 + il + 1 > sizeof(cand))
+                    return -ENAMETOOLONG;
+                cand[0] = '/';
+                memcpy(cand + 1, in, il + 1);
+            } else {
+                if (cl + 1 + il + 1 > sizeof(cand))
+                    return -ENAMETOOLONG;
+                memcpy(cand, p->cwd, cl);
+                cand[cl] = '/';
+                memcpy(cand + cl + 1, in, il + 1);
+            }
+        }
+        return exe_try_path(cand, out, outsz);
+    }
+
+    /* Bare name: search $PATH (default /applications:/usr/bin) */
+    pathbuf[0] = 0;
+    if (env_get(p, "PATH", pathbuf, sizeof(pathbuf)) < 0 || !pathbuf[0])
+        strcpy(pathbuf, "/applications:/usr/bin");
+    pathenv = pathbuf;
+    start = pathenv;
+    while (*start) {
+        colon = start;
+        while (*colon && *colon != ':')
+            colon++;
+        dirlen = (size_t)(colon - start);
+        if (dirlen == 0) {
+            /* empty PATH component = cwd */
+            rc = exe_try_path(in, out, outsz);
+            if (rc == 0)
+                return 0;
+        } else {
+            if (dirlen + 1 + strlen(in) + 1 > sizeof(cand))
+                return -ENAMETOOLONG;
+            memcpy(cand, start, dirlen);
+            cand[dirlen] = '/';
+            strcpy(cand + dirlen + 1, in);
+            rc = exe_try_path(cand, out, outsz);
+            if (rc == 0)
+                return 0;
+        }
+        if (!*colon)
+            break;
+        start = colon + 1;
+    }
+    return -ENOENT;
 }
 
 static void mke_attach_console(pid_t pid, const char *name, uint32_t spawn_flags)
@@ -74,6 +174,20 @@ static void mke_attach_console(pid_t pid, const char *name, uint32_t spawn_flags
 
     visible = (spawn_flags & SPAWN_CONSOLE_VISIBLE) ? 1 : 0;
     (void)api->console_alloc((int)pid, name, visible);
+}
+
+static const char *mke_path_basename(const char *path)
+{
+    const char *base = path;
+
+    if (!path)
+        return "";
+    while (*path) {
+        if (*path == '/')
+            base = path + 1;
+        path++;
+    }
+    return base;
 }
 
 static const uint8_t *mke_initrd_lookup(const char *path, size_t *size_out)
@@ -369,93 +483,14 @@ int mke_spawn_path(const char *path)
 
 int mke_spawn_from_initrd(const void *data, size_t size)
 {
-    const initrd_header_t *hdr;
-    uint32_t i;
-    int spawned = 0;
-    size_t table_bytes;
-
-    if (!data || size < sizeof(uint32_t) * 2)
-        return -1;
-
-    hdr = (const initrd_header_t *)data;
-    if (hdr->magic != INITRD_MAGIC || hdr->count == 0 ||
-        hdr->count > INITRD_MAX_FILES)
-        return -1;
-
-    table_bytes = sizeof(uint32_t) * 2 + (size_t)hdr->count * sizeof(initrd_file_t);
-    if (size < table_bytes)
-        return -1;
-
-    for (i = 0; i < hdr->count; i++) {
-        const initrd_file_t *f = &hdr->files[i];
-        const uint8_t *blob;
-        const mke_header_t *mh;
-
-        if (f->size == 0 || f->offset + f->size > size)
-            return -1;
-        blob = (const uint8_t *)data + f->offset;
-        if (f->size < sizeof(mke_header_t))
-            continue;
-        mh = (const mke_header_t *)blob;
-        if (mh->magic != MKE_MAGIC && !name_ends_with_mke(f->name))
-            continue;
-        if (!mke_boot_should_spawn(f->name))
-            continue;
-        klog("[mke] initrd file ");
-        klog(f->name);
-        klog(" size=");
-        serial_print_uint(f->size);
-        klog("\n");
-        /* Soft-fail one app so others (and the scheduler) can still start. */
-        if (mke_spawn(blob, f->size) < 0) {
-            klog("[mke] spawn failed, skipping ");
-            klog(f->name);
-            klog("\n");
-            continue;
-        }
-        spawned++;
-    }
-
-    klog_uint("[mke] initrd spawned count=", (uint32_t)spawned);
-    return 0;
+    /* Usermode apps are on-disk .mke only — initrd is kmods, not a process zoo. */
+    (void)data;
+    (void)size;
+    return -1;
 }
 
 int mke_spawn_from_mbi(multiboot_info_t *mbi)
 {
-    multiboot_mod_list_t *mods;
-    uint32_t i;
-    int any = 0;
-
-    if (!mbi || !(mbi->flags & MULTIBOOT_INFO_MODS) || mbi->mods_count == 0)
-        return -1;
-
-    mods = (multiboot_mod_list_t *)(uintptr_t)mbi->mods_addr;
-    for (i = 0; i < mbi->mods_count; i++) {
-        const void *start = (const void *)(uintptr_t)mods[i].mod_start;
-        size_t sz = (size_t)(mods[i].mod_end - mods[i].mod_start);
-        const initrd_header_t *hdr;
-        const mke_header_t *mh;
-
-        if (sz < 4)
-            continue;
-
-        hdr = (const initrd_header_t *)start;
-        if (hdr->magic == INITRD_MAGIC) {
-            if (mke_spawn_from_initrd(start, sz) == 0)
-                any = 1;
-            continue;
-        }
-
-        mh = (const mke_header_t *)start;
-        if (mh->magic == MKE_MAGIC) {
-            const char *boot_name = mh->name[0] ? mh->name : "mke";
-            if (!mke_boot_should_spawn(boot_name))
-                continue;
-            if (mke_spawn(start, sz) < 0)
-                return -1;
-            any = 1;
-        }
-    }
-
-    return any ? 0 : -1;
+    (void)mbi;
+    return -1;
 }

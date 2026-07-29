@@ -60,7 +60,6 @@ local function define_app(name, load_addr, files, incs, flags)
 end
 
 define_app("init", 0x02000000, {"userspace/init/main.cpp"})
-define_app("systemd", 0x02200000, {"userspace/systemd/main.cpp"})
 define_app("window-manager", 0x02400000, {"userspace/window-manager/main.cpp"})
 define_app("os-shell", 0x02600000, {"userspace/os-shell/main.cpp"})
 define_app("os-settings", 0x02800000, {"userspace/os-settings/main.cpp"})
@@ -86,6 +85,6 @@ target("userspace")
     set_kind("phony")
     set_default(true)
     add_deps("sdk-core", "sdk-reed", "sdk-kilim",
-        "app-init", "app-systemd", "app-window-manager", "app-os-shell",
+        "app-init", "app-window-manager", "app-os-shell",
         "app-os-settings", "app-terminal", "app-files", "app-activity-monitor",
         "app-minesweeper", "app-imgui-demo")

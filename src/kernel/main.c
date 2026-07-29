@@ -23,6 +23,7 @@
 #include <kernel/time.h>
 #include <arch/x86/irq.h>
 #include <kernel/mke.h>
+#include <kernel/userspace_boot.h>
 #include <kernel/boot_splash.h>
 #include <kernel/smp.h>
 #include <arch/x86/gdt.h>
@@ -154,12 +155,9 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
 
     service_register_builtin_defaults();
 
-    klog("[boot] spawning init...\n");
-    if (mke_spawn_from_mbi(mbi) < 0)
-        klog("[boot] no init.mke in multiboot/initrd\n");
-    klog("[boot] init spawn done\n");
+    /* Kernel does not spawn session apps — only hand off to systemd on disk. */
+    userspace_boot();
     service_bind_existing_processes();
-    /* Critical session UI is started by userspace systemd (init → units). */
     klog_heap("[boot]");
 
     {

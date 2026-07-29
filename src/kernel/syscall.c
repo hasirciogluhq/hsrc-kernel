@@ -504,6 +504,7 @@ static long do_spawn(long path_ptr, long flags, long argv_ptr, long argc)
     uint32_t spawn_flags;
     int len;
     int copied_argc = 0;
+    int rc;
 
     if (!p)
         return -ESRCH;
@@ -513,8 +514,10 @@ static long do_spawn(long path_ptr, long flags, long argv_ptr, long argc)
         return -EFAULT;
     if (copy_from_user(user_path, (const void *)path_ptr, (size_t)len + 1) < 0)
         return -EFAULT;
-    if (resolve_path(p, user_path, full_path, sizeof(full_path)) < 0)
-        return -EINVAL;
+
+    rc = exe_resolve(user_path, full_path, sizeof(full_path));
+    if (rc < 0)
+        return rc;
 
     if (argv_ptr) {
         copied_argc = argv_copy_from_user(argv_storage, kargv, (int)argc, argv_ptr);

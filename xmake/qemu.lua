@@ -17,11 +17,11 @@ for _, t in ipairs({
         set_filename(t[1])
 end
 
--- Initrd: kmods + init.mke only (apps live on disk).
+-- Initrd: kmods only.
 target("initrd")
     set_kind("phony")
     set_default(true)
-    add_deps("drivers", "app-init", "pack_initrd")
+    add_deps("drivers", "pack_initrd")
     after_build(function (target)
         import("mykernel.layout")
         local packer = path.join(BUILD, "tools", "pack_initrd")
@@ -31,13 +31,10 @@ target("initrd")
         for _, n in ipairs(layout.kmod_order()) do
             table.insert(args, path.join(BUILD, "drivers", n .. ".kmod"))
         end
-        for _, n in ipairs(layout.initrd_mke_names()) do
-            table.insert(args, path.join(BUILD, "userspace", n, n .. ".mke"))
-        end
         os.execv(packer, args)
     end)
 
--- Disk: recreate FAT and install userspace binaries + assets.
+-- Disk: FAT with /applications/init.mke (+ apps). Kernel execs /init.
 target("disk")
     set_kind("phony")
     set_default(true)
@@ -66,7 +63,6 @@ target("disk")
         os.execv(packer, args)
     end)
 
--- Wire QEMU into `xmake run` (builtin runs the default binary target = kernel).
 target("kernel")
     add_deps("initrd", "disk")
     on_run(function (target)
