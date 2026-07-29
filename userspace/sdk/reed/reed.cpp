@@ -511,9 +511,12 @@ void CommandList::clear(uint32_t color_rgba, float /*depth*/)
         x1 = clampi(scissor_.x + scissor_.w, 0, (int32_t)w);
         y1 = clampi(scissor_.y + scissor_.h, 0, (int32_t)h);
     }
-    for (int32_t y = y0; y < y1; y++)
-        for (int32_t x = x0; x < x1; x++)
-            px[(uint32_t)y * stride + (uint32_t)x] = color_rgba;
+    for (int32_t y = y0; y < y1; y++) {
+        uint32_t *row = px + (uint32_t)y * stride + (uint32_t)x0;
+        int32_t n = x1 - x0;
+        for (int32_t x = 0; x < n; x++)
+            row[x] = color_rgba;
+    }
 }
 
 static uint32_t sample_tex(const Texture2D &tex, const Sampler &samp, float u, float v)

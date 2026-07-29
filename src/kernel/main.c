@@ -123,6 +123,7 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     }
     klog("[boot] modules loaded\n");
     klog_heap("[boot]");
+    display_boot_log();
 
     if (env_load_initrd() < 0)
         klog("[boot] env_load_initrd failed (using defaults)\n");

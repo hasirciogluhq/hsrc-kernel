@@ -5,7 +5,7 @@
 #include <kernel/syscall.h>
 
 /*
- * OS Shell — temporary wm+kilim smoke stub (legacy gfx desktop UI removed).
+ * OS Shell — minimal desktop chrome on wm+kilim (full UX restore later).
  */
 
 namespace {
@@ -28,15 +28,18 @@ extern "C" void exec_main(void)
     if (k.init(&dev) < 0)
         hang();
 
+    int sw = (int)dev.caps().width;
+    int sh = (int)dev.caps().height;
+    if (sw < 640)
+        sw = 640;
+    if (sh < 480)
+        sh = 480;
+
     wm::WindowOptions opts;
     opts.x = 0;
     opts.y = 0;
-    opts.w = (int32_t)dev.caps().width;
-    opts.h = (int32_t)dev.caps().height;
-    if (opts.w < 640)
-        opts.w = 640;
-    if (opts.h < 480)
-        opts.h = 480;
+    opts.w = (int32_t)sw;
+    opts.h = (int32_t)sh;
     opts.background = true;
     opts.framed = false;
     opts.no_title = true;
@@ -52,6 +55,10 @@ extern "C" void exec_main(void)
         hang();
 
     bool mapped = false;
+    const int menubar_h = 28;
+    const int dock_h = 64;
+    const int dock_w = 280;
+
     for (;;) {
         wm::Input in;
         (void)wm::input_snapshot(in);
@@ -61,8 +68,30 @@ extern "C" void exec_main(void)
             hsrc::sdk::yield(1);
             continue;
         }
-        k.fill_rect(20, 20, 280, 48, kilim::rgba(40, 40, 50, 255));
-        k.text("OS Shell (wm+kilim stub)", 28, 32, 16, kilim::rgba(255, 255, 255, 255));
+
+        /* Full-screen desktop (same tone as WM clear). */
+        k.fill_rect(0, 0, sw, sh, kilim::rgba(26, 31, 46, 255));
+
+        /* Soft vignette strips */
+        k.fill_rect(0, 0, sw, menubar_h, kilim::rgba(18, 20, 28, 230));
+        k.text("hsrcOS", 14, 6, 14, kilim::rgba(235, 238, 245, 255));
+        k.text("Shell", 90, 8, 12, kilim::rgba(160, 170, 190, 255));
+
+        int dock_x = (sw - dock_w) / 2;
+        int dock_y = sh - dock_h - 18;
+        k.fill_round_rect(dock_x, dock_y, dock_w, dock_h, 16,
+                          kilim::rgba(32, 36, 48, 220));
+        /* Dock icon placeholders */
+        for (int i = 0; i < 5; i++) {
+            int ix = dock_x + 24 + i * 48;
+            int iy = dock_y + 12;
+            k.fill_round_rect(ix, iy, 40, 40, 10,
+                              kilim::rgba(70, 90, 140, 255));
+        }
+
+        k.text("Desktop ready", 14, menubar_h + 16, 14,
+               kilim::rgba(180, 190, 210, 255));
+
         (void)k.commit_frame();
 
         if (!mapped)

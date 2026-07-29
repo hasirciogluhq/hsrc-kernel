@@ -409,7 +409,7 @@ int Context::begin_frame()
     cmd_.set_viewport(vp);
     reed::Rect sc = {0, 0, (int32_t)dev_->caps().width, (int32_t)dev_->caps().height};
     cmd_.set_scissor(sc);
-    cmd_.clear(rgba(20, 20, 24, 255));
+    cmd_.clear(rgba(26, 31, 46, 255)); /* desktop #1A1F2E — not pure black */
     nbatches_ = 0;
     text_batch_.vcount_ = 0;
     text_batch_.pipe_key_ = 1;

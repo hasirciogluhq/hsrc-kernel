@@ -370,6 +370,14 @@ void boot_splash_show(void)
         (void)ops->present(fb, mode.width);
     }
 
+    /* Handoff: leave desktop backdrop so post-splash isn't a black void. */
+    {
+        const uint32_t desktop = 0xFF1A1F2Eu; /* match kilim / WM clear */
+        for (i = 0; i < pixels; i++)
+            fb[i] = desktop;
+        (void)ops->present(fb, mode.width);
+    }
+
     kfree(fb);
     klog("[boot] splash done\n");
 }

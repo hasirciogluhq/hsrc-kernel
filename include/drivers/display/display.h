@@ -41,5 +41,7 @@ int            display_register(display_ops_t *ops, int priority);
 void           display_unregister(display_ops_t *ops);
 display_ops_t *display_active(void);
 int            display_get_screen_size(uint32_t *w, uint32_t *h, uint32_t *bpp);
+/* Boot-time serial dump: screen, active driver, registered, PCI GPUs. */
+void           display_boot_log(void);
 
 #endif

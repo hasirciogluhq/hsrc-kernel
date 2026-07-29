@@ -3,7 +3,6 @@
 #include <drivers/driver.h>
 #include <drivers/bus/pci.h>
 #include <drivers/console/serial.h>
-#include <drivers/input/ps2.h>
 #include <arch/x86/io.h>
 #include <kernel/string.h>
 
@@ -149,8 +148,6 @@ static void copy_page_from_src(volatile uint32_t *dst, const uint32_t *src,
     for (y = 0; y < g_mode.height; y++) {
         const uint32_t *srow = src + y * src_stride_px;
         volatile uint32_t *drow = dst + y * dst_stride;
-        if ((y & 7) == 0)
-            ps2_poll();
         for (x = 0; x < g_mode.width; x++)
             drow[x] = srow[x];
     }
@@ -177,8 +174,6 @@ static int bga_present(const uint32_t *src, uint32_t src_stride_px)
         for (y = 0; y < g_mode.height; y++) {
             const uint32_t *srow = src + y * src_stride_px;
             volatile uint32_t *drow = dst + y * dst_stride;
-            if ((y & 7) == 0)
-                ps2_poll();
             for (x = 0; x < g_mode.width; x++)
                 drow[x] = srow[x];
         }
@@ -188,8 +183,6 @@ static int bga_present(const uint32_t *src, uint32_t src_stride_px)
     for (y = 0; y < g_mode.height; y++) {
         const uint32_t *srow = src + y * src_stride_px;
         uint8_t *drow = g_mode.addr + y * g_mode.pitch;
-        if ((y & 7) == 0)
-            ps2_poll();
         for (x = 0; x < g_mode.width; x++) {
             uint32_t c = srow[x];
             uint8_t *p = drow + x * 3;
@@ -212,8 +205,6 @@ static void bga_copy_rect(const uint32_t *src, uint32_t src_stride_px,
 
     for (row = 0; row < h; row++) {
         const uint32_t *srow = src + (y + row) * src_stride_px + x;
-        if ((row & 7) == 0)
-            ps2_poll();
         if (g_mode.bytes_per_pixel == 4) {
             volatile uint32_t *base = g_flip_ok ? bga_page_ptr(g_front_page)
                                                 : (volatile uint32_t *)g_mode.addr;

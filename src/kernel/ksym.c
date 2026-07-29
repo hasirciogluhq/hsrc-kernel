@@ -74,6 +74,7 @@ static const ksym_t g_ksyms[] = {
     { "display_unregister", (void *)display_unregister },
     { "display_active",     (void *)display_active },
     { "display_get_screen_size", (void *)display_get_screen_size },
+    { "display_boot_log",   (void *)display_boot_log },
 
     { "gpu_framework_init", (void *)gpu_framework_init },
     { "gpu_provider_register", (void *)gpu_provider_register },

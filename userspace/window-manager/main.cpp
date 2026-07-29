@@ -601,6 +601,49 @@ static void fb_disc(uint32_t *fb, uint32_t stride4, int cx, int cy, int r,
     }
 }
 
+static void fb_put(uint32_t *fb, uint32_t stride4, int x, int y, uint32_t color)
+{
+    if (x < 0 || y < 0 || x >= g_screen_w || y >= g_screen_h)
+        return;
+    fb[(uint32_t)y * stride4 + (uint32_t)x] = color;
+}
+
+/* Classic arrow pointer (not a + crosshair). Hotspot = tip at (x,y). */
+static void draw_cursor_arrow(uint32_t *fb, uint32_t stride4, int x, int y)
+{
+    /* 12x19 mask: 1=white fill, 2=black outline */
+    static const uint8_t tip[19][12] = {
+        {2,0,0,0,0,0,0,0,0,0,0,0},
+        {2,2,0,0,0,0,0,0,0,0,0,0},
+        {2,1,2,0,0,0,0,0,0,0,0,0},
+        {2,1,1,2,0,0,0,0,0,0,0,0},
+        {2,1,1,1,2,0,0,0,0,0,0,0},
+        {2,1,1,1,1,2,0,0,0,0,0,0},
+        {2,1,1,1,1,1,2,0,0,0,0,0},
+        {2,1,1,1,1,1,1,2,0,0,0,0},
+        {2,1,1,1,1,1,1,1,2,0,0,0},
+        {2,1,1,1,1,1,1,1,1,2,0,0},
+        {2,1,1,1,1,1,2,2,2,2,2,0},
+        {2,1,1,2,1,1,2,0,0,0,0,0},
+        {2,1,2,0,2,1,1,2,0,0,0,0},
+        {2,2,0,0,2,1,1,2,0,0,0,0},
+        {2,0,0,0,0,2,1,1,2,0,0,0},
+        {0,0,0,0,0,2,1,1,2,0,0,0},
+        {0,0,0,0,0,0,2,1,1,2,0,0},
+        {0,0,0,0,0,0,2,1,1,2,0,0},
+        {0,0,0,0,0,0,0,2,2,0,0,0},
+    };
+    for (int row = 0; row < 19; row++) {
+        for (int col = 0; col < 12; col++) {
+            uint8_t v = tip[row][col];
+            if (v == 1)
+                fb_put(fb, stride4, x + col, y + row, 0xffffffffu);
+            else if (v == 2)
+                fb_put(fb, stride4, x + col, y + row, 0xff111111u);
+        }
+    }
+}
+
 static void draw_chrome_fb(uint32_t *fb, uint32_t stride4, Slot *s)
 {
     if (!s->opts.framed || s->opts.no_title)
@@ -672,8 +715,7 @@ static void compose_frame(kilim::Context &k)
     memset(&st, 0, sizeof(st));
     if (hsrc::sdk::syscall1(SYS_INPUT_STATE, (long)&st) == 0) {
         k.set_pointer(st.mouse_x, st.mouse_y, st.buttons);
-        fb_fill(fb, stride4, st.mouse_x - 4, st.mouse_y, 9, 1, 0xffffffffu);
-        fb_fill(fb, stride4, st.mouse_x, st.mouse_y - 4, 1, 9, 0xffffffffu);
+        draw_cursor_arrow(fb, stride4, st.mouse_x, st.mouse_y);
     }
     rt.color().unmap();
 
@@ -738,6 +780,9 @@ extern "C" void exec_main(void)
     }
 
     memset(g_slots, 0, sizeof(g_slots));
+
+    /* First present ASAP — avoid long black/splash hang before clients connect. */
+    compose_frame(kctx);
 
     for (;;) {
         poll_requests();
