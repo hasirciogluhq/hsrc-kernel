@@ -1,8 +1,8 @@
+# Kernel C sources / headers
 CompileFlags:
   CompilationDatabase: .
   Add:
     - --target=i386-none-elf
-    - -std=c11
     - -ffreestanding
     - -fno-builtin
     - -fno-stack-protector
@@ -12,18 +12,27 @@ CompileFlags:
     - -Isrc/drivers/dx
     - -Isrc/drivers/display/bga
     - -Isrc/drivers/display/virtio_gpu
-    - -Iuserspace/sdk/core
   Remove:
     - -m32
     - -m64
 
-Index:
-  Background: Build
+---
+
+# C translation units — never feed -std=c++*
+If:
+  PathMatch: .*\.(c)$
+
+CompileFlags:
+  Add:
+    - -std=c11
+  Remove:
+    - -std=c++.*
 
 ---
 
+# C++ sources + headers (userspace apps/SDK and any .cpp/.hpp)
 If:
-  PathMatch: userspace/.*\.(cpp|hpp|h)
+  PathMatch: .*\.(cpp|cc|cxx|hpp|hxx|hh)$|include/user/.*|userspace/.*
 
 CompileFlags:
   CompilationDatabase: .
@@ -40,3 +49,10 @@ CompileFlags:
   Remove:
     - -m32
     - -m64
+    - -std=c11
+    - -std=gnu11
+    - -std=c99
+    - -std=gnu99
+
+Index:
+  Background: Build

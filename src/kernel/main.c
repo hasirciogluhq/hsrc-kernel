@@ -25,6 +25,7 @@
 #include <kernel/kshell.h>
 #include <kernel/boot_splash.h>
 #include <kernel/smp.h>
+#include <kernel/klock.h>
 #include <arch/x86/gdt.h>
 #include <arch/x86/idt.h>
 #include <arch/x86/cpu.h>
@@ -73,6 +74,7 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     gdt_init();
     idt_init();
     cpu_init_bsp();
+    klock_subsystem_init();
     irq_init(); /* STI+PIT: timer must not schedule until scheduler_start */
     klog("[boot] irq ready\n");
     syscall_init();

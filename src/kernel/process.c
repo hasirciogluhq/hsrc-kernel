@@ -644,13 +644,8 @@ pid_t process_create_user(const char *name, void (*entry)(void))
         return -1;
     p->is_user = 1;
     p->user_entry = entry;
-    /*
-     * Pin user/GUI processes to BSP. DX compose/present, PS/2 poll, and
-     * display_ops are not SMP-safe: an AP running GX while the BSP timer
-     * path calls drivers_poll()/pump_input() races → #GP with a garbage EIP
-     * (seen as eip=0x25f / 0x207 right after gx present).
-     */
-    p->cpu_affinity = 0;
+    /* Any online CPU; DX/PS2 paths serialized by klock_gfx. */
+    p->cpu_affinity = -1;
     setup_kstack(p, user_trampoline, entry);
     return p->pid;
 }
@@ -723,8 +718,7 @@ pid_t process_thread_create(void (*entry)(void *), void *arg)
     t->thread_detached = 0;
     t->join_tid = 0;
     /*
-     * Inherit leader affinity (BSP for GUI). Floating workers on APs while
-     * the leader does GX still races the display path.
+     * Inherit leader affinity (-1 = any CPU). GX paths use klock_gfx.
      */
     t->cpu_affinity = lead->cpu_affinity;
     /* Soft-spread initial hint: round-robin last_cpu preference via last_run. */

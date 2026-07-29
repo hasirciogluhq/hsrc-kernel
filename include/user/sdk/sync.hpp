@@ -1,5 +1,16 @@
 #pragma once
 
+/*
+ * Userspace sync + locks (single header).
+ *
+ *   Event / ConditionVariable  — wait for a signal
+ *   Mutex / LockGuard          — blocking mutual exclusion
+ *   lock::SpinLock             — busy-wait (tiny CS only)
+ *   lock::RecursiveMutex       — same-thread reentrant mutex
+ *
+ * Kernel side: <kernel/klock.h> (spin/klock), <kernel/sync.h> (kevent/suspend).
+ */
+
 #include <kernel/types.h>
 #include <kernel/syscall.h>
 #include <user/sdk/syscall.hpp>
@@ -7,10 +18,6 @@
 
 namespace hsrc::sdk {
 
-/*
- * Kernel auto-reset Event.
- * wait() leaves Ready until signal/broadcast or timeout - no yield(0) spin.
- */
 class Event {
 public:
     Event()
@@ -19,10 +26,7 @@ public:
         id_ = (id >= 0) ? (int)id : -1;
     }
 
-    ~Event()
-    {
-        close();
-    }
+    ~Event() { close(); }
 
     Event(const Event &) = delete;
     Event &operator=(const Event &) = delete;
@@ -41,14 +45,12 @@ public:
     bool ok() const { return id_ >= 0; }
     int  id() const { return id_; }
 
-    /* true = signaled; false = timeout / error. */
     bool wait(uint32_t timeout_ticks = kWaitForever)
     {
         if (id_ < 0)
             return false;
         long to = (timeout_ticks == kWaitForever) ? (long)-1 : (long)timeout_ticks;
-        long r = syscall2(SYS_EVENT_WAIT, id_, to);
-        return r == 0;
+        return syscall2(SYS_EVENT_WAIT, id_, to) == 0;
     }
 
     bool try_wait()
@@ -82,7 +84,6 @@ private:
     int id_ = -1;
 };
 
-/* Userspace mutex; blocks via Event when contended (ready for Phase B threads). */
 class Mutex {
 public:
     Mutex() = default;
@@ -125,10 +126,6 @@ private:
     Mutex &m_;
 };
 
-/*
- * Condition variable over Event + Mutex (Mesa-style).
- * wait() atomically unlocks, blocks on Event, then re-locks.
- */
 class ConditionVariable {
 public:
     ConditionVariable() = default;
@@ -142,7 +139,6 @@ public:
         m.lock();
     }
 
-    /* true if notified (or spurious); false on timeout. */
     bool wait_for(Mutex &m, uint32_t timeout_ticks)
     {
         m.unlock();
@@ -158,4 +154,109 @@ private:
     Event ev_{};
 };
 
+namespace lock {
+
+using Mutex = hsrc::sdk::Mutex;
+using LockGuard = hsrc::sdk::LockGuard;
+using Event = hsrc::sdk::Event;
+using ConditionVariable = hsrc::sdk::ConditionVariable;
+
+class SpinLock {
+public:
+    SpinLock() = default;
+    SpinLock(const SpinLock &) = delete;
+    SpinLock &operator=(const SpinLock &) = delete;
+
+    void lock()
+    {
+        for (;;) {
+            if (__sync_bool_compare_and_swap(&locked_, 0, 1))
+                return;
+            __asm__ volatile("pause" ::: "memory");
+        }
+    }
+
+    bool try_lock()
+    {
+        return __sync_bool_compare_and_swap(&locked_, 0, 1);
+    }
+
+    void unlock() { __sync_lock_release(&locked_); }
+
+private:
+    volatile int locked_ = 0;
+};
+
+class RecursiveMutex {
+public:
+    RecursiveMutex() = default;
+    RecursiveMutex(const RecursiveMutex &) = delete;
+    RecursiveMutex &operator=(const RecursiveMutex &) = delete;
+
+    void lock()
+    {
+        tid_t self = this_thread::get_id();
+        if (owner_ == self) {
+            depth_++;
+            return;
+        }
+        for (;;) {
+            if (__sync_bool_compare_and_swap(&locked_, 0, 1)) {
+                owner_ = self;
+                depth_ = 1;
+                return;
+            }
+            (void)gate_.wait(kWaitForever);
+        }
+    }
+
+    bool try_lock()
+    {
+        tid_t self = this_thread::get_id();
+        if (owner_ == self) {
+            depth_++;
+            return true;
+        }
+        if (!__sync_bool_compare_and_swap(&locked_, 0, 1))
+            return false;
+        owner_ = self;
+        depth_ = 1;
+        return true;
+    }
+
+    void unlock()
+    {
+        tid_t self = this_thread::get_id();
+        if (owner_ != self || depth_ <= 0)
+            return;
+        if (--depth_ > 0)
+            return;
+        owner_ = 0;
+        __sync_lock_release(&locked_);
+        gate_.signal();
+    }
+
+private:
+    volatile int locked_ = 0;
+    volatile int depth_ = 0;
+    volatile tid_t owner_ = 0;
+    Event gate_{};
+};
+
+template <typename L>
+class Guard {
+public:
+    explicit Guard(L &lock) : lock_(lock) { lock_.lock(); }
+    ~Guard() { lock_.unlock(); }
+    Guard(const Guard &) = delete;
+    Guard &operator=(const Guard &) = delete;
+
+private:
+    L &lock_;
+};
+
+using SpinGuard = Guard<SpinLock>;
+using RecursiveGuard = Guard<RecursiveMutex>;
+
+} // namespace lock
 } // namespace hsrc::sdk

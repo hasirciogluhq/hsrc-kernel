@@ -1,5 +1,5 @@
 #include <drivers/driver.h>
-#include <arch/x86/cpu.h>
+#include <kernel/klock.h>
 #include <kernel/string.h>
 
 static driver_slot_t g_slots[DRIVER_MAX];
@@ -176,10 +176,8 @@ int drivers_load_all(void *ctx)
 
 void drivers_poll(void)
 {
-    /* Pollable drivers (PS/2, mkdx, …) are not SMP-safe - BSP only. */
-    if (cpu_id() != 0)
-        return;
-
+    /* Serialize PS/2 (+ any POLL drivers) with DX via klock_gfx. */
+    klock_acquire(&klock_gfx);
     for (size_t i = 0; i < DRIVER_MAX; i++) {
         if (!g_slots[i].used)
             continue;
@@ -190,6 +188,7 @@ void drivers_poll(void)
         if (g_slots[i].drv.poll)
             g_slots[i].drv.poll(&g_slots[i].drv);
     }
+    klock_release(&klock_gfx);
 }
 
 driver_t *driver_find(const char *name)
