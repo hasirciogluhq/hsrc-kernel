@@ -1,4 +1,5 @@
 #include "virtio_rast.h"
+#include <drivers/console/vga.h>
 #include <drivers/display/gpu_cmd.h>
 #include <kernel/string.h>
 #include <user/disp.h>
@@ -369,6 +370,8 @@ int virtio_rast_exec(const void *gpu_cmds, uint32_t size) {
   const uint8_t *p = (const uint8_t *)gpu_cmds;
   const uint8_t *end;
   st_t st;
+  uint32_t n_clear = 0, n_draw = 0, n_blit = 0;
+  static int s_logged;
 
   if (!gpu_cmds || size < sizeof(gpu_cmd_hdr_t))
     return -1;
@@ -446,36 +449,101 @@ int virtio_rast_exec(const void *gpu_cmds, uint32_t size) {
         return -1;
       if (do_clear(&st, c->color_rgba) < 0)
         return -1;
+      n_clear++;
       break;
     }
     case GPU_CMD_DRAW: {
       const gpu_cmd_draw_t *c = (const gpu_cmd_draw_t *)p;
       if (psz < sizeof(*c))
         return -1;
-      (void)do_draw(&st, c->count, c->first);
+      if (do_draw(&st, c->count, c->first) == 0)
+        n_draw++;
       break;
     }
     case GPU_CMD_DRAW_INDEXED: {
       const gpu_cmd_draw_indexed_t *c = (const gpu_cmd_draw_indexed_t *)p;
       if (psz < sizeof(*c))
         return -1;
-      (void)do_draw_indexed(&st, c->count, c->first_index, c->base_vertex);
+      if (do_draw_indexed(&st, c->count, c->first_index, c->base_vertex) == 0)
+        n_draw++;
       break;
     }
     case GPU_CMD_BLIT: {
       const gpu_cmd_blit_t *c = (const gpu_cmd_blit_t *)p;
       if (psz < sizeof(*c))
         return -1;
-      (void)do_blit(c);
+      if (do_blit(c) == 0)
+        n_blit++;
       break;
     }
     case GPU_CMD_PRESENT:
       break;
     default:
-      /* Skip unknown ops so one exotic packet does not abort the frame. */
       break;
     }
     p += psz;
+  }
+  if (!s_logged) {
+    char buf[64];
+    int i = 0;
+    const char *pre = "rast: clear=";
+    s_logged = 1;
+    while (*pre)
+      buf[i++] = *pre++;
+    {
+      uint32_t v = n_clear;
+      char tmp[12];
+      int n = 0;
+      if (v == 0)
+        tmp[n++] = '0';
+      while (v) {
+        tmp[n++] = (char)('0' + (v % 10u));
+        v /= 10u;
+      }
+      while (n--)
+        buf[i++] = tmp[n];
+    }
+    buf[i++] = ' ';
+    buf[i++] = 'd';
+    buf[i++] = 'r';
+    buf[i++] = 'a';
+    buf[i++] = 'w';
+    buf[i++] = '=';
+    {
+      uint32_t v = n_draw;
+      char tmp[12];
+      int n = 0;
+      if (v == 0)
+        tmp[n++] = '0';
+      while (v) {
+        tmp[n++] = (char)('0' + (v % 10u));
+        v /= 10u;
+      }
+      while (n--)
+        buf[i++] = tmp[n];
+    }
+    buf[i++] = ' ';
+    buf[i++] = 'b';
+    buf[i++] = 'l';
+    buf[i++] = 'i';
+    buf[i++] = 't';
+    buf[i++] = '=';
+    {
+      uint32_t v = n_blit;
+      char tmp[12];
+      int n = 0;
+      if (v == 0)
+        tmp[n++] = '0';
+      while (v) {
+        tmp[n++] = (char)('0' + (v % 10u));
+        v /= 10u;
+      }
+      while (n--)
+        buf[i++] = tmp[n];
+    }
+    buf[i++] = '\n';
+    buf[i] = 0;
+    vga_print(buf);
   }
   return 0;
 }

@@ -86,8 +86,12 @@ Buffer Device::create_buffer(BufferKind kind, uint32_t size, const void *data)
     b.handle_ = a.handle;
     b.kind_ = kind;
     b.size_ = size;
-    if (data && size)
-        (void)b.update(0, data, size);
+    if (data && size) {
+        if (b.update(0, data, size) < 0) {
+            b.destroy();
+            return Buffer();
+        }
+    }
     return b;
 }
 

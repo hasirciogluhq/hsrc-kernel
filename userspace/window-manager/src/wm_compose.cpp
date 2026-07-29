@@ -68,9 +68,10 @@ static void draw_window_chrome(kilim::Context &k, Slot *s) {
 }
 
 static void draw_system_chrome(kilim::Context &k) {
-  k.fill_rect(0, 0, g_screen_w, wm::kMenubarH, kilim::rgba(24, 26, 32, 235));
+  /* Opaque chrome — must be visible even if alpha blend path is wrong. */
+  k.fill_rect(0, 0, g_screen_w, wm::kMenubarH, kilim::rgba(32, 36, 48, 255));
   k.fill_rect(0, wm::kMenubarH - 1, g_screen_w, 1,
-              kilim::rgba(255, 255, 255, 18));
+              kilim::rgba(255, 255, 255, 255));
   k.text("Menu", 10, 5, 13, kilim::rgba(230, 235, 245, 255));
 
   draw_dock(k);
@@ -157,7 +158,9 @@ void compose_frame(kilim::Context &k) {
   draw_system_chrome(k);
   draw_cursor(k, g_cursor_x, g_cursor_y);
 
-  (void)k.end_frame();
+  /* Keep dirty on submit/present failure so we retry (don't freeze on splash). */
+  if (k.end_frame() < 0)
+    return;
   g_compose_dirty = 0;
 }
 

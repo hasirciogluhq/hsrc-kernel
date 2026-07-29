@@ -228,6 +228,8 @@ int virtio_gpu_setup_scanout(virtio_scanout_t *so, void *fb, uint32_t bytes,
     so->resource_id = 1;
     so->width = width;
     so->height = height;
+    so->fb = fb;
+    so->fb_bytes = bytes;
     so->attach_ptr = NULL;
 
     hdr_init(&create.hdr, VIRTIO_GPU_CMD_RESOURCE_CREATE_2D);
@@ -264,24 +266,17 @@ int virtio_gpu_present(virtio_scanout_t *so, void *data, uint32_t width,
                        uint32_t height, uint32_t stride_bytes,
                        uint32_t x, uint32_t y, uint32_t w, uint32_t h)
 {
-    uint32_t bytes;
+    uint32_t row;
+    uint8_t *dst;
+    const uint8_t *src;
 
-    if (!so || !so->ring || !data)
+    if (!so || !so->ring || !data || !so->fb)
         return -1;
     if (width != so->width || height != so->height)
         return -1;
     /* Guest pitch must match scanout; virtio 2D has no pitch convert. */
     if (stride_bytes != so->width * 4u)
         return -1;
-    /* Backing must be page-aligned for virtio-gpu DMA (same as splash/g_fb). */
-    if (((uintptr_t)data & 4095u) != 0)
-        return -1;
-
-    bytes = width * height * 4u;
-    if (data != so->attach_ptr) {
-        if (attach_backing(so, data, bytes) < 0)
-            return -1;
-    }
 
     if (w == 0 || h == 0) {
         x = 0;
@@ -295,6 +290,24 @@ int virtio_gpu_present(virtio_scanout_t *so, void *data, uint32_t width,
         w = width - x;
     if (y + h > height)
         h = height - y;
+
+    /*
+     * Always present via the permanent scanout backing (splash path).
+     * Re-attaching to a transient RT made the host show empty memory after
+     * the guest moved on; copy RT → g_fb, keep ATTACH on g_fb, TRANSFER/FLUSH.
+     */
+    dst = (uint8_t *)so->fb;
+    src = (const uint8_t *)data;
+    if (data != so->fb) {
+        for (row = 0; row < h; row++) {
+            uint32_t off = ((y + row) * width + x) * 4u;
+            memcpy(dst + off, src + off, w * 4u);
+        }
+    }
+    if (so->attach_ptr != so->fb) {
+        if (attach_backing(so, so->fb, so->fb_bytes) < 0)
+            return -1;
+    }
     return transfer_flush(so, x, y, w, h);
 }
 

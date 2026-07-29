@@ -15,7 +15,9 @@ typedef struct virtio_scanout {
     uint32_t       resource_id;
     uint32_t       width;
     uint32_t       height;
-    void          *attach_ptr;
+    void          *fb;           /* permanent scanout guest backing (g_fb) */
+    uint32_t       fb_bytes;
+    void          *attach_ptr;   /* currently attached guest ptr */
     uint32_t       attach_bytes;
 } virtio_scanout_t;
 
