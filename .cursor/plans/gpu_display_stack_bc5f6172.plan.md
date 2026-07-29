@@ -1,6 +1,6 @@
 ---
 name: GPU Display Stack
-overview: "End-to-end grafik: GpuProvider, display.kmod, Reed, Kilim, usermode WM, hibrit shell, docs. Build/userspace/boot → xmake_userspace_boot planı. Yön değişmez."
+overview: "End-to-end grafik: GpuProvider, display.kmod, Reed (OpenGL/Vulkan-seviyesi, MVP değil), Kilim (Reed üzerine game-engine renderer: 2D+text+3D model), usermode WM, hibrit shell, docs. Kademeli migrasyon: Stage 0-5 (bkz. Gerçeklik durumu). Yön değişmez."
 todos:
   - id: break-legacy
     content: "Eski ugx (ugx_font.inc), kernel compositor/WM (src/drivers/dx/*), BGA, SYS_WM_*/SYS_GX_*/mkdx_api sil — SON adim: os-shell/terminal/files/os-settings/activity-monitor/imgui-demo/minesweeper hepsi bunlara bagimli oldugu icin Stage 5'ten once silinemez (bkz. Gerceklik durumu)"
@@ -18,10 +18,10 @@ todos:
     content: display.kmod — resource/queue/fence/export/import/scanout + SYS_DISP_* (syscall.h'de SYS_DISP_* HENÜZ YOK)
     status: pending
   - id: reed-ll
-    content: "userspace/reed — DIZIN PLANDAKI YERDE DEGIL: gercek konum userspace/sdk/reed/reed.cpp, 12 satir stub (create_device() → -1). Gercek Reed API hic yazilmadi."
+    content: "Reed (userspace/sdk/reed) — MVP DEGIL, OpenGL/Vulkan-seviyesi tam API: handle-based buffer/texture/sampler/render-target/pipeline/fence, command-list + submit/present, fixed-function shading-mode enum (unlit/textured/vertex-lit — shader compiler YOK), software rasterizer (bound-checked, per-draw quota) birincil backend + virtio-gpu 3D v1.1 stretch. Su an 12 satir stub. Bkz. 'Reed API yuzeyi' bolumu."
     status: pending
   - id: kilim-hl
-    content: "userspace/kilim — gercek konum userspace/sdk/kilim/kilim.cpp, 13 satir stub (fill_rect() → -1). fill/text/blit/widgets/frosted hic yok."
+    content: "Kilim (userspace/sdk/kilim) — MVP DEGIL, Reed uzerine game-engine-tarzi renderer: batching/state-sort, Text (font atlas + glyph batch), 2D primitives, acrylic/blur (2-pass Reed shading-mode), 3D Mesh/Material/Transform/Camera/Scene + basit model loader (.kmesh, static mesh, iskelet animasyonu v1.1'e ertelendi), widget layer. Kilim asla kernel/SYS_DISP_*'a dogrudan gitmez, hep Reed uzerinden. Su an 13 satir stub. Bkz. 'Kilim API yuzeyi' bolumu."
     status: pending
   - id: wm-usermode
     content: "userspace/window-manager/main.cpp VAR ama sadece SYS_YIELD donen bir placeholder (13 satir); kendi yorumu: 'compositor still kernel mkdx for now'. Gercek WM mantigi hâlâ kernel dx/server.c + compositor.c icinde."
@@ -74,12 +74,16 @@ bölümleri artık bu sırayla okunmalı, çelişirse bu bölüm geçerlidir:
 1. **Stage 0 (mevcut, dokunma):** Kernel `dx` compositor + `SYS_WM_*`/`SYS_GX_*` = tek
    çalışan grafik ABI'si. Silinmez, kırılmaz; yeni OS syscall numaraları (god-level plan)
    200-286 aralığıyla çakışmayacak şekilde eklenir.
-2. **Stage 1 — gerçek Reed:** `gpu_provider_ops`, `display.kmod`, `SYS_DISP_*` yazılır;
-   `userspace/sdk/reed/reed.cpp` gerçek implementasyona kavuşur. Bu aşamada `SYS_WM_*`'a
-   dokunulmaz — iki ABI paralel yaşar.
-3. **Stage 2 — Kilim parity:** Kilim, bugün `hsrc::sdk::gfx`'in sağladığı özellik
-   kümesine ulaşana kadar yazılır: rounded-fill, text/font, SVG icon blit, acrylic/blur,
-   damage-rect, wallpaper cover-scale. Parity olmadan hiçbir app migrate edilmez.
+2. **Stage 1 — gerçek Reed (OpenGL/Vulkan-seviyesi, MVP değil):** `gpu_provider_ops`,
+   `display.kmod`, `SYS_DISP_*` yazılır; `userspace/sdk/reed/reed.cpp` **tam** handle-based
+   kaynak modeli (buffer/texture/sampler/render-target/pipeline/fence) + command-list +
+   submit/present + fixed-function shading-mode ile implement edilir (detay: "Reed API
+   yüzeyi"). Bu aşamada `SYS_WM_*`'a dokunulmaz — iki ABI paralel yaşar.
+3. **Stage 2 — Kilim (game-engine-tarzı renderer, MVP değil):** Kilim, bugün
+   `hsrc::sdk::gfx`'in sağladığı özellik kümesine (rounded-fill, text/font, SVG icon blit,
+   acrylic/blur, damage-rect, wallpaper cover-scale) **ek olarak** 3D Mesh/Material/Camera/Scene
+   + model loader + batching/state-sort ile Reed üzerinde yazılır (detay: "Kilim API yüzeyi").
+   Parity olmadan hiçbir app migrate edilmez.
 4. **Stage 3 — gerçek usermode window-manager:** `window-manager/main.cpp` placeholder'ı
    kaldırılır; focus≠hover, z-order, damage, `WindowOptions` boolean opts, process-death
    cleanup dahil `SYS_WM_*` semantiğinin tamamı Reed üzerinde yeniden inşa edilir.
@@ -171,18 +175,102 @@ flowchart TB
 7. Makefile aktif path / `src/user/apps` → yok (xmake plan)  
 8. Kernel çoklu `.mke` spawn → yok (init→systemd)  
 9. ISR compose / per-draw syscall → yok  
+10. Reed kaynak API'si validasyonsuz/kotasız/handle-generation'sız → yok (bkz. "Güvenlik ve bellek güvenliği")  
 
 ## WM / shell checklist (teslimatta)
 
 Boolean opts (uint8_t), min/max/restore, owner/parent, z-order, hit-test, cursor, events+wait, damage rect, clipboard, AllocConsole usermode, ~64 windows, errno; dock pin + running zorunlu; deep-link menubar; frosted ~70% Kilim; process death cleanup.
 
-## 1–5. Stack
+## 1–5. Stack (özet — detay için aşağıdaki iki bölüm)
 
 1. **Reed** — device, buffers, DrawIndexed, present, fence, WSI  
-2. **Kilim** — 2D/UI on Reed  
+2. **Kilim** — 2D/UI/3D on Reed (game-engine renderer, MVP değil)  
 3. **GpuProvider** — `gpu.h`, PCI class 0x03, register/select  
 4. **gpu_virtio** + **gpu_vga**; BGA sil  
 5. **display.kmod** — submit çevirisi, handles, export/import, scanout, `SYS_DISP_*`  
+
+---
+
+## Reed API yüzeyi (OpenGL/Vulkan seviyesi — MVP değil)
+
+**Zihniyet:** Reed = "bu kernele özel OpenGL". App `kilim` kullanmadan doğrudan Reed'i
+çağırabilir (`kilim.renderText("hello")->reed.renderPolygonsEtc()` — Kilim, ürettiği
+geometriyi Reed tipi/handle'ları üzerinden döner; app aynı frame'e ek Reed çağrısı
+yapabilir). **Bilinçli kapsam sınırı:** gerçek bir shader derleyicisi/JIT **yok**
+(god-level planın "bilerek dışarıda" listesiyle tutarlı) — bunun yerine genişletilebilir
+**fixed-function shading-mode** enum'u kullanılır; bu, tam 3D model + texture + basit
+aydınlatma rendering'ini shader compiler yazmadan mümkün kılar.
+
+### Kaynak modeli (handle-based, Vulkan-vari)
+
+| Kaynak | Açıklama |
+|---|---|
+| `reed::Device` | `SYS_DISP_*` bağlantısı; `create(surface_handle)`; capability query: `max_texture_size`, `hw_accel_available`, `max_draw_calls_per_frame` |
+| `reed::Buffer` | `VERTEX` / `INDEX` / `UNIFORM` / `STAGING`; `create(kind, size, data)`, `update(offset, data, len)`, `destroy()` |
+| `reed::Texture2D` | format `R8`/`RG8`/`RGBA8`/`A8` (font atlas), mip levels, `upload(level, data, len)` |
+| `reed::Sampler` | wrap (clamp/repeat) + filter (nearest/bilinear) |
+| `reed::RenderTarget` | color + opsiyonel depth attachment; offscreen render-to-texture (blur/acrylic pass'leri için zorunlu) |
+| `reed::Pipeline` | primitive topology (triangle/line/point), cull mode, depth test/write, blend mode, vertex layout, **shading-mode** |
+| `reed::Fence` | tek-kullanımlık; state machine `UNSIGNALED → SIGNALED → CONSUMED` (çift-signal/çift-wait hata döner, UB yok) |
+| `reed::CommandList` | `begin/end`, `bind_pipeline`, `bind_vertex_buffer`, `bind_index_buffer`, `bind_texture(slot)`, `set_uniform(model, view, proj, light[], color)`, `set_viewport/scissor`, `clear(color, depth)`, `draw(count, first)`, `draw_indexed(count, first_index, base_vertex)`, `blit(src_rt, dst_rt, region)`, `submit(fence)` |
+
+**Handle güvenliği:** her handle `(16-bit index, 16-bit generation)`; her çağrıda
+generation doğrulanır → **use-after-free/ABA imkansız**. Ham kernel pointer'ı asla
+usermode'a sızmaz (mevcut "raw kernel pixel `wm_map` → handle export/import" kuralıyla
+birebir).
+
+### Shading-mode tablosu (fixed-function, genişletilebilir)
+
+| Mode | İş |
+|---|---|
+| `REED_SHADE_UNLIT_COLOR` | Düz renk (UI dikdörtgenleri) |
+| `REED_SHADE_UNLIT_TEXTURED` | Texture sample (ikon/text atlas/blit) |
+| `REED_SHADE_VERTEX_LIT` | Ambient + Lambert diffuse, ≤4 nokta/yön ışık (3D model) |
+| `REED_SHADE_BLUR_H` / `REED_SHADE_BLUR_V` | Separable box/gauss blur pass (acrylic) |
+| `REED_SHADE_ACRYLIC_TINT` | Blur sonucu + tint + alpha composite |
+
+Yeni mod eklemek enum + C fonksiyon; shader dili/derleyici yok.
+
+### Backend
+
+- **Birincil (v1, zorunlu):** software rasterizer — scanline/half-space, tüm yazımlar
+  render-target sınırına **clip'li** (OOB write imkansız).
+- **İkincil (v1.1, stretch, zorunlu değil):** `virtio-gpu` 3D/virgl passthrough —
+  `src/drivers/display/virtio_gpu` şu an sadece 2D scanout yapıyor, 3D command queue
+  implement değil; bu v1 kapsamı dışında, Reed API'si backend'i şeffaf soyutlar
+  (`hw_accel_available` capability flag ile app/Kilim fark etmeden çalışır).
+
+## Kilim API yüzeyi (Reed üzerine game-engine renderer — MVP değil)
+
+Kilim **hiçbir zaman** `SYS_DISP_*`/kernele doğrudan gitmez — her zaman Reed üzerinden
+(mermaid'deki `Kilim --> Reed` kuralı sabit).
+
+| Katman | API | Not |
+|---|---|---|
+| **2D primitif** | `fill_rect`, `fill_round_rect`, `stroke_rect`, `line`, `circle`, `polygon` | Tessellate → Reed vertex/index buffer; batch by (pipeline, texture) |
+| **Text** | `Font::load(path)`, `Text::render(str, x, y, size, color)` | Glyph atlas `Texture2D`; tek atlas = tek draw call/run; döndürdüğü `Batch&` üzerinden `.reed()` ile ham Reed handle'a erişilebilir |
+| **Efekt** | `Acrylic::apply(rt, radius, tint, alpha)` | Offscreen `RenderTarget` + `BLUR_H`/`BLUR_V`/`ACRYLIC_TINT` 2-pass; kernel `blur.c`'nin yerini alır |
+| **3D** | `Mesh{pos,normal,uv,color}`, `Material{shading_mode,texture,color,lights}`, `Transform` (TRS), `Camera` (persp/ortho + view matrix), `Scene`/node hiyerarşisi | Model loader: basit `.kmesh` (statik mesh + texture referansı); **iskelet animasyon v1.1'e ertelendi** (kapsam şişmesin) |
+| **Widget** | `Button`, `Panel`, `Toggle`, `Slider`, `ScrollView` | os-shell/os-settings Stage 4 migrasyonunda kernel chrome painting'in yerini alır |
+| **Batching** | otomatik state-sort (pipeline+texture) | "game engine renderer" davranışı — naif immediate-mode değil, frame başı draw-call sayısı minimize edilir |
+
+## Güvenlik ve bellek güvenliği (Reed/Kilim — zorunlu, atlanamaz)
+
+Kullanıcı talebi: "security/memory leak ihtimali varsa optimize et." Aşağıdaki riskler
+`display.kmod` implement edilirken **tasarımdan itibaren** kapatılmalı, sonradan yama
+değil:
+
+| # | Risk | Zorunlu önlem |
+|---|---|---|
+| 1 | Handle UAF / double-free | `(index, generation)` handle; `destroy()` slotu anında temizler + generation'ı arttırır |
+| 2 | OOB buffer/texture upload | `display.kmod` her `update()`/`upload()`'da `len`'i hedef kapasiteye karşı doğrular; `copy_from_user` öncesi kesin sınır kontrolü, kısmi yazım yok |
+| 3 | Kaynak tükenmesi (DoS) | Process başına sert kota: örn. 256 buffer / 64 texture / 32 pipeline / 8 render-target / 16 fence (mevcut "~64 pencere" kotasıyla aynı disiplin) |
+| 4 | Kaçak/dejenere draw call rasterizer'ı kilitler | Draw-call başına vertex/index sayısı tavanı + render-target'a zorunlu scissor-clip + rasterizer iç döngüsünde zaman/iterasyon bütçesi (kötü üçgen kernel/compositor thread'ini asla sonsuza kadar bloklamaz) |
+| 5 | Process crash/kill'de kaynak sızıntısı | "Kodlarken dikkat #6" (process exit → WM cleanup) **Reed kaynak tablosuna da genişletilir**: ölen pid'in tüm buffer/texture/pipeline/fence'i otomatik serbest bırakılır |
+| 6 | Cross-process kaynak erişimi | Reed kaynakları sahibi connection/window'a scoped; başka process'in handle'ıyla erişim mümkün değil (global paylaşımlı tablo yok) |
+| 7 | SMP — kernel-side paylaşılan kaynak tabloları | `display.kmod`'un buffer/texture/pipeline/fence tabloları `kernel-smp-state.mdc` kurallarına **gün 1'den** uyar: per-resource-table spinlock veya per-connection ownership; bugünkü taranmamış `dx/compositor.c` gibi "unscanned global" olarak bırakılmaz — yazılınca `docs/smp-scan-report.md`'e eklenir |
+| 8 | Fence/sync kötüye kullanımı | Tek-kullanımlık fence state machine (madde: kaynak tablosu) — çift-signal/çift-wait hata döner |
+| 9 | Sessiz sızıntı tespiti | `SYS_DISP_DEBUG_STATS` / `reed::Device::stats()` — process başına canlı kaynak sayısı; kabul kriteri: her app kapandıktan sonra sayaç **0**'a döner (otomatik test edilebilir) |
 
 ## 6. WM + input
 
