@@ -22,20 +22,36 @@ done
 mkdir -p "$(dirname "$LOG")"
 rm -f "$LOG"
 
+QEMU_ARGS=(
+  -kernel "$KERNEL"
+  -initrd "$INITRD"
+  -m 512M
+  -smp 2,sockets=1,cores=2,threads=1
+  -display none
+  -serial stdio
+  # snapshot=on: no exclusive write lock on host disk.img
+  -drive "if=none,id=vd0,file=${DISK},format=raw,snapshot=on"
+  -device virtio-blk-pci,drive=vd0,disable-legacy=on
+)
+
 echo "[smoke] booting for ${TIMEOUT_SEC}s (serial → $LOG)..."
 
 set +e
-timeout --signal=KILL "$TIMEOUT_SEC" qemu-system-i386 \
-  -kernel "$KERNEL" \
-  -initrd "$INITRD" \
-  -m 512M \
-  -smp 2,sockets=1,cores=2,threads=1 \
-  -display none \
-  -serial stdio \
-  -drive "if=none,id=vd0,file=${DISK},format=raw,cache=writethrough" \
-  -device virtio-blk-pci,drive=vd0,disable-legacy=on \
-  >"$LOG" 2>&1
-rc=$?
+if command -v timeout >/dev/null 2>&1; then
+  timeout --signal=KILL "$TIMEOUT_SEC" qemu-system-i386 "${QEMU_ARGS[@]}" >"$LOG" 2>&1
+  rc=$?
+elif command -v gtimeout >/dev/null 2>&1; then
+  gtimeout --signal=KILL "$TIMEOUT_SEC" qemu-system-i386 "${QEMU_ARGS[@]}" >"$LOG" 2>&1
+  rc=$?
+else
+  # macOS / environments without GNU timeout
+  qemu-system-i386 "${QEMU_ARGS[@]}" >"$LOG" 2>&1 &
+  qpid=$!
+  sleep "$TIMEOUT_SEC"
+  kill -KILL "$qpid" 2>/dev/null || true
+  wait "$qpid" 2>/dev/null
+  rc=0
+fi
 set -e
 
 # timeout returns 124 (or 137 with KILL); that is expected.
