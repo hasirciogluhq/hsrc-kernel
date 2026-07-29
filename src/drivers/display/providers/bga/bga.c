@@ -3,6 +3,7 @@
 #include <drivers/driver.h>
 #include <drivers/bus/pci.h>
 #include <drivers/console/serial.h>
+#include <drivers/input/ps2.h>
 #include <arch/x86/io.h>
 #include <kernel/string.h>
 
