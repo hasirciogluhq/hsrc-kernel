@@ -15,8 +15,9 @@
 typedef struct proc_page_entry {
     pid_t    pid;
     pid_t    ppid;
-    uint32_t state;
+    uint32_t state;        /* aggregated: any Running > Ready > Suspended */
     uint32_t is_user;
+    uint32_t thread_count; /* live OS threads (leader + extras) */
     uint64_t cpu_ticks;
     uint64_t uptime_ticks;
     uint32_t mem_bytes;    /* total: struct + stacks + image + vma */

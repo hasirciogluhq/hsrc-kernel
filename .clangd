@@ -1,4 +1,4 @@
-# Kernel C sources / headers
+# Shared freestanding flags (no -std here — language-specific blocks below)
 CompileFlags:
   CompilationDatabase: .
   Add:
@@ -18,9 +18,9 @@ CompileFlags:
 
 ---
 
-# C translation units — never feed -std=c++*
+# Pure C sources
 If:
-  PathMatch: .*\.(c)$
+  PathMatch: .*\.c$
 
 CompileFlags:
   Add:
@@ -30,9 +30,26 @@ CompileFlags:
 
 ---
 
-# C++ sources + headers (userspace apps/SDK and any .cpp/.hpp)
+# C headers (kernel + include/user/*.h like exec.h) — never -std=c++*
 If:
-  PathMatch: .*\.(cpp|cc|cxx|hpp|hxx|hh)$|include/user/.*|userspace/.*
+  PathMatch: .*\.h$
+
+CompileFlags:
+  Add:
+    - -std=c11
+    - -DUSERMODE
+    - -Iuserspace/sdk/core
+  Remove:
+    - -std=c++.*
+    - -std=gnu\+\+.*
+    - -fno-exceptions
+    - -fno-rtti
+
+---
+
+# C++ sources + C++ headers only (.hpp etc.), not .h
+If:
+  PathMatch: .*\.(cpp|cc|cxx|hpp|hxx|hh)$
 
 CompileFlags:
   CompilationDatabase: .

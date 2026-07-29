@@ -35,6 +35,7 @@ typedef struct proc_stat {
     pid_t    ppid;
     uint32_t state;
     uint32_t is_user;
+    uint32_t thread_count;
     uint64_t cpu_ticks;
     uint64_t start_ticks;
     uint64_t uptime_ticks;

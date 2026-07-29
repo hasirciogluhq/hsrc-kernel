@@ -25,6 +25,7 @@ struct ProcListEntry {
     pid_t    ppid = 0;
     uint32_t state = Unused;
     uint32_t is_user = 0;
+    uint32_t thread_count = 0;
     uint64_t cpu_ticks = 0;
     uint64_t uptime_ticks = 0;
     uint32_t mem_bytes = 0;
@@ -39,6 +40,7 @@ struct ProcStat {
     pid_t    ppid = 0;
     uint32_t state = Unused;
     uint32_t is_user = 0;
+    uint32_t thread_count = 0;
     uint64_t cpu_ticks = 0;
     uint64_t start_ticks = 0;
     uint64_t uptime_ticks = 0;

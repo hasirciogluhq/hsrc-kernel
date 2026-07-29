@@ -139,6 +139,67 @@ static uint32_t process_mem_bytes(const process_t *p)
     return total;
 }
 
+/* Live OS threads: leader + extras that are not UNUSED/ZOMBIE. */
+static uint32_t process_group_thread_count(const process_t *lead)
+{
+    uint32_t n = 0;
+
+    if (!lead || lead->state == PROC_UNUSED || lead->state == PROC_ZOMBIE)
+        return 0;
+    n = 1;
+    for (int j = 0; j < PROC_MAX; j++) {
+        process_t *th = g_procs[j];
+        if (!th || th->group != lead)
+            continue;
+        if (th->state == PROC_UNUSED || th->state == PROC_ZOMBIE)
+            continue;
+        n++;
+    }
+    return n;
+}
+
+/*
+ * Process-level state for monitors: any Running > any Ready > Suspended.
+ * Avoids "Suspended" while a worker thread is still on CPU.
+ */
+static proc_state_t process_group_state(const process_t *lead)
+{
+    int any_ready = 0;
+    int any_susp = 0;
+
+    if (!lead || lead->state == PROC_UNUSED)
+        return PROC_UNUSED;
+    if (lead->state == PROC_ZOMBIE)
+        return PROC_ZOMBIE;
+
+    if (lead->state == PROC_RUNNING)
+        return PROC_RUNNING;
+    if (lead->state == PROC_READY)
+        any_ready = 1;
+    else if (lead->state == PROC_SUSPENDED)
+        any_susp = 1;
+
+    for (int j = 0; j < PROC_MAX; j++) {
+        process_t *th = g_procs[j];
+        if (!th || th->group != lead)
+            continue;
+        if (th->state == PROC_UNUSED || th->state == PROC_ZOMBIE)
+            continue;
+        if (th->state == PROC_RUNNING)
+            return PROC_RUNNING;
+        if (th->state == PROC_READY)
+            any_ready = 1;
+        else if (th->state == PROC_SUSPENDED)
+            any_susp = 1;
+    }
+
+    if (any_ready)
+        return PROC_READY;
+    if (any_susp)
+        return PROC_SUSPENDED;
+    return lead->state;
+}
+
 static uint64_t process_sum_cpu_ticks(void)
 {
     uint64_t sum = 0;
@@ -550,8 +611,9 @@ void process_snapshot_publish(void)
             memset(dst, 0, sizeof(*dst));
             dst->pid = p->pid;
             dst->ppid = p->ppid;
-            dst->state = (uint32_t)p->state;
+            dst->state = (uint32_t)process_group_state(p);
             dst->is_user = (uint32_t)p->is_user;
+            dst->thread_count = process_group_thread_count(p);
             dst->cpu_ticks = ticks;
             dst->uptime_ticks = process_uptime_ticks(p, now);
             dst->stack_bytes = stacks;
