@@ -2,6 +2,7 @@
 
 #include <kernel/types.h>
 #include <kernel/syscall.h>
+#include <kernel/scheduler.h>
 #include <user/sdk/syscall.hpp>
 
 namespace hsrc::sdk {
@@ -15,12 +16,13 @@ constexpr uint32_t kWaitForever = 0xFFFFFFFFu;
  * Threading model
  * ---------------
  * - Kernel creates one **main thread** per process on spawn (tid == pid).
- * - Apps may create **N custom threads** via Thread::create (same flat AS).
- *   Cap: thread::max_per_process() (kernel PROC_THREADS_MAX); OOM → create fails.
+ * - Apps may create custom threads via Thread::create (same flat AS).
+ *   Cap: thread::max_per_process() == online CPU/HW-thread count.
  * - Idle / wait: prefer GxDevice::wait_input or Event/CV - not yield(0)
  *   or timed sleep polling.
- * - Blocking a thread only deschedules that thread; siblings keep running.
- * - Preemption: timer IRQ context-switches CPU hogs without voluntary yield.
+ * - Suspended a thread only deschedules that thread; siblings keep running.
+ * - Preemption: timer IRQ (~3.5ms) context-switches after ~140ms thread life
+ *   (overridable via SYS_SCHED_SET).
  */
 namespace this_thread {
 
@@ -34,7 +36,7 @@ inline void yield()
     hsrc::sdk::yield(0);
 }
 
-/* Block (PROC_BLOCKED) for up to `ticks` scheduler ticks - not a Ready spin. */
+/* Suspend (PROC_SUSPENDED) for up to `ticks` scheduler ticks - not a Ready spin. */
 inline void sleep_for(uint32_t ticks)
 {
     if (ticks == 0) {
@@ -54,6 +56,23 @@ inline void sleep_for(uint32_t ticks)
 
 } // namespace this_thread
 
+namespace sched {
+
+inline bool get(sched_params_t *out)
+{
+    if (!out)
+        return false;
+    return syscall1(SYS_SCHED_GET, (long)(uintptr_t)out) == 0;
+}
+
+/* 0 = leave unchanged. Returns true on success. */
+inline bool set(uint32_t tick_us, uint32_t thread_life_us)
+{
+    return syscall2(SYS_SCHED_SET, (long)tick_us, (long)thread_life_us) == 0;
+}
+
+} // namespace sched
+
 namespace thread {
 
 inline tid_t main_id()
@@ -61,15 +80,18 @@ inline tid_t main_id()
     return (tid_t)syscall0(SYS_GETPID);
 }
 
-inline constexpr int max_per_process()
+inline int max_per_process()
 {
-    /* Mirrors kernel PROC_THREADS_MAX (1 main + N-1 custom). */
-    return 256;
+    sched_params_t p{};
+    if (sched::get(&p) && p.threads_max > 0)
+        return (int)p.threads_max;
+    return 1;
 }
 
 /*
  * Custom thread in the calling process (shared address space).
  * Entry: void fn(void *arg). Safe to return - SDK exits the thread.
+ * Workers are dynamically scheduled across online CPUs.
  */
 class Thread {
 public:

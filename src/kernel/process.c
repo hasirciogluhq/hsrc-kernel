@@ -276,7 +276,7 @@ static void process_wake_joiners(pid_t tid)
 {
     for (int i = 0; i < PROC_MAX; i++) {
         process_t *p = g_procs[i];
-        if (!p || p->state != PROC_BLOCKED || p->join_tid == 0)
+        if (!p || p->state != PROC_SUSPENDED || p->join_tid == 0)
             continue;
         if (p->join_tid == tid)
             process_wake(p);
@@ -366,6 +366,7 @@ static process_t *alloc_process(const char *name)
         p->join_tid = 0;
         p->wait_event = -1;
         p->wait_next = NULL;
+        p->last_run_tick = 0;
         strncpy(p->name, name, PROC_NAME_MAX - 1);
         p->kstack_top = (uint32_t)((uint8_t *)kbase + PROC_KSTACK_SIZE);
         p->ustack_top = (uint32_t)((uint8_t *)ubase + PROC_USTACK_SIZE);
@@ -462,7 +463,7 @@ static void process_wake_proc_waiters(uint32_t gen)
 {
     for (int i = 0; i < PROC_MAX; i++) {
         process_t *p = g_procs[i];
-        if (!p || p->state != PROC_BLOCKED || p->proc_wait_gen == 0)
+        if (!p || p->state != PROC_SUSPENDED || p->proc_wait_gen == 0)
             continue;
         if (gen != p->proc_wait_gen)
             process_wake(p);
@@ -617,10 +618,9 @@ pid_t process_create_user(const char *name, void (*entry)(void))
     p->user_entry = entry;
     /*
      * Pin user/GUI processes to BSP. DX compose/present, PS/2 poll, and
-     * display_ops are not SMP-safe: running a GX syscall on an AP while the
-     * BSP timer idle path calls drivers_poll()/pump_input() races and
-     * corrupts kernel state (seen as #UD with a garbage EIP like 0x207
-     * right after the first full gx present).
+     * display_ops are not SMP-safe: an AP running GX while the BSP timer
+     * path calls drivers_poll()/pump_input() races → #GP with a garbage EIP
+     * (seen as eip=0x25f / 0x207 right after gx present).
      */
     p->cpu_affinity = 0;
     setup_kstack(p, user_trampoline, entry);
@@ -645,19 +645,38 @@ pid_t process_gettid(void)
     return cur ? cur->tid : 0;
 }
 
+/*
+ * Per-process thread cap tracks online HW threads (cores/SMT).
+ * Clamped to [1, PROC_THREADS_HARD_MAX]; scheduler runs up to cpu_count()
+ * threads truly in parallel.
+ */
+int process_threads_max(void)
+{
+    int n = smp_cpu_count();
+
+    if (n < 1)
+        n = 1;
+    if (n > PROC_THREADS_HARD_MAX)
+        n = PROC_THREADS_HARD_MAX;
+    return n;
+}
+
 pid_t process_thread_create(void (*entry)(void *), void *arg)
 {
     process_t *cur = process_current();
     process_t *lead;
     process_t *t;
     int cfd;
+    int cap;
+    int idx;
 
     if (!cur || !entry)
         return (pid_t)-EINVAL;
     lead = process_leader(cur);
     if (!lead || !lead->is_user)
         return (pid_t)-EPERM;
-    if (process_count_threads(lead) >= PROC_THREADS_MAX)
+    cap = process_threads_max();
+    if (process_count_threads(lead) >= cap)
         return (pid_t)-EAGAIN;
 
     t = alloc_process(lead->name);
@@ -675,7 +694,16 @@ pid_t process_thread_create(void (*entry)(void *), void *arg)
     t->thread_arg = arg;
     t->thread_detached = 0;
     t->join_tid = 0;
+    /*
+     * Inherit leader affinity (BSP for GUI). Floating workers on APs while
+     * the leader does GX still races the display path.
+     */
     t->cpu_affinity = lead->cpu_affinity;
+    /* Soft-spread initial hint: round-robin last_cpu preference via last_run. */
+    idx = process_count_threads(lead) - 1; /* includes this new thread */
+    if (idx < 0)
+        idx = 0;
+    t->last_run_tick = (uint64_t)(idx % (smp_cpu_count() > 0 ? smp_cpu_count() : 1));
     t->uid = lead->uid;
     t->euid = lead->euid;
     t->image_bytes = 0;

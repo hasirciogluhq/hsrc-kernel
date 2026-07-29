@@ -116,13 +116,13 @@ void sync_cleanup_process(pid_t pid)
     spin_unlock_irqrestore(&g_sync_lock, flags);
 }
 
-void process_block(uint64_t wake_tick)
+void process_suspend(uint64_t wake_tick)
 {
     process_t *p = process_current();
     if (!p)
         return;
     p->wake_tick = wake_tick;
-    p->state = PROC_BLOCKED;
+    p->state = PROC_SUSPENDED;
     process_snapshot_mark_dirty();
 }
 
@@ -130,7 +130,7 @@ void process_wake(process_t *p)
 {
     if (!p)
         return;
-    if (p->state != PROC_BLOCKED)
+    if (p->state != PROC_SUSPENDED)
         return;
     p->state = PROC_READY;
     p->wake_tick = 0;
@@ -189,7 +189,7 @@ void input_event_notify(uint32_t flags, int hit_id, int focus_id,
     flags_irq = spin_lock_irqsave(&g_sync_lock);
     for (int i = 0; i < PROC_MAX; i++) {
         process_t *p = table[i];
-        if (!p || p->state != PROC_BLOCKED || !p->input_wait_active)
+        if (!p || p->state != PROC_SUSPENDED || !p->input_wait_active)
             continue;
         if (g_input_seq == p->input_wait_last)
             continue;

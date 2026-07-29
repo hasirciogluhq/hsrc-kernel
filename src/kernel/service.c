@@ -16,7 +16,7 @@ static service_entry_t g_services[SERVICE_MAX];
 
 static int service_proc_alive(const process_t *p)
 {
-    return p && (p->state == PROC_READY || p->state == PROC_RUNNING || p->state == PROC_BLOCKED);
+    return p && (p->state == PROC_READY || p->state == PROC_RUNNING || p->state == PROC_SUSPENDED);
 }
 
 static int service_path_exists(const char *path)

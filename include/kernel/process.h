@@ -22,9 +22,9 @@
 
 typedef enum {
     PROC_UNUSED = 0,
-    PROC_READY,
-    PROC_RUNNING,
-    PROC_BLOCKED,
+    PROC_READY,      /* runnable, waiting for a CPU */
+    PROC_RUNNING,    /* currently executing on a CPU */
+    PROC_SUSPENDED,  /* descheduled: sleep / event / join wait */
     PROC_ZOMBIE
 } proc_state_t;
 
@@ -61,10 +61,10 @@ typedef struct sys_info {
  * Extra threads: group → leader, tid == slot pid; share leader fds/cwd/vma/env.
  */
 /*
- * Per-process cap: 1 main + (PROC_THREADS_MAX-1) custom threads.
- * Bound by heap stack alloc (kstack+ustack each) and global PROC_MAX slots.
+ * Absolute ceiling on threads per process (1 main + N-1 custom).
+ * Soft/runtime cap is smp_cpu_count() via process_threads_max().
  */
-#define PROC_THREADS_MAX 256
+#define PROC_THREADS_HARD_MAX 256
 
 typedef struct process {
     pid_t        pid;
@@ -80,7 +80,7 @@ typedef struct process {
     struct process *group;     /* NULL = process leader; else owning process */
     void        *thread_arg;   /* arg for user thread entry(void *) */
     int          thread_detached;
-    pid_t        join_tid;     /* if BLOCKED joining: target tid, else 0 */
+    pid_t        join_tid;     /* if SUSPENDED joining: target tid, else 0 */
     uid_t        uid;          /* real uid - default 0 (root) */
     uid_t        euid;         /* effective uid - default 0 (root) */
     char         cwd[VFS_PATH_MAX];
@@ -95,9 +95,10 @@ typedef struct process {
     int          exit_code;
     uint64_t     cpu_ticks;
     uint64_t     start_ticks;
-    uint64_t     wake_tick;    /* scheduler tick when BLOCKED may wake (~0 = event-only) */
+    uint64_t     last_run_tick; /* for dynamic fair pick */
+    uint64_t     wake_tick;    /* tick when SUSPENDED may wake (~0 = event-only) */
     uint32_t     proc_wait_gen; /* non-zero: wait until snapshot generation changes */
-    int          input_wait_active; /* 1 = blocked in SYS_INPUT_WAIT */
+    int          input_wait_active; /* 1 = suspended in SYS_INPUT_WAIT */
     uint32_t     input_wait_last;   /* last seq observed by waiter */
     int          input_wait_win;    /* -1 = any window; else filter */
     int          wait_event;   /* kevent id while waiting, or -1 */
@@ -123,6 +124,8 @@ pid_t process_getpid(void);  /* process group / leader pid */
 pid_t process_getppid(void);
 pid_t process_gettid(void);  /* current thread id */
 process_t *process_leader(process_t *p);
+/* Runtime per-process thread cap (= online HW threads, clamped). */
+int   process_threads_max(void);
 pid_t process_thread_create(void (*entry)(void *), void *arg);
 void  process_thread_exit(int code);
 long  process_thread_join(pid_t tid, int *status_out);

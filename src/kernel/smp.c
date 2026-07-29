@@ -47,9 +47,8 @@ static void smp_install_trampoline(void)
 
 void ipi_dispatch(void)
 {
-    /* Reschedule request: leave HLT or preempt a running thread. */
+    /* Reschedule kick: leave HLT or pick up Ready work. */
     lapic_eoi();
-    /* schedule() no-ops until scheduler_start (same as timer path). */
     schedule();
 }
 
@@ -184,6 +183,23 @@ void smp_reschedule_others(void)
     for (int i = 0; i < cpu_count(); i++) {
         cpu_t *c = cpu_get(i);
         if (!c || !c->online || c->id == self)
+            continue;
+        lapic_send_ipi(c->apic_id, LAPIC_IPI_VECTOR);
+    }
+}
+
+void smp_kick_idle_cpus(void)
+{
+    int self = cpu_id();
+
+    for (int i = 0; i < cpu_count(); i++) {
+        cpu_t *c = cpu_get(i);
+        process_t *cur;
+
+        if (!c || !c->online || c->id == self)
+            continue;
+        cur = c->current;
+        if (cur && !cur->is_idle)
             continue;
         lapic_send_ipi(c->apic_id, LAPIC_IPI_VECTOR);
     }

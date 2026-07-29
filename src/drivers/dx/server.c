@@ -669,7 +669,7 @@ void gx_server_pump_input(void)
     my = ms ? ms->y : 0;
 
     /*
-     * C21/C22: cursor must track the pointer even when apps are PROC_BLOCKED.
+     * C21/C22: cursor must track the pointer even when apps are PROC_SUSPENDED.
      * During compose the backbuffer is owned - remember the tip and apply
      * as soon as the frame finishes (see gx_server_frame_tick).
      */

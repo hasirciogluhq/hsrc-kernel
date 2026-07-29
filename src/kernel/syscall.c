@@ -429,7 +429,7 @@ static long do_yield(long sleep_ticks)
     const dx_api_t *api = dx_api_get();
     process_t *p = process_current();
 
-    /* Optional coop reschedule (sleep_ticks==0). sleep_ticks>0 → PROC_BLOCKED.
+    /* Optional coop reschedule (sleep_ticks==0). sleep_ticks>0 → PROC_SUSPENDED.
      * Fairness does not require yield - timer preemption handles CPU hogs. */
     if (cpu_id() == 0) {
         drivers_poll();
@@ -441,11 +441,31 @@ static long do_yield(long sleep_ticks)
         uint64_t now = scheduler_tick_count();
         if (sleep_ticks > 1000)
             sleep_ticks = 1000;
-        process_block(now + (uint64_t)sleep_ticks);
+        process_suspend(now + (uint64_t)sleep_ticks);
     }
 
     schedule();
     return 0;
+}
+
+static long do_sched_get(long outp)
+{
+    sched_params_t p;
+
+    if (!outp)
+        return -EINVAL;
+    memset(&p, 0, sizeof(p));
+    scheduler_get_params(&p);
+    if (copy_to_user((void *)(uintptr_t)outp, &p, sizeof(p)) < 0)
+        return -EFAULT;
+    return 0;
+}
+
+static long do_sched_set(long tick_us, long life_us)
+{
+    if (tick_us < 0 || life_us < 0)
+        return -EINVAL;
+    return scheduler_set_params((uint32_t)tick_us, (uint32_t)life_us);
 }
 
 static long do_proc_wait(long last_gen, long timeout_ticks)
@@ -472,9 +492,9 @@ static long do_proc_wait(long last_gen, long timeout_ticks)
     now = scheduler_tick_count();
     p->proc_wait_gen = lg;
     if (timeout_ticks < 0)
-        process_block(~(uint64_t)0);
+        process_suspend(~(uint64_t)0);
     else
-        process_block(now + (uint64_t)timeout_ticks);
+        process_suspend(now + (uint64_t)timeout_ticks);
     schedule();
     p->proc_wait_gen = 0;
 
@@ -1767,6 +1787,8 @@ long syscall_dispatch(long n, long a1, long a2, long a3, long a4, long a5)
     case SYS_THREAD_JOIN: return do_thread_join(a1, a2);
     case SYS_THREAD_DETACH: return do_thread_detach(a1);
     case SYS_YIELD:  return do_yield(a1);
+    case SYS_SCHED_GET: return do_sched_get(a1);
+    case SYS_SCHED_SET: return do_sched_set(a1, a2);
     case SYS_FORK:   return -1;
 
     case SYS_GX_INFO:          return do_gx_info(a1);

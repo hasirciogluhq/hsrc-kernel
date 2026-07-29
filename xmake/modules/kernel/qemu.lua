@@ -6,7 +6,7 @@ function qemu_args()
         "-kernel", path.join(BUILD, "kernel.bin"),
         "-initrd", path.join(BUILD, "drivers", "initrd.img"),
         "-m", "1G",
-        "-smp", "3,sockets=1,cores=3,threads=1",
+        "-smp", "4,sockets=1,cores=4,threads=1",
         "-vga", "std",
         "-serial", "stdio",
         "-drive", "if=none,id=vd0,file=" .. path.join(ROOT, "disk.img") .. ",format=raw,cache=writethrough",

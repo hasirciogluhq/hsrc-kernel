@@ -15,8 +15,9 @@ enum State : uint32_t {
     Unused = 0,
     Ready = 1,
     Running = 2,
-    Blocked = 3,
+    Suspended = 3, /* sleep / event / join wait (formerly Blocked) */
     Zombie = 4,
+    Blocked = Suspended, /* compat alias */
 };
 
 struct ProcListEntry {

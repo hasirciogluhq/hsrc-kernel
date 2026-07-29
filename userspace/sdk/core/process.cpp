@@ -261,15 +261,15 @@ const char *state_name(uint32_t state)
 {
     switch (state) {
     case Ready:
-        return "Ready";
+        return "ready";
     case Running:
-        return "Running";
-    case Blocked:
-        return "Blocked";
+        return "running";
+    case Suspended: /* Blocked alias shares this value */
+        return "suspended";
     case Zombie:
-        return "Zombie";
+        return "zombie";
     default:
-        return "Unused";
+        return "unused";
     }
 }
 

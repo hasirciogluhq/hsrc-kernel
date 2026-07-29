@@ -114,9 +114,11 @@
 #define SYS_EVENT_BROADCAST 284  /* a1=id - wake all */
 #define SYS_THREAD_CREATE   285  /* a1=entry(void*) a2=arg → tid */
 #define SYS_THREAD_EXIT     286  /* a1=code - exit current thread only */
-#define SYS_THREAD_JOIN     287  /* a1=tid a2=status* → 0; blocks */
+#define SYS_THREAD_JOIN     287  /* a1=tid a2=status* → 0; suspends */
 #define SYS_THREAD_DETACH   288  /* a1=tid */
 #define SYS_INPUT_WAIT      289  /* a1=win_id(-1=any) a2=last_seq a3=timeout(<0 forever) → seq */
+#define SYS_SCHED_GET       290  /* a1=&sched_params_t → 0 */
+#define SYS_SCHED_SET       291  /* a1=tick_us(0=keep) a2=life_us(0=keep) → 0 */
 
 /* SYS_SPAWN flags (Wave O). */
 #define SPAWN_CONSOLE_VISIBLE  0x01u

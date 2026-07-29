@@ -16,13 +16,16 @@
 
 #define PIT_CH0   0x40
 #define PIT_CMD   0x43
-#define PIT_HZ    100u
-#define PIT_DIV   (1193182u / PIT_HZ)
+#define PIT_CLOCK 1193182u
+
+/* Default ~3.5ms (≈286 Hz). Overridable via irq_timer_set_period_us / SYS_SCHED_SET. */
+#define IRQ_TICK_US_DEFAULT 3500u
 
 #define IRQ_TIMER 0
 
 static volatile uint64_t g_timer_ticks;
 static volatile uint64_t g_idle_ticks;
+static uint32_t g_period_us = IRQ_TICK_US_DEFAULT;
 
 extern void irq_stub_0(void);
 extern void irq_stub_1(void);
@@ -68,12 +71,33 @@ static void pic_remap(void)
     pic_outb(PIC2_DATA, 0xFF);
 }
 
-static void pit_init(void)
+static void pit_program_hz(uint32_t hz)
 {
+    uint32_t div;
+
+    if (hz < 10u)
+        hz = 10u;
+    if (hz > 2000u)
+        hz = 2000u;
+    div = PIT_CLOCK / hz;
+    if (div < 1u)
+        div = 1u;
+    if (div > 65535u)
+        div = 65535u;
     /* Channel 0, lobyte/hibyte, rate generator mode 3. */
     outb(PIT_CMD, 0x36);
-    outb(PIT_CH0, (uint8_t)(PIT_DIV & 0xFF));
-    outb(PIT_CH0, (uint8_t)((PIT_DIV >> 8) & 0xFF));
+    outb(PIT_CH0, (uint8_t)(div & 0xFF));
+    outb(PIT_CH0, (uint8_t)((div >> 8) & 0xFF));
+    /* Store actual period from programmed Hz. */
+    g_period_us = 1000000u / hz;
+    if (g_period_us == 0)
+        g_period_us = 1;
+}
+
+static void pit_init(void)
+{
+    uint32_t hz = (1000000u + IRQ_TICK_US_DEFAULT / 2u) / IRQ_TICK_US_DEFAULT;
+    pit_program_hz(hz);
 }
 
 static void pic_unmask_timer(void)
@@ -100,6 +124,24 @@ uint64_t irq_idle_ticks(void)
     return g_idle_ticks;
 }
 
+uint32_t irq_timer_period_us(void)
+{
+    return g_period_us;
+}
+
+uint32_t irq_timer_set_period_us(uint32_t us)
+{
+    uint32_t hz;
+
+    if (us < 500u)
+        us = 500u;
+    if (us > 100000u)
+        us = 100000u;
+    hz = (1000000u + us / 2u) / us;
+    pit_program_hz(hz);
+    return g_period_us;
+}
+
 void irq_dispatch(uint32_t irq)
 {
     if (irq == IRQ_TIMER) {
@@ -111,7 +153,7 @@ void irq_dispatch(uint32_t irq)
             g_idle_ticks++;
         drivers_poll();
         /*
-         * Keep cursor/WM alive when apps are PROC_BLOCKED (Event / input wait).
+         * Keep cursor/WM alive when apps are PROC_SUSPENDED (Event / input wait).
          * Timer also drives preemption via scheduler_on_timer - no yield needed.
          */
         api = dx_api_get();
@@ -138,6 +180,7 @@ void irq_init(void)
 {
     g_timer_ticks = 0;
     g_idle_ticks = 0;
+    g_period_us = IRQ_TICK_US_DEFAULT;
     pic_remap();
     pit_init();
     for (int i = 0; i < 16; i++)

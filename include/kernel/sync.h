@@ -23,12 +23,18 @@ long kevent_signal(int id);
 /* Wake every waiter. */
 long kevent_broadcast(int id);
 
-/* Block current thread until wake_tick (or forever if wake_tick == ~0ULL). */
-void process_block(uint64_t wake_tick);
-/* Move BLOCKED → READY; safe from IRQ / other CPU contexts. */
+/* Suspend current thread until wake_tick (or forever if wake_tick == ~0ULL). */
+void process_suspend(uint64_t wake_tick);
+/* Move SUSPENDED → READY; safe from IRQ / other CPU contexts. */
 void process_wake(process_t *p);
 
-/* Input / WM event wait - apps block until real work (not timed sleep). */
+/* Compat alias - prefer process_suspend. */
+static inline void process_block(uint64_t wake_tick)
+{
+    process_suspend(wake_tick);
+}
+
+/* Input / WM event wait - apps suspend until real work (not timed sleep). */
 #define INPUT_EV_MOVE   (1u << 0)
 #define INPUT_EV_BUTTON (1u << 1)
 #define INPUT_EV_WHEEL  (1u << 2)
@@ -43,7 +49,7 @@ void     input_event_notify(uint32_t flags, int hit_id, int focus_id,
 /* 1 once after input waiters were woken - timer should force schedule. */
 int      input_event_need_sched(void);
 /*
- * Block until seq advances with an event relevant to win_id (-1 = any),
+ * Suspend until seq advances with an event relevant to win_id (-1 = any),
  * or timeout. timeout_ticks: <0 forever, 0 try. Returns current seq.
  */
 long     input_event_wait(int win_id, uint32_t last_seq, long timeout_ticks);

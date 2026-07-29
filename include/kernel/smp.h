@@ -12,6 +12,9 @@ void smp_start_scheduling(void);
 /* Wake other CPUs from HLT so they can schedule runnable work. */
 void smp_reschedule_others(void);
 
+/* IPI only idle remote CPUs (orphan Ready work). */
+void smp_kick_idle_cpus(void);
+
 int smp_cpu_count(void);
 
 #endif

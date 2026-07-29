@@ -26,7 +26,7 @@ QEMU_ARGS=(
   -kernel "$KERNEL"
   -initrd "$INITRD"
   -m 512M
-  -smp 2,sockets=1,cores=2,threads=1
+  -smp 4,sockets=1,cores=4,threads=1
   -display none
   -serial stdio
   # snapshot=on: no exclusive write lock on host disk.img

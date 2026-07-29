@@ -5,6 +5,7 @@
 #include <kernel/smp.h>
 #include <kernel/string.h>
 #include <kernel/sync.h>
+#include <kernel/errno.h>
 #include <kernel/dx_api.h>
 #include <arch/x86/gdt.h>
 #include <arch/x86/irq.h>
@@ -12,25 +13,94 @@
 #include <drivers/driver.h>
 
 /*
- * Max timeslice before forced preemption (PIT ticks @ 100Hz).
- * Short slices thrash when several Ready threads exist; 4 ≈ 40ms is enough
- * for fairness without CS storms. Blocked threads stay off Ready.
+ * Per-CPU round-robin. Timer IRQ only accounts time; context switch happens
+ * when the thread life expires AND another Ready thread is waiting.
+ * If life expires with nobody waiting, refresh the slice and keep running.
  */
-#define SCHED_TIMESLICE_TICKS 4
 
 static uint32_t *bootstrap_esp[CPU_MAX];
 static uint64_t g_switch_ticks;
 static spinlock_t g_sched_lock;
-/* 0 until scheduler_start - timer must not idle_halt/abandon kernel_main. */
 static volatile int g_sched_active;
 static uint32_t g_slice_left[CPU_MAX];
+/* Set by timer preempt path so schedule() prefers another Ready thread. */
+static int g_prefer_other[CPU_MAX];
+
+static uint32_t g_tick_us = SCHED_TICK_US_DEFAULT;
+static uint32_t g_thread_life_us = SCHED_THREAD_LIFE_US_DEFAULT;
+
+static uint32_t life_ticks_from(uint32_t tick_us, uint32_t life_us)
+{
+    uint32_t t;
+
+    if (tick_us == 0)
+        tick_us = SCHED_TICK_US_DEFAULT;
+    if (life_us == 0)
+        life_us = SCHED_THREAD_LIFE_US_DEFAULT;
+    t = life_us / tick_us;
+    if (t < 1)
+        t = 1;
+    if (t > 100000)
+        t = 100000;
+    return t;
+}
+
+uint32_t scheduler_tick_us(void)
+{
+    return g_tick_us;
+}
+
+uint32_t scheduler_thread_life_us(void)
+{
+    return g_thread_life_us;
+}
+
+uint32_t scheduler_life_ticks(void)
+{
+    return life_ticks_from(g_tick_us, g_thread_life_us);
+}
+
+void scheduler_get_params(sched_params_t *out)
+{
+    if (!out)
+        return;
+    out->tick_us = g_tick_us;
+    out->thread_life_us = g_thread_life_us;
+    out->life_ticks = scheduler_life_ticks();
+    out->cpu_count = (uint32_t)smp_cpu_count();
+    out->threads_max = (uint32_t)process_threads_max();
+}
+
+long scheduler_set_params(uint32_t tick_us, uint32_t thread_life_us)
+{
+    uint32_t new_tick = g_tick_us;
+    uint32_t new_life = g_thread_life_us;
+    int cpu;
+
+    if (tick_us != 0) {
+        if (tick_us < 500u || tick_us > 100000u)
+            return -EINVAL;
+        new_tick = irq_timer_set_period_us(tick_us);
+    }
+    if (thread_life_us != 0) {
+        if (thread_life_us < 1000u || thread_life_us > 10000000u)
+            return -EINVAL;
+        new_life = thread_life_us;
+    }
+
+    g_tick_us = new_tick;
+    g_thread_life_us = new_life;
+
+    for (cpu = 0; cpu < CPU_MAX; cpu++)
+        g_slice_left[cpu] = scheduler_life_ticks();
+    return 0;
+}
 
 static int proc_runnable(process_t *p, uint64_t now)
 {
     if (!p || p->state == PROC_UNUSED || p->state == PROC_ZOMBIE)
         return 0;
-    if (p->state == PROC_BLOCKED) {
-        /* Event-only waits use wake_tick == ~0ULL - never timer-runnable. */
+    if (p->state == PROC_SUSPENDED) {
         if (p->wake_tick == ~(uint64_t)0)
             return 0;
         return p->wake_tick <= now;
@@ -42,10 +112,8 @@ static int proc_can_run_on(process_t *p, int cpu, process_t *cur)
 {
     if (!p)
         return 0;
-    /* Idle threads are per-CPU. */
     if (p->is_idle && p->cpu_affinity >= 0 && p->cpu_affinity != cpu)
         return 0;
-    /* Another CPU still owns this task. */
     if (p->state == PROC_RUNNING && p != cur)
         return 0;
     if (p->cpu_affinity >= 0 && p->cpu_affinity != cpu && !p->is_idle)
@@ -53,14 +121,37 @@ static int proc_can_run_on(process_t *p, int cpu, process_t *cur)
     return 1;
 }
 
-/* Prefer threads last run on this CPU (soft affinity), then any Ready. */
-static process_t *pick_next(process_t *cur, int cpu)
+/* True if a different Ready (waiting) thread could run on this CPU. */
+static int has_waiting_ready(process_t *cur, int cpu)
+{
+    process_t **table = process_table();
+    uint64_t now = irq_timer_ticks();
+
+    for (int i = 0; i < PROC_MAX; i++) {
+        process_t *p = table[i];
+        if (!p || p->is_idle || p == cur)
+            continue;
+        /* Only threads sitting in Ready - not Running elsewhere / Suspended. */
+        if (p->state != PROC_READY)
+            continue;
+        if (!proc_can_run_on(p, cpu, cur))
+            continue;
+        (void)now;
+        return 1;
+    }
+    return 0;
+}
+
+/*
+ * Dynamic pick: soft affinity → least-recently-run Ready → idle.
+ * When prefer_other is set (timeslice preempt), skip cur if another Ready waits.
+ */
+static process_t *pick_next(process_t *cur, int cpu, int prefer_other)
 {
     process_t **table = process_table();
     uint64_t now = irq_timer_ticks();
     process_t *fallback_idle = NULL;
-    process_t *soft = NULL;
-    process_t *any = NULL;
+    process_t *best = NULL;
     int start;
 
     start = cur && cur->slot >= 0 && cur->slot < PROC_MAX ? cur->slot : 0;
@@ -75,18 +166,28 @@ static process_t *pick_next(process_t *cur, int cpu)
                 fallback_idle = p;
             continue;
         }
-        if (p->cpu == cpu && !soft)
-            soft = p;
-        if (!any)
-            any = p;
-        if (soft && any && soft != any)
-            break;
+        if (prefer_other && p == cur)
+            continue;
+        if (!best) {
+            best = p;
+            continue;
+        }
+        if (p->cpu == cpu && best->cpu != cpu) {
+            best = p;
+            continue;
+        }
+        if (best->cpu == cpu && p->cpu != cpu)
+            continue;
+        if (p->last_run_tick < best->last_run_tick)
+            best = p;
     }
 
-    if (soft)
-        return soft;
-    if (any)
-        return any;
+    if (best)
+        return best;
+    /* Timeslice expired but nobody else - keep cur (caller refreshes slice). */
+    if (prefer_other && cur && proc_runnable(cur, now) &&
+        proc_can_run_on(cur, cpu, cur) && !cur->is_idle)
+        return cur;
     if (cur && proc_runnable(cur, now) && proc_can_run_on(cur, cpu, cur) &&
         !cur->is_idle)
         return cur;
@@ -97,10 +198,6 @@ static void idle_halt(void)
 {
     for (;;) {
         __asm__ volatile("sti; hlt" ::: "memory");
-        /*
-         * BSP drains PS/2 then refreshes the software cursor / wakes input
-         * waiters - apps may be PROC_BLOCKED in wait_events (C21/I08/I11).
-         */
         if (cpu_id() == 0) {
             const dx_api_t *api;
 
@@ -158,12 +255,22 @@ int scheduler_create_idle_for_cpu(cpu_t *c)
 void scheduler_init(void)
 {
     cpu_t *bsp = cpu_get(0);
+    uint32_t life;
+    int i;
 
     spin_init(&g_sched_lock);
     memset(bootstrap_esp, 0, sizeof(bootstrap_esp));
-    memset(g_slice_left, 0, sizeof(g_slice_left));
     g_switch_ticks = 0;
     g_sched_active = 0;
+    g_tick_us = irq_timer_period_us();
+    if (g_tick_us == 0)
+        g_tick_us = SCHED_TICK_US_DEFAULT;
+    g_thread_life_us = SCHED_THREAD_LIFE_US_DEFAULT;
+    life = scheduler_life_ticks();
+    for (i = 0; i < CPU_MAX; i++) {
+        g_slice_left[i] = life;
+        g_prefer_other[i] = 0;
+    }
 
     if (!bsp)
         bsp = cpu_current();
@@ -172,7 +279,6 @@ void scheduler_init(void)
 
 void scheduler_unlock_new_thread(void)
 {
-    /* Fresh stacks never return into schedule()'s unlock path. */
     spin_unlock(&g_sched_lock);
     __asm__ volatile("sti" ::: "memory");
 }
@@ -184,7 +290,7 @@ void scheduler_wake_sleepers(uint64_t now)
 
     for (int i = 0; i < PROC_MAX; i++) {
         process_t *p = table[i];
-        if (!p || p->state != PROC_BLOCKED)
+        if (!p || p->state != PROC_SUSPENDED)
             continue;
         if (p->wake_tick == ~(uint64_t)0)
             continue;
@@ -200,14 +306,11 @@ void schedule(void)
     process_t *cur;
     process_t *next;
     int cpu;
+    int prefer;
     uint32_t **old_esp;
     uint32_t flags;
+    uint64_t now;
 
-    /*
-     * Before scheduler_start, irq_init has STI + PIT. A premature schedule()
-     * from the timer would idle_halt forever (no apps yet) and never return
-     * to kernel_main - boot hangs right after heap logs.
-     */
     if (!g_sched_active)
         return;
 
@@ -225,25 +328,23 @@ void schedule(void)
         return;
     }
 
-    /*
-     * Hold the lock across context_switch so another CPU cannot pick `cur`
-     * while its stack is still live (unlock-before-switch → #UD).
-     * irqsave avoids timer nesting that would deadlock on the same lock.
-     * The thread switched-to unlocks (resume below, or new-thread trampoline).
-     */
     flags = spin_lock_irqsave(&g_sched_lock);
     cur = process_current();
 
-    next = pick_next(cur, cpu);
+    prefer = 0;
+    if (cpu >= 0 && cpu < CPU_MAX) {
+        prefer = g_prefer_other[cpu];
+        g_prefer_other[cpu] = 0;
+    }
 
-    /* Halt for timer/IPI when every app is blocked. Without sti+hlt the CPU
-     * spins with IF=0 and wake_sleepers never runs. */
+    next = pick_next(cur, cpu, prefer);
+
     if (!next || (next->is_idle && !scheduler_has_runnable_apps())) {
         spin_unlock_irqrestore(&g_sched_lock, flags);
         idle_halt();
         flags = spin_lock_irqsave(&g_sched_lock);
         cur = process_current();
-        next = pick_next(cur, cpu);
+        next = pick_next(cur, cpu, 0);
     }
 
     if (!next) {
@@ -254,8 +355,13 @@ void schedule(void)
     if (cur && cur->state == PROC_RUNNING)
         cur->state = PROC_READY;
 
+    now = irq_timer_ticks();
     next->state = PROC_RUNNING;
     next->cpu = cpu;
+    next->last_run_tick = now;
+
+    if (cpu >= 0 && cpu < CPU_MAX && next != cur)
+        g_slice_left[cpu] = scheduler_life_ticks();
 
     if (cur == next) {
         process_set_current(next);
@@ -264,7 +370,6 @@ void schedule(void)
         return;
     }
 
-    /* Real context switch only - not every timer peek at the same thread. */
     if (cur && !cur->is_idle)
         g_switch_ticks++;
 
@@ -276,11 +381,27 @@ void schedule(void)
     else
         old_esp = &bootstrap_esp[cpu];
 
-    if (scheduler_has_runnable_apps())
-        smp_reschedule_others();
+    /*
+     * Kick idle APs only when some Ready thread can actually run there
+     * (affinity -1 or pinned to that CPU). BSP-pinned GUI work stays local.
+     */
+    {
+        process_t **table = process_table();
+        int kick = 0;
+        for (int i = 0; i < PROC_MAX; i++) {
+            process_t *p = table[i];
+            if (!p || p->is_idle || p->state != PROC_READY)
+                continue;
+            if (p->cpu_affinity < 0 || p->cpu_affinity != cpu) {
+                kick = 1;
+                break;
+            }
+        }
+        if (kick)
+            smp_kick_idle_cpus();
+    }
 
     context_switch(old_esp, next->esp);
-    /* Resumed here when some other CPU switches back to this thread. */
     spin_unlock_irqrestore(&g_sched_lock, flags);
 }
 
@@ -291,64 +412,55 @@ void scheduler_on_exit(process_t *p)
 
 void scheduler_on_timer(void)
 {
-    process_t **table;
     process_t *cur;
-    uint64_t now;
-    int need_ipi = 0;
     int cpu;
-    int runnable_apps = 0;
+    uint32_t life;
 
-    /* PIT runs during bring-up; never preempt until scheduler_start. */
     if (!g_sched_active)
         return;
 
-    /* One CPU tick of work per timer IRQ - not once per schedule() peek. */
     cur = process_current();
+    cpu = cpu_id();
+    life = scheduler_life_ticks();
+
     if (cur && !cur->is_idle && cur->state == PROC_RUNNING)
         process_account_tick(cur);
 
-    /* Wake APs only when some non-idle task might run there. */
-    table = process_table();
-    now = irq_timer_ticks();
-    cpu = cpu_id();
-
-    for (int i = 0; i < PROC_MAX; i++) {
-        process_t *p = table[i];
-        if (!p || p->is_idle)
-            continue;
-        if (!proc_runnable(p, now))
-            continue;
-        runnable_apps++;
-        /* Wake other CPUs when a task can run off this core. */
-        if (p->cpu_affinity < 0 || p->cpu_affinity != cpu)
-            need_ipi = 1;
-    }
-    if (need_ipi)
-        smp_reschedule_others();
+    if (cpu < 0 || cpu >= CPU_MAX)
+        return;
 
     /*
-     * No Ready apps → stay on idle / HLT; do not burn CS flipping idles.
-     * Forced preemption only when another app could run.
-     * Input wakes must not wait out the timeslice while the BSP is HLT-idling
-     * on a blocked wait_events stack (otherwise dock/menubar feel frozen).
+     * Idle CPU with Ready work → pick it up. Do not preempt a Running
+     * thread just because input arrived or an interrupt fired.
      */
-    if (runnable_apps == 0)
+    if (!cur || cur->is_idle || cur->state != PROC_RUNNING) {
+        if (scheduler_has_runnable_apps())
+            schedule();
         return;
-
-    if (input_event_need_sched() || scheduler_current_is_idle() ||
-        (cur && cur->state != PROC_RUNNING)) {
-        if (cpu >= 0 && cpu < CPU_MAX)
-            g_slice_left[cpu] = 0;
     }
 
-    if (cpu >= 0 && cpu < CPU_MAX && g_slice_left[cpu] > 0)
-        g_slice_left[cpu]--;
-    if (cpu >= 0 && cpu < CPU_MAX && g_slice_left[cpu] > 0)
-        return;
-    if (cpu >= 0 && cpu < CPU_MAX)
-        g_slice_left[cpu] = SCHED_TIMESLICE_TICKS;
+    /* Ensure slice is armed (e.g. after first switch onto this CPU). */
+    if (g_slice_left[cpu] == 0)
+        g_slice_left[cpu] = life;
 
-    schedule();
+    if (g_slice_left[cpu] > 0)
+        g_slice_left[cpu]--;
+
+    if (g_slice_left[cpu] > 0)
+        return;
+
+    /*
+     * Life expired. Switch only if another Ready thread is waiting;
+     * otherwise refresh slice and keep the same thread untouched.
+     */
+    if (has_waiting_ready(cur, cpu)) {
+        g_slice_left[cpu] = life;
+        g_prefer_other[cpu] = 1;
+        schedule();
+        return;
+    }
+
+    g_slice_left[cpu] = life;
 }
 
 int scheduler_current_is_idle(void)
@@ -385,8 +497,16 @@ uint64_t scheduler_idle_ticks(void)
 
 void scheduler_start(void)
 {
-    /* Enable preemption before releasing APs / entering the run loop. */
+    uint32_t life;
+    int i;
+
     __asm__ volatile("" ::: "memory");
+    g_tick_us = irq_timer_period_us();
+    if (g_tick_us == 0)
+        g_tick_us = SCHED_TICK_US_DEFAULT;
+    life = scheduler_life_ticks();
+    for (i = 0; i < CPU_MAX; i++)
+        g_slice_left[i] = life;
     g_sched_active = 1;
     smp_start_scheduling();
     process_set_current(NULL);
