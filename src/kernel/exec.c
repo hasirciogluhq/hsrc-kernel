@@ -8,7 +8,6 @@
 #include <kernel/initrd.h>
 #include <kernel/initrd_store.h>
 #include <kernel/vfs.h>
-#include <kernel/dx_api.h>
 #include <kernel/syscall.h>
 #include <drivers/vga.h>
 #include <drivers/serial.h>
@@ -158,14 +157,9 @@ int exec_resolve(const char *in, char *out, size_t outsz)
 
 static void exec_attach_console(pid_t pid, const char *name, uint32_t spawn_flags)
 {
-    const dx_api_t *api = dx_api_get();
-    int visible;
-
-    if (!api || !api->console_alloc || pid <= 0)
-        return;
-
-    visible = (spawn_flags & SPAWN_CONSOLE_VISIBLE) ? 1 : 0;
-    (void)api->console_alloc((int)pid, name, visible);
+    (void)pid;
+    (void)name;
+    (void)spawn_flags;
 }
 
 static const char *exec_path_basename(const char *path)

@@ -17,8 +17,6 @@ target("kernel")
     add_files(path.join(ROOT, "src/drivers/pci/*.c"))
     add_files(path.join(ROOT, "src/drivers/display/display.c"))
     add_includedirs(INC,
-        path.join(ROOT, "src/drivers/dx"),
-        path.join(ROOT, "src/drivers/display/bga"),
         path.join(ROOT, "src/drivers/display/virtio_gpu"))
     add_cflags(kernel_cflags(), {force = true})
     set_targetdir(BUILD)

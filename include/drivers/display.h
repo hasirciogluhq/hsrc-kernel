@@ -3,7 +3,7 @@
 
 #include <kernel/types.h>
 
-#define DISPLAY_PRIO_BGA    10
+#define DISPLAY_PRIO_VGA    10
 #define DISPLAY_PRIO_VIRTIO 20
 
 typedef struct display_mode {

@@ -6,7 +6,6 @@
 #include <kernel/string.h>
 #include <kernel/sync.h>
 #include <kernel/errno.h>
-#include <kernel/dx_api.h>
 #include <arch/x86/gdt.h>
 #include <arch/x86/irq.h>
 #include <arch/x86/cpu.h>
@@ -305,14 +304,8 @@ static void idle_halt(void)
 {
     for (;;) {
         __asm__ volatile("sti; hlt" ::: "memory");
-        if (cpu_id() == 0) {
-            const dx_api_t *api;
-
+        if (cpu_id() == 0)
             drivers_poll();
-            api = dx_api_get();
-            if (api && api->pump_input)
-                api->pump_input();
-        }
         if (scheduler_has_runnable_apps())
             break;
     }

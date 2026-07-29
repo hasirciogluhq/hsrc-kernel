@@ -3,7 +3,7 @@
 #include <kernel/exec.h>
 #include <kernel/process.h>
 #include <kernel/string.h>
-#include <kernel/dx_api.h>
+#include <kernel/disp_api.h>
 #include <drivers/console.h>
 #include <drivers/vga.h>
 #include <drivers/serial.h>
@@ -178,10 +178,10 @@ static void cmd_ps(void)
 
 static void cmd_gui_status(void)
 {
-    if (display_active() && dx_api_get())
-        kshell_print("gui: display+dx ready\n");
+    if (display_active() && disp_api_get())
+        kshell_print("gui: display+disp ready\n");
     else if (display_active())
-        kshell_print("gui: display yes, dx no\n");
+        kshell_print("gui: display yes, disp no\n");
     else
         kshell_print("gui: no display (console mode)\n");
 }

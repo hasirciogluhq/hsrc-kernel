@@ -3,7 +3,6 @@
 #include <kernel/env.h>
 #include <kernel/argv.h>
 #include <kernel/exec.h>
-#include <kernel/dx_api.h>
 #include <kernel/disp_api.h>
 #include <kernel/service.h>
 #include <kernel/scheduler.h>
@@ -23,9 +22,11 @@
 #include <drivers/driver.h>
 #include <drivers/vfs_fs.h>
 #include <arch/x86/cpu.h>
-#include <user/gx.h>
+#include <user/input.h>
 #include <user/disp.h>
 #include <kernel/heap.h>
+#include <drivers/mouse.h>
+#include <drivers/keyboard.h>
 
 typedef struct {
     uint32_t edi, esi, ebp, esp, ebx, edx, ecx, eax;
@@ -33,14 +34,10 @@ typedef struct {
     uint32_t eip, cs, eflags;
 } regs_t;
 
-/* Log only setup-ish GX/WM calls (not per-frame YIELD/DAMAGE/INPUT/GET probes). */
+/* Log setup-ish calls (not per-frame YIELD/INPUT probes). */
 static int sys_log_interesting(long n)
 {
-    /* Skip present/focus/show - hot path spam stalls serial + BSP. */
-    return n == SYS_GX_INFO || n == SYS_WM_CREATE ||
-           n == SYS_WM_CLOSE ||
-           n == SYS_WM_MAP || n == SYS_GX_SET_WALLPAPER || n == SYS_WM_DESTROY ||
-           n == SYS_SPAWN || n == SYS_KILL || n == SYS_SERVICE_START ||
+    return n == SYS_SPAWN || n == SYS_KILL || n == SYS_SERVICE_START ||
            n == SYS_SERVICE_STOP || n == SYS_CONSOLE_SHOW;
 }
 
@@ -311,10 +308,8 @@ static long do_write(long fd, long buf, long count)
             return ret;
         }
         if (n > 0 && ((int)fd == STDOUT_FILENO || (int)fd == STDERR_FILENO)) {
-            const dx_api_t *api = dx_api_get();
-            process_t *lead = process_leader(p);
-            if (api && api->console_write && lead)
-                (void)api->console_write((int)lead->pid, tmp, (size_t)n);
+            /* Legacy dx console mirror removed — stdout stays on VFS only. */
+            (void)p;
         }
         total += n;
         if ((size_t)n < chunk)
@@ -432,16 +427,12 @@ static long do_getppid(void)
 
 static long do_yield(long sleep_ticks)
 {
-    const dx_api_t *api = dx_api_get();
     process_t *p = process_current();
 
     /* Optional coop reschedule (sleep_ticks==0). sleep_ticks>0 → PROC_SUSPENDED.
      * Fairness does not require yield - timer preemption handles CPU hogs. */
-    if (cpu_id() == 0) {
+    if (cpu_id() == 0)
         drivers_poll();
-        if (api && api->pump_input)
-            api->pump_input();
-    }
 
     if (p && sleep_ticks > 0) {
         uint64_t now = scheduler_tick_count();
@@ -560,10 +551,10 @@ static long do_spawn(long path_ptr, long flags, long argv_ptr, long argc)
 
 static long do_console_show(long pid, long visible)
 {
-    const dx_api_t *api = dx_api_get();
-    if (!api || !api->console_show)
-        return -ENOSYS;
-    return (long)api->console_show((int)pid, visible ? 1 : 0);
+    /* Legacy dx console window — no-op without dx. */
+    (void)pid;
+    (void)visible;
+    return 0;
 }
 
 static long do_kill(long pid)
@@ -949,24 +940,6 @@ static long do_aio_wait(long slot)
     return rc;
 }
 
-static const dx_api_t *dx_api(void)
-{
-    return dx_api_get();
-}
-
-static long do_gx_info(long outp)
-{
-    ugx_info info;
-    const dx_api_t *api = dx_api();
-    if (!outp || !api || !api->info)
-        return -1;
-    if (api->info(&info.width, &info.height, &info.bpp) < 0)
-        return -1;
-    if (copy_to_user((void *)outp, &info, sizeof(info)) < 0)
-        return -1;
-    return 0;
-}
-
 static size_t disp_arg_size(uint32_t op)
 {
     switch (op) {
@@ -1079,266 +1052,30 @@ static long do_disp_call(long op, long argp)
     return rc;
 }
 
-static long do_gx_present(long argp)
-{
-    const dx_api_t *api = dx_api();
-    ugx_present_args args;
-    const void *pargs = NULL;
-
-    if (!api || !api->present)
-        return -1;
-    if (argp) {
-        if (copy_from_user(&args, (const void *)argp, sizeof(args)) < 0)
-            return -1;
-        pargs = &args;
-    }
-    return api->present(pargs);
-}
-
-static long do_wm_create(long argp)
-{
-    ugx_window_opts args;
-    const dx_api_t *api = dx_api();
-    process_t *p = process_leader(process_current());
-    if (!api || !api->wm_create)
-        return -1;
-    if (copy_from_user(&args, (const void *)argp, sizeof(args)) < 0)
-        return -1;
-    return api->wm_create(&args, p ? (uint32_t)p->pid : 0);
-}
-
-static long do_wm_set(long id, long optsp)
-{
-    ugx_window_opts args;
-    const dx_api_t *api = dx_api();
-    if (!api || !api->wm_set)
-        return -1;
-    if (copy_from_user(&args, (const void *)optsp, sizeof(args)) < 0)
-        return -1;
-    return api->wm_set((int)id, &args);
-}
-
-static long do_wm_get(long id, long outp)
-{
-    ugx_window_opts args;
-    const dx_api_t *api = dx_api();
-    if (!api || !api->wm_get)
-        return -1;
-    if (api->wm_get((int)id, &args) < 0)
-        return -1;
-    if (copy_to_user((void *)outp, &args, sizeof(args)) < 0)
-        return -1;
-    return 0;
-}
-
-static long do_wm_close(long id)
-{
-    const dx_api_t *api = dx_api();
-    if (!api)
-        return -1;
-    if (api->wm_close)
-        return api->wm_close((int)id);
-    if (api->wm_destroy)
-        return api->wm_destroy((int)id);
-    return -1;
-}
-
-static long do_wm_destroy(long id)
-{
-    const dx_api_t *api = dx_api();
-    if (!api || !api->wm_destroy)
-        return -1;
-    return api->wm_destroy((int)id);
-}
-
-static long do_wm_map(long id, long outp)
-{
-    ugx_map m;
-    const dx_api_t *api = dx_api();
-    if (!api || !api->wm_map)
-        return -1;
-    if (api->wm_map((int)id, &m) < 0)
-        return -1;
-    if (copy_to_user((void *)outp, &m, sizeof(m)) < 0)
-        return -1;
-    return 0;
-}
-
-static long do_wm_move(long id, long x, long y)
-{
-    const dx_api_t *api = dx_api();
-    if (!api || !api->wm_move)
-        return -1;
-    return api->wm_move((int)id, (int32_t)x, (int32_t)y);
-}
-
-static long do_wm_resize(long id, long w, long h)
-{
-    const dx_api_t *api = dx_api();
-    if (!api || !api->wm_resize)
-        return -1;
-    return api->wm_resize((int)id, (int32_t)w, (int32_t)h);
-}
-
-static long do_wm_focus(long id)
-{
-    const dx_api_t *api = dx_api();
-    if (!api || !api->wm_focus)
-        return -1;
-    return api->wm_focus((int)id);
-}
-
-static long do_wm_show(long id, long vis)
-{
-    const dx_api_t *api = dx_api();
-    if (!api || !api->wm_show)
-        return -1;
-    return api->wm_show((int)id, (int)vis);
-}
-
-static long do_gx_fill(long argp, int rounded)
-{
-    ugx_fill_args args;
-    const dx_api_t *api = dx_api();
-    if (!api || !api->fill)
-        return -1;
-    if (copy_from_user(&args, (const void *)argp, sizeof(args)) < 0)
-        return -1;
-    return api->fill(&args, rounded);
-}
-
-static long do_gx_set_wallpaper(long argp)
-{
-    ugx_wallpaper args;
-    ugx_wallpaper kargs;
-    uint32_t pixels[64];
-    size_t npix;
-    const dx_api_t *api = dx_api();
-
-    if (!api || !api->set_wallpaper)
-        return -1;
-    if (copy_from_user(&args, (const void *)argp, sizeof(args)) < 0)
-        return -1;
-
-    /* NULL / zero size => load baked default wallpaper from initrd. */
-    if (!args.pixels || args.width == 0 || args.height == 0) {
-        kargs.pixels = NULL;
-        kargs.width = 0;
-        kargs.height = 0;
-        kargs.stride = 0;
-        return api->set_wallpaper(&kargs);
-    }
-
-    npix = (size_t)args.width * (size_t)args.height;
-    if (npix > sizeof(pixels) / sizeof(pixels[0]))
-        return -1;
-    if (copy_from_user(pixels, args.pixels, npix * sizeof(uint32_t)) < 0)
-        return -1;
-
-    kargs = args;
-    kargs.pixels = pixels;
-    kargs.stride = args.width;
-    return api->set_wallpaper(&kargs);
-}
-
 static long do_input_state(long outp)
 {
-    ugx_input_state st;
-    const dx_api_t *api = dx_api();
-    if (!api || !api->input_state)
-        return -1;
+    input_state_t st;
+    const mouse_state_t *ms;
+
     memset(&st, 0, sizeof(st));
-    if (api->input_state(&st) < 0)
+    drivers_poll();
+    keyboard_poll();
+    ms = mouse_get();
+    if (!ms)
         return -1;
+    st.mouse_x = ms->x;
+    st.mouse_y = ms->y;
+    st.buttons = ms->buttons;
+    st.mods = keyboard_modifiers();
+    st.focus_id = -1;
+    st.hit_id = -1;
+    st.wheel = mouse_consume_wheel();
+    keyboard_keys_bitmap(st.keys);
+    st.drag_id = -1;
     st.seq = input_event_seq();
     if (copy_to_user((void *)outp, &st, sizeof(st)) < 0)
         return -1;
     return 0;
-}
-
-static long do_wm_pop_key(long id)
-{
-    const dx_api_t *api = dx_api();
-    if (!api || !api->wm_pop_key)
-        return -1;
-    return api->wm_pop_key((int)id);
-}
-
-static long do_gx_damage(long win_id)
-{
-    const dx_api_t *api = dx_api();
-    if (!api || !api->mark_dirty)
-        return -1;
-    api->mark_dirty((int)win_id);
-    return 0;
-}
-
-static long do_gx_damage_rect(long win_id, long rectp)
-{
-    ugx_damage_args r;
-    const dx_api_t *api = dx_api();
-    if (!api)
-        return -1;
-    if (!rectp)
-        return -1;
-    if (copy_from_user(&r, (const void *)rectp, sizeof(r)) < 0)
-        return -1;
-    if (r.w <= 0 || r.h <= 0)
-        return 0;
-    if (api->mark_dirty_rect) {
-        api->mark_dirty_rect((int)win_id, r.x, r.y, r.w, r.h);
-        return 0;
-    }
-    /* Fallback: full window damage */
-    if (!api->mark_dirty)
-        return -1;
-    api->mark_dirty((int)win_id);
-    return 0;
-}
-
-static long do_wm_get_frame(long id, long outp)
-{
-    ugx_frame fr;
-    const dx_api_t *api = dx_api();
-    if (!api || !api->wm_get_frame)
-        return -1;
-    if (api->wm_get_frame((int)id, &fr) < 0)
-        return -1;
-    if (copy_to_user((void *)outp, &fr, sizeof(fr)) < 0)
-        return -1;
-    return 0;
-}
-
-static long do_wm_find(long titlep)
-{
-    char title[64];
-    int len;
-    const dx_api_t *api = dx_api();
-
-    if (!api || !api->wm_find)
-        return -1;
-    len = user_strlen((const char *)titlep, sizeof(title));
-    if (len < 0)
-        return -1;
-    if (copy_from_user(title, (const void *)titlep, (size_t)len + 1) < 0)
-        return -1;
-    return api->wm_find(title);
-}
-
-static long do_wm_find_class(long classp)
-{
-    char class_name[32];
-    int len;
-    const dx_api_t *api = dx_api();
-
-    if (!api || !api->wm_find_class)
-        return -1;
-    len = user_strlen((const char *)classp, sizeof(class_name));
-    if (len < 0)
-        return -1;
-    if (copy_from_user(class_name, (const void *)classp, (size_t)len + 1) < 0)
-        return -1;
-    return api->wm_find_class(class_name);
 }
 
 static int copy_netif_name(long namep, char name[NETIF_NAME_MAX])
@@ -1988,28 +1725,7 @@ long syscall_dispatch(long n, long a1, long a2, long a3, long a4, long a5)
     case SYS_SCHED_SET: return do_sched_set(a1, a2);
     case SYS_FORK:   return -1;
 
-    case SYS_GX_INFO:          return do_gx_info(a1);
-    case SYS_GX_PRESENT:       return do_gx_present(a1);
-    case SYS_WM_CREATE:        return do_wm_create(a1);
-    case SYS_WM_SET:           return do_wm_set(a1, a2);
-    case SYS_WM_GET:           return do_wm_get(a1, a2);
-    case SYS_WM_CLOSE:         return do_wm_close(a1);
-    case SYS_WM_DESTROY:       return do_wm_destroy(a1);
-    case SYS_WM_MAP:           return do_wm_map(a1, a2);
-    case SYS_WM_MOVE:          return do_wm_move(a1, a2, a3);
-    case SYS_WM_RESIZE:        return do_wm_resize(a1, a2, a3);
-    case SYS_WM_FOCUS:         return do_wm_focus(a1);
-    case SYS_WM_SHOW:          return do_wm_show(a1, a2);
-    case SYS_GX_FILL:          return do_gx_fill(a1, 0);
-    case SYS_GX_FILL_ROUND:    return do_gx_fill(a1, 1);
-    case SYS_GX_SET_WALLPAPER: return do_gx_set_wallpaper(a1);
     case SYS_INPUT_STATE:      return do_input_state(a1);
-    case SYS_WM_POP_KEY:       return do_wm_pop_key(a1);
-    case SYS_GX_DAMAGE:        return do_gx_damage(a1);
-    case SYS_GX_DAMAGE_RECT:   return do_gx_damage_rect(a1, a2);
-    case SYS_WM_GET_FRAME:     return do_wm_get_frame(a1, a2);
-    case SYS_WM_FIND:          return do_wm_find(a1);
-    case SYS_WM_FIND_CLASS:    return do_wm_find_class(a1);
     case SYS_DISP_CALL:        return do_disp_call(a1, a2);
 
     default:         return -1;

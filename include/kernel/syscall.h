@@ -46,29 +46,8 @@
 #define SYS_RMDIR        40
 #define SYS_RENAME       38
 
-/* Graphics / window syscalls (mykernel private range) */
-#define SYS_GX_INFO          200
-#define SYS_GX_PRESENT       201
-#define SYS_WM_CREATE        202
-#define SYS_WM_DESTROY       203
-#define SYS_WM_MAP           204
-#define SYS_WM_MOVE          205
-#define SYS_WM_RESIZE        206
-#define SYS_WM_FOCUS         207
-#define SYS_WM_SHOW          208
-#define SYS_GX_FILL          209
-#define SYS_GX_FILL_ROUND    210
-#define SYS_GX_SET_WALLPAPER  211
+/* Input / display (mykernel private range) */
 #define SYS_INPUT_STATE      212
-#define SYS_WM_POP_KEY       213
-#define SYS_GX_DAMAGE        214
-#define SYS_GX_DAMAGE_RECT   278  /* a1=win a2=&ugx_damage_args (window-local) */
-#define SYS_WM_GET_FRAME     215
-#define SYS_WM_FIND          216
-#define SYS_WM_SET           217
-#define SYS_WM_GET           218
-#define SYS_WM_CLOSE         219
-#define SYS_WM_FIND_CLASS    275  /* a1 = class_name ptr → window id or -1 */
 
 /* Networking control syscalls (Wave F2) */
 #define SYS_NETIF_GET        246

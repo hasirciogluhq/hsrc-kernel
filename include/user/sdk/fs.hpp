@@ -45,6 +45,11 @@ inline long mkdir(const char *path, int mode = 0755)
     return syscall2(SYS_MKDIR, (long)path, mode);
 }
 
+inline long unlink(const char *path)
+{
+    return syscall1(SYS_UNLINK, (long)path);
+}
+
 inline long chdir(const char *path)
 {
     return syscall1(SYS_CHDIR, (long)path);

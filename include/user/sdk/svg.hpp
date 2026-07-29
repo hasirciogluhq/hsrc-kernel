@@ -1,7 +1,7 @@
 #pragma once
 
+#include <stdint.h>
 #include <user/sdk/color.hpp>
-#include <user/sdk/gfx.hpp>
 
 namespace hsrc::sdk {
 
@@ -19,8 +19,8 @@ public:
     int width() const { return w_; }
     int height() const { return h_; }
 
-    /* Draw with theme tint (alpha from mask). */
-    void blit(Surface &dst, int x, int y, Color tint) const;
+    /* Draw with theme tint into a tightly packed RGBA8 buffer (row stride = dst_w). */
+    void blit(Color *dst, int dst_w, int dst_h, int x, int y, Color tint) const;
 
     /* Soft alpha coverage 0..255 at pixel. */
     uint8_t alpha_at(int x, int y) const;

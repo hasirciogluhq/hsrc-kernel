@@ -38,7 +38,7 @@ target("dynlib-libfs")
         print("packed " .. out)
     end)
 
-local function define_app(name, load_addr, files, incs, flags, needed)
+local function define_app(name, load_addr, files, incs, flags, needed, extra_libs)
     local abs_files = {}
     for _, f in ipairs(files) do
         table.insert(abs_files, path.join(ROOT, f))
@@ -49,7 +49,14 @@ local function define_app(name, load_addr, files, incs, flags, needed)
         kernel_cross_target()
         add_deps("sdk-core", "pack_exec")
         if needed then
-            add_deps("dynlib-libfs")
+            -- Build-order only: object-kind dep must not pull libfs.c.o into the app link
+            -- (import.cpp resolves libfs_* via dynlib; linking libfs.c.o doubles symbols).
+            add_deps("dynlib-libfs", {inherit = false})
+        end
+        if extra_libs then
+            for _, lib in ipairs(extra_libs) do
+                add_deps(lib)
+            end
         end
         add_files(abs_files)
         add_includedirs(INC, path.join(ROOT, "userspace/sdk/core"))
@@ -76,7 +83,19 @@ local function define_app(name, load_addr, files, incs, flags, needed)
                 "--defsym=LOAD_ADDR=" .. string.format("0x%x", load_addr),
                 "-o", out,
             }
-            for _, o in ipairs(target:objectfiles()) do table.insert(args, o) end
+            local app_tag = "/app-" .. name .. "/"
+            for _, o in ipairs(target:objectfiles()) do
+                local p = tostring(o)
+                if p:find(app_tag, 1, true) then
+                    table.insert(args, o)
+                end
+            end
+            -- Extra SDKs before sdk-core (wm → kilim → reed → core).
+            if extra_libs then
+                for _, lib in ipairs(extra_libs) do
+                    table.insert(args, path.join(BUILD, "userspace/lib/lib" .. lib .. ".a"))
+                end
+            end
             table.insert(args, sdk)
             if libgcc ~= "" then table.insert(args, libgcc) end
             os.execv("i686-elf-ld", args)
@@ -85,42 +104,37 @@ local function define_app(name, load_addr, files, incs, flags, needed)
         end)
 end
 
+local kGuiLibs = {"sdk-wm", "sdk-kilim", "sdk-reed"}
+
 define_app("init", 0x02000000, {"userspace/init/main.cpp"})
-define_app("window-manager", 0x02400000, {"userspace/window-manager/main.cpp"})
-define_app("os-shell", 0x02600000, {"userspace/os-shell/main.cpp"})
-define_app("os-settings", 0x02800000, {"userspace/os-settings/main.cpp"})
-define_app("terminal", 0x02A00000, {"userspace/terminal/main.cpp"})
-define_app("files", 0x02C00000, {"userspace/files/main.cpp"})
-define_app("activity-monitor", 0x02E00000, {"userspace/activity-monitor/main.cpp"})
-define_app("minesweeper", 0x03000000, {"userspace/minesweeper/main.cpp"})
-define_app("imgui-demo", 0x03200000, {
-    "userspace/imgui-demo/main.cpp",
-    "userspace/imgui-demo/imgui_impl_ugx.cpp",
-    "userspace/imgui-demo/support.cpp",
-    "userspace/imgui-demo/third_party/imgui/imgui.cpp",
-    "userspace/imgui-demo/third_party/imgui/imgui_draw.cpp",
-    "userspace/imgui-demo/third_party/imgui/imgui_tables.cpp",
-    "userspace/imgui-demo/third_party/imgui/imgui_widgets.cpp",
-}, {
-    "userspace/imgui-demo",
-    "userspace/imgui-demo/freestanding",
-    "userspace/imgui-demo/third_party/imgui",
-}, kernel_imgui_cxxflags())
+define_app("window-manager", 0x02400000, {"userspace/window-manager/main.cpp"},
+    nil, nil, nil, kGuiLibs)
+define_app("os-shell", 0x02600000, {"userspace/os-shell/main.cpp"},
+    nil, nil, nil, kGuiLibs)
+define_app("os-settings", 0x02800000, {"userspace/os-settings/main.cpp"},
+    nil, nil, nil, kGuiLibs)
+define_app("terminal", 0x02A00000, {"userspace/terminal/main.cpp"},
+    nil, nil, nil, kGuiLibs)
+define_app("files", 0x02C00000, {"userspace/files/main.cpp"},
+    nil, nil, nil, kGuiLibs)
+define_app("activity-monitor", 0x02E00000, {"userspace/activity-monitor/main.cpp"},
+    nil, nil, nil, kGuiLibs)
+define_app("minesweeper", 0x03000000, {"userspace/minesweeper/main.cpp"},
+    nil, nil, nil, kGuiLibs)
+define_app("imgui-demo", 0x03200000, {"userspace/imgui-demo/main.cpp"},
+    nil, nil, nil, kGuiLibs)
 
 define_app("libfs-demo", 0x03400000, {
     "userspace/libfs-demo/main.cpp",
-    "userspace/sdk/libfs/import.cpp",
 }, nil, nil, {"libfs.dynlib"})
 define_app("libfs-demo2", 0x03600000, {
     "userspace/libfs-demo2/main.cpp",
-    "userspace/sdk/libfs/import.cpp",
 }, nil, nil, {"libfs.dynlib"})
 
 target("userspace")
     set_kind("phony")
     set_default(true)
-    add_deps("sdk-core", "sdk-reed", "sdk-kilim", "dynlib-libfs",
+    add_deps("sdk-core", "sdk-reed", "sdk-kilim", "sdk-wm", "dynlib-libfs",
         "app-init", "app-window-manager", "app-os-shell",
         "app-os-settings", "app-terminal", "app-files", "app-activity-monitor",
-        "app-minesweeper", "app-imgui-demo",
-        "app-libfs-demo", "app-libfs-demo2")
+        "app-minesweeper", "app-imgui-demo")

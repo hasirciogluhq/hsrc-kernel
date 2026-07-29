@@ -1,4 +1,5 @@
 #include <user/exec.h>
+#include "../../sdk/libfs/libfs_api.h"
 #include <user/sdk/libfs.hpp>
 #include <user/sdk/syscall.hpp>
 #include <kernel/syscall.h>

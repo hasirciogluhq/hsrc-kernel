@@ -6,7 +6,7 @@ function kmod_order()
         "ramdisk", "loop", "virtio_blk", "fat",
         "tmpfs", "devtmpfs", "procfs", "sysfs", "initrdfs",
         "exfat", "ext", "iso9660", "udf", "ntfs", "ahci", "nvme",
-        "display_bga", "display_virtio", "display", "dx", "virtio_net",
+        "display_virtio", "display", "virtio_net",
     }
 end
 
@@ -26,7 +26,7 @@ end
 -- User applications → /applications
 function user_exec_names()
     return {
-        "minesweeper", "imgui-demo", "libfs-demo", "libfs-demo2",
+        "minesweeper", "imgui-demo",
     }
 end
 

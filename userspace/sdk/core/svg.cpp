@@ -784,16 +784,24 @@ uint8_t SvgIcon::alpha_at(int x, int y) const
     return mask_[y * w_ + x];
 }
 
-void SvgIcon::blit(Surface &dst, int x, int y, Color tint) const
+void SvgIcon::blit(Color *dst, int dst_w, int dst_h, int x, int y, Color tint) const
 {
-    if (!ready_ || !dst.valid())
+    if (!ready_ || !dst || dst_w <= 0 || dst_h <= 0)
         return;
     for (int j = 0; j < h_; j++) {
+        int dy = y + j;
+        if (dy < 0 || dy >= dst_h)
+            continue;
         for (int i = 0; i < w_; i++) {
-            uint8_t a = mask_[j * w_ + i];
+            int dx = x + i;
+            uint8_t a;
+            if (dx < 0 || dx >= dst_w)
+                continue;
+            a = mask_[j * w_ + i];
             if (a == 0)
                 continue;
-            dst.blend(x + i, y + j, color_mul_alpha(tint, a));
+            dst[dy * dst_w + dx] =
+                color_blend(dst[dy * dst_w + dx], color_mul_alpha(tint, a));
         }
     }
 }

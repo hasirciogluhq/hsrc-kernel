@@ -1,7 +1,6 @@
 #include <arch/x86/irq.h>
 #include <arch/x86/idt.h>
 #include <kernel/scheduler.h>
-#include <kernel/dx_api.h>
 #include <drivers/driver.h>
 #include <arch/x86/io.h>
 
@@ -145,20 +144,11 @@ uint32_t irq_timer_set_period_us(uint32_t us)
 void irq_dispatch(uint32_t irq)
 {
     if (irq == IRQ_TIMER) {
-        const dx_api_t *api;
-
         g_timer_ticks++;
         scheduler_wake_sleepers(g_timer_ticks);
         if (scheduler_current_is_idle() || !scheduler_has_runnable_apps())
             g_idle_ticks++;
         drivers_poll();
-        /*
-         * Keep cursor/WM alive when apps are PROC_SUSPENDED (Event / input wait).
-         * Timer also drives preemption via scheduler_on_timer - no yield needed.
-         */
-        api = dx_api_get();
-        if (api && api->pump_input)
-            api->pump_input();
         /* EOI before preempt - schedule() may context-switch away. */
         timer_eoi();
         scheduler_on_timer();

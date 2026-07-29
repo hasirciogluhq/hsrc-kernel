@@ -2,7 +2,6 @@
 #include <kernel/string.h>
 #include <kernel/heap.h>
 #include <kernel/module.h>
-#include <kernel/dx_api.h>
 #include <kernel/disp_api.h>
 #include <kernel/vfs_api.h>
 #include <kernel/block_api.h>
@@ -83,8 +82,6 @@ static const ksym_t g_ksyms[] = {
     { "gpu_get_screen_size", (void *)gpu_get_screen_size },
     { "gpu_provider_register_display", (void *)gpu_provider_register_display },
 
-    { "dx_api_register",    (void *)dx_api_register },
-    { "dx_api_get",         (void *)dx_api_get },
     { "disp_api_register",  (void *)disp_api_register },
     { "disp_api_get",       (void *)disp_api_get },
     { "input_event_notify", (void *)input_event_notify },

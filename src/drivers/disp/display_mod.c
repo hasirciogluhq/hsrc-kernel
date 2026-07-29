@@ -934,7 +934,7 @@ int kmod_init(void)
     d.kind = DRIVER_KIND_CUSTOM;
     d.class = DRIVER_CLASS_GPU;
     d.flags = 0;
-    d.priority = 40; /* after display_bga/virtio (prio via register), before dx */
+    d.priority = 40; /* after display_virtio (prio via register) */
     d.probe = disp_drv_probe;
     d.init = disp_drv_init;
 

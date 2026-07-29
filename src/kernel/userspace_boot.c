@@ -5,7 +5,7 @@
 #include <kernel/initrd.h>
 #include <kernel/initrd_store.h>
 #include <kernel/string.h>
-#include <kernel/dx_api.h>
+#include <kernel/disp_api.h>
 #include <drivers/serial.h>
 #include <drivers/vga.h>
 #include <drivers/display.h>
@@ -72,7 +72,7 @@ static int install_init_from_initrd(void)
 
 int gui_stack_ready(void)
 {
-    return (display_active() && dx_api_get()) ? 1 : 0;
+    return (display_active() && disp_api_get()) ? 1 : 0;
 }
 
 void userspace_boot(void)

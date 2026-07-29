@@ -2,9 +2,9 @@
 
 #include <kernel/vfs.h>
 #include <user/sdk/fs.hpp>
-#include <user/sdk/gfx.hpp>
 #include <user/sdk/process.hpp>
 #include <user/sdk/syscall.hpp>
+#include <user/sdk/wm.hpp>
 #include <user/string.h>
 
 namespace {
@@ -508,30 +508,51 @@ void reveal_settings_window(long wid)
     if (wid < 0)
         return;
 
-    hsrc::sdk::WindowOptions opts;
-    if (hsrc::sdk::window_get((int)wid, opts)) {
-        opts.visible = true;
-        opts.minimized = false;
-        (void)hsrc::sdk::window_set((int)wid, opts);
+    /* Usermode WM IPC — no SYS_WM_* / SYS_GX_*. */
+    wm::Connection c;
+    wm::Request req{};
+    wm::Response rsp{};
+
+    req.op = (uint32_t)wm::Op::Get;
+    req.window_id = (int32_t)wid;
+    if (c.transact(req, rsp) == 0) {
+        rsp.opts.visible = true;
+        rsp.opts.minimized = false;
+        req = {};
+        req.op = (uint32_t)wm::Op::Set;
+        req.window_id = (int32_t)wid;
+        req.opts = rsp.opts;
+        (void)c.transact(req, rsp);
     }
 
-    (void)hsrc::sdk::syscall2(SYS_WM_SHOW, wid, 1);
-    (void)hsrc::sdk::syscall1(SYS_WM_FOCUS, wid);
+    req = {};
+    req.op = (uint32_t)wm::Op::Show;
+    req.window_id = (int32_t)wid;
+    req.show = 1;
+    (void)c.transact(req, rsp);
+
+    req = {};
+    req.op = (uint32_t)wm::Op::Focus;
+    req.window_id = (int32_t)wid;
+    (void)c.transact(req, rsp);
+
     /* Wake the running instance so it polls /run/settings.deeplink promptly. */
-    (void)hsrc::sdk::syscall1(SYS_GX_DAMAGE, wid);
+    req = {};
+    req.op = (uint32_t)wm::Op::Damage;
+    req.window_id = (int32_t)wid;
+    (void)c.transact(req, rsp);
 }
 
 long find_settings_window()
 {
-    long wid = hsrc::sdk::syscall1(SYS_WM_FIND, (long)kSettingsTitle);
+    int wid = wm::Window::find(kSettingsTitle);
     if (wid >= 0)
         return wid;
 
-    /* Class lookup - one syscall, no id-space probe storm. */
-    wid = hsrc::sdk::syscall1(SYS_WM_FIND_CLASS, (long)kSettingsClass);
+    wid = wm::Window::find_class(kSettingsClass);
     if (wid >= 0)
         return wid;
-    return hsrc::sdk::syscall1(SYS_WM_FIND_CLASS, (long)"os-settings");
+    return wm::Window::find_class("os-settings");
 }
 
 } // namespace

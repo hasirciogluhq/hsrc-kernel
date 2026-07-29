@@ -1,13 +1,12 @@
 local ROOT = os.projectdir()
 
-target("sdk-kilim")
+target("sdk-wm")
     set_kind("static")
     set_default(false)
     kernel_cross_target()
-    add_deps("sdk-reed")
-    add_files(path.join(ROOT, "userspace/sdk/kilim/kilim.cpp"))
-    add_includedirs(path.join(ROOT, "include"),
-                    path.join(ROOT, "userspace/sdk/kilim"), {public = true})
+    add_deps("sdk-reed", "sdk-kilim")
+    add_files(path.join(ROOT, "userspace/sdk/wm/wm_client.cpp"))
+    add_includedirs(path.join(ROOT, "include"), {public = true})
     add_defines("USERMODE")
     add_cxxflags(kernel_cxxflags(), {force = true})
     set_targetdir(path.join(ROOT, "build/userspace/lib"))
