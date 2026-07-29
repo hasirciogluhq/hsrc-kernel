@@ -1,6 +1,6 @@
 ---
 name: God-level window API
-overview: "OS dalgaları B–Q + Settings/Explorer/net/fs/process. Grafik/WM/GPU omurgası YOK burada — kaynak: gpu_display_stack_bc5f6172.plan.md. Shell deep-link/dock-pin/Settings UI bu planda kalır; çizim Reed/Kilim."
+overview: "OS dalgaları B–Q + Settings/Explorer/net/fs. Grafik → gpu_display_stack. Build/userspace/init→systemd → xmake_userspace_boot. Shell deep-link/dock-pin bu planda; çizim Reed/Kilim."
 todos:
   - id: wave-b-process
     content: "Wave B: fork/execve/waitpid/exit status, spawn .mke, getppid, kill-lite"
@@ -51,7 +51,7 @@ todos:
     content: "Wave J: PNG/WebP/JPEG/BMP/TGA/GIF/QOI/ICO decode; 4K wallpaper asset; present yolu grafik plan"
     status: pending
   - id: phase-h-net-drv
-    content: "Phase H6: virtio_net.kmod + yeni e1000.kmod + Makefile QEMU"
+    content: "Phase H6: virtio_net.kmod + e1000.kmod; QEMU net — xmake_userspace_boot ile derle"
     status: pending
   - id: phase-h-vfs-fs
     content: "Phase H7: vfs.kmod + fs kmods stat/chmod/symlink/pipe destekleri"
@@ -66,7 +66,7 @@ todos:
     content: "Phase H10: terminal.cpp migrasyon + net builtins; pencere grafik plan"
     status: pending
   - id: phase-h-makefile-boot
-    content: "Phase H11: Makefile kmod/initrd; window-manager+os-shell spawn; gpu kmods grafik plan"
+    content: "Phase H11: initrd/QEMU/boot — xmake_userspace_boot; Makefile yok"
     status: pending
   - id: wave-k-shell
     content: "Wave K: profesyonel shell davranisi — topbar/window yonetimi; hibrit chrome grafik plan"
@@ -75,7 +75,7 @@ todos:
     content: "Wave L: File Explorer + terminal run/./ exec + /applications"
     status: pending
   - id: wave-m-services
-    content: "Wave M: generic service roles; window-manager + os-shell critical/respawn"
+    content: "Wave M: systemd units semantiği — xmake_userspace_boot; kernel yalnız init"
     status: pending
   - id: wave-n-monitor
     content: "Wave N: Activity Monitor app + SYS_PROC_STAT cpu/ram"
@@ -94,13 +94,14 @@ isProject: false
 
 # God-level OS Syscall Surface (process / net / fs / shell apps)
 
-## Grafik omurgası — bu dosyada YOK
+## Grafik / build — bu dosyada YOK
 
-Tüm GPU / display / Reed / Kilim / usermode WM / hibrit chrome çizim yolu:
+| Konu | Plan |
+|------|------|
+| Reed/Kilim/WM/GPU/display | [gpu_display_stack_bc5f6172.plan.md](gpu_display_stack_bc5f6172.plan.md) |
+| xmake, `userspace/`, init→systemd, `__old_shits__` | [xmake_userspace_boot_a3be45ab.plan.md](xmake_userspace_boot_a3be45ab.plan.md) |
 
-→ [`.cursor/plans/gpu_display_stack_bc5f6172.plan.md`](gpu_display_stack_bc5f6172.plan.md)
-
-Eski Wave A / Phase H3 / H4 (`ugx`, `mkdx`, BGA, `SYS_WM_*`) katalogları **silindi**; semantik WM checklist o plana **aktarıldı**. Bu dosyada grafik yeniden tanımlanmaz.
+Bu dosyada grafik ABI veya Makefile/xmake build yeniden tanımlanmaz.
 
 ## İlkeler (OS — grafik hariç)
 
@@ -113,20 +114,21 @@ Eski Wave A / Phase H3 / H4 (`ugx`, `mkdx`, BGA, `SYS_WM_*`) katalogları **sili
 - **Image decode + wallpaper asset** — Wave J; present/compose grafik plan.
 - **Input** — PS/2 + virtio-input + layout API (H5); event routing grafik plandaki WM.
 - **Apps & launch** — `/applications`; Explorer; `run` / `./`.
-- **System services** — generic `roles`; `window-manager` + `os-shell` respawn (isim özel-case yok).
+- **System services** — userspace **systemd** ([xmake_userspace_boot](xmake_userspace_boot_a3be45ab.plan.md)); kernel yalnızca **init**.
 - **Activity Monitor / env / PATH / per-process console kuralları** — bu planda; console UI grafik plan.
 
 ## Split workstream
 
 | Workstream | Dalgalar | Odak |
 |------------|----------|------|
-| **WS0 Graphics** | *gpu_display_stack* | Reed/Kilim/WM/GPU/display — **diğer plan** |
+| **WS-1 Build** | *xmake_userspace_boot* | xmake, userspace/, init→systemd |
+| **WS0 Graphics** | *gpu_display_stack* | Reed/Kilim/WM/GPU/display |
 | **WS2 Apps & Files** | B, D, H7, H10, L, O, Q | `/applications`, Explorer, run, console kuralları, PATH |
-| **WS3 Services** | B, M, H11 | roles, boot, window-manager + os-shell |
+| **WS3 Services** | B, M | systemd units (build plan); process spawn B |
 | **WS4 Observe & Env** | E, N, P | Activity Monitor, env |
-| **WS5 Settings & Shell UX** | I, J, H9, H13, K | Settings sayfaları, deep-link, dock pin, wallpaper prefs |
+| **WS5 Settings & Shell UX** | I, J, H9, H13, K | Settings, deep-link, dock pin, wallpaper prefs |
 
-Bağımlılık: WS0 (grafik) masaüstü çizimi için önce/paralel; L/Q için B spawn; M için B+L; Settings UI için WS0 SDK.
+Bağımlılık: WS-1 önce/paralel; WS0 masaüstü çizimi; L/Q için B; Settings UI için WS0 SDK.
 
 ## Mimari (OS + grafik sınırı)
 
