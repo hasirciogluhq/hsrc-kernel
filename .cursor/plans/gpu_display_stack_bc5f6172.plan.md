@@ -18,16 +18,16 @@ todos:
     content: display.kmod — resource/queue/fence/export/import/scanout + SYS_DISP_*
     status: pending
   - id: reed-ll
-    content: "userspace/reed — Reed API (device, VBO/IBO, DrawIndexed, present)"
+    content: userspace/reed — Reed API (device, VBO/IBO, DrawIndexed, present)
     status: pending
   - id: kilim-hl
-    content: "userspace/kilim — fill/text/blit/widgets + frosted chrome"
+    content: userspace/kilim — fill/text/blit/widgets + frosted chrome
     status: pending
   - id: wm-usermode
-    content: "userspace/window-manager — boolean opts, events, damage, focus≠hover"
+    content: userspace/window-manager — boolean opts, events, damage, focus≠hover
     status: pending
   - id: hybrid-shell
-    content: "userspace/os-shell — hibrit chrome + app rewrite"
+    content: userspace/os-shell — hibrit chrome + app rewrite
     status: pending
   - id: input-feed
     content: PS/2 + virtio-input → usermode WM
