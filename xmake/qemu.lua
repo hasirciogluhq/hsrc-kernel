@@ -63,7 +63,6 @@ target("disk")
         local packer = path.join(BUILD, "tools", "pack_fat")
         -- DISK_SIZE_MB=32 for release; default 64 for local dev.
         local size_mb = os.getenv("DISK_SIZE_MB") or "64"
-        os.execv(mkfat, {img, size_mb})
         local args = {img}
         -- PID1 lives on the root disk like Linux /init
         table.insert(args, path.join(BUILD, "userspace/init/init.exec") .. ":init.exec")
@@ -87,6 +86,12 @@ target("disk")
             table.insert(args, path.join(ROOT, "assets/os/icons", ic) .. ":system/share/" .. ic)
         end
         table.insert(args, path.join(ROOT, "assets/etc/environment") .. ":system/etc/environment")
+        -- Fail before mkfat if any payload is missing (clears -jN races / stale deps).
+        for i = 2, #args do
+            local src = args[i]:match("^([^:]+)")
+            assert(src and os.isfile(src), "disk payload missing: " .. tostring(src))
+        end
+        os.execv(mkfat, {img, size_mb})
         os.execv(packer, args)
     end)
 

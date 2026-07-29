@@ -62,6 +62,9 @@ local function define_app(name, load_addr, files, incs, flags, needed)
         add_cxxflags(flags or kernel_cxxflags(), {force = true})
         set_targetdir(path.join(BUILD, "userspace", name))
         set_filename(name .. ".elf")
+        -- Pack .exec inside on_link (not after_build): with -jN, xmake can
+        -- start disk/initrd after_build as soon as the .elf exists, racing
+        -- pack_exec and leaving imgui-demo.exec missing on CI/release.
         on_link(function (target)
             local out = target:targetfile()
             os.mkdir(path.directory(out))
@@ -77,8 +80,6 @@ local function define_app(name, load_addr, files, incs, flags, needed)
             table.insert(args, sdk)
             if libgcc ~= "" then table.insert(args, libgcc) end
             os.execv("i686-elf-ld", args)
-        end)
-        after_build(function (target)
             import("kernel.pack")
             pack.pack_exec(target, load_addr, name, needed)
         end)
