@@ -711,6 +711,40 @@ static void compose_frame(kilim::Context &k)
         draw_chrome_fb(fb, stride4, &g_slots[order[i]]);
     }
 
+    /* System menubar + dock (always on top of client surfaces). */
+    {
+        const int menubar_h = 32;
+        const int dock_h = 72;
+        const int dock_pad = 24;
+        const int icon_n = 6;
+        const int icon = 48;
+        const int gap = 14;
+        int dock_w = dock_pad * 2 + icon_n * icon + (icon_n - 1) * gap;
+        int dock_x = (g_screen_w - dock_w) / 2;
+        int dock_y = g_screen_h - dock_h - 20;
+
+        fb_fill(fb, stride4, 0, 0, g_screen_w, menubar_h, 0xff12141cu);
+        fb_fill(fb, stride4, 0, menubar_h - 1, g_screen_w, 1, 0xff2a2f3au);
+
+        fb_fill(fb, stride4, dock_x, dock_y, dock_w, dock_h, 0xff1c2230u);
+        for (int i = 0; i < icon_n; i++) {
+            int ix = dock_x + dock_pad + i * (icon + gap);
+            int iy = dock_y + (dock_h - icon) / 2;
+            uint32_t col = 0xff4a6fa5u;
+            if (i == 0)
+                col = 0xff5b8defu;
+            else if (i == 1)
+                col = 0xff6bcb77u;
+            else if (i == 2)
+                col = 0xfff0c14au;
+            else if (i == 3)
+                col = 0xffe06c75u;
+            else if (i == 4)
+                col = 0xffc792eau;
+            fb_fill(fb, stride4, ix, iy, icon, icon, col);
+        }
+    }
+
     input_state_t st;
     memset(&st, 0, sizeof(st));
     if (hsrc::sdk::syscall1(SYS_INPUT_STATE, (long)&st) == 0) {
@@ -727,6 +761,14 @@ static void compose_frame(kilim::Context &k)
         int ty = s->opts.y + (wm::kChromeTitleH - 12) / 2;
         k.text(s->opts.title, tx, ty, 12, kilim::rgba(240, 240, 240));
     }
+
+    /* Menubar labels (after window titles so they stay readable). */
+    k.text("hsrcOS", 14, 8, 14, kilim::rgba(240, 244, 250));
+    k.text("Finder", 100, 9, 13, kilim::rgba(200, 210, 225));
+    k.text("File", 170, 9, 13, kilim::rgba(200, 210, 225));
+    k.text("Edit", 220, 9, 13, kilim::rgba(200, 210, 225));
+    k.text("View", 270, 9, 13, kilim::rgba(200, 210, 225));
+    k.text("Go", 330, 9, 13, kilim::rgba(200, 210, 225));
 
     (void)k.end_frame();
 

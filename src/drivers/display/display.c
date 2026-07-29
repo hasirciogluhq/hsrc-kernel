@@ -264,5 +264,12 @@ void display_boot_log(void)
         klog("\n");
     }
 
+    if (g_reg_n > 1) {
+        klog("[video] WARNING: multiple display providers — only highest prio is used.\n");
+        klog("[video]   If the window is black, QEMU likely shows a different GPU than active.\n");
+        klog("[video]   Use -vga std (BGA) OR -vga virtio (virtio-vga), never both / never\n");
+        klog("[video]   virtio-gpu-pci alongside default std VGA.\n");
+    }
+
     klog("[video] --------------------------------\n");
 }

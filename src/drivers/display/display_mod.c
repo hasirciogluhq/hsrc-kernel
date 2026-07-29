@@ -227,18 +227,33 @@ static void buf_free_slot(disp_buf_t *b)
         b->gen = 1;
 }
 
+static int tex_data_refs(const void *data)
+{
+    int n = 0;
+    if (!data)
+        return 0;
+    for (int i = 0; i < DISP_MAX_TEX; i++) {
+        if (g_texs[i].used && g_texs[i].data == data)
+            n++;
+    }
+    return n;
+}
+
 static void tex_free_slot(disp_tex_t *t)
 {
+    void *data;
     if (!t || !t->used)
         return;
-    if (t->data)
-        kfree(t->data);
+    data = t->data;
     t->data = NULL;
     t->used = 0;
     t->mapped = 0;
     t->gen++;
     if (t->gen == 0)
         t->gen = 1;
+    /* Shared import aliases: free backing only when last reference drops. */
+    if (data && tex_data_refs(data) == 0)
+        kfree(data);
 }
 
 static void rt_free_slot(disp_rt_t *r)
@@ -768,10 +783,7 @@ static long op_import(disp_import *a, uint32_t pid)
         *t = *src;
         t->owner_pid = pid;
         t->mapped = 0;
-        /* Shared backing store — exporter destroy must not free while imported.
-         * v1: clear exporter slot data ptr ownership (importer owns free). */
-        src->data = NULL;
-        tex_free_slot(src);
+        /* Share backing with exporter — do NOT steal/free the source slot. */
         ex->used = 0;
         a->handle = pack_handle((uint16_t)free_i, t->gen);
         return 0;

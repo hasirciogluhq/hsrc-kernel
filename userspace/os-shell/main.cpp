@@ -5,7 +5,8 @@
 #include <kernel/syscall.h>
 
 /*
- * OS Shell — minimal desktop chrome on wm+kilim (full UX restore later).
+ * OS Shell — desktop wallpaper / background surface for the WM.
+ * Menubar + dock chrome are drawn by window-manager (always-on-top).
  */
 
 namespace {
@@ -55,9 +56,6 @@ extern "C" void exec_main(void)
         hang();
 
     bool mapped = false;
-    const int menubar_h = 28;
-    const int dock_h = 64;
-    const int dock_w = 280;
 
     for (;;) {
         wm::Input in;
@@ -69,28 +67,12 @@ extern "C" void exec_main(void)
             continue;
         }
 
-        /* Full-screen desktop (same tone as WM clear). */
+        /* Wallpaper — opaque so WM blit is solid. */
         k.fill_rect(0, 0, sw, sh, kilim::rgba(26, 31, 46, 255));
-
-        /* Soft vignette strips */
-        k.fill_rect(0, 0, sw, menubar_h, kilim::rgba(18, 20, 28, 230));
-        k.text("hsrcOS", 14, 6, 14, kilim::rgba(235, 238, 245, 255));
-        k.text("Shell", 90, 8, 12, kilim::rgba(160, 170, 190, 255));
-
-        int dock_x = (sw - dock_w) / 2;
-        int dock_y = sh - dock_h - 18;
-        k.fill_round_rect(dock_x, dock_y, dock_w, dock_h, 16,
-                          kilim::rgba(32, 36, 48, 220));
-        /* Dock icon placeholders */
-        for (int i = 0; i < 5; i++) {
-            int ix = dock_x + 24 + i * 48;
-            int iy = dock_y + 12;
-            k.fill_round_rect(ix, iy, 40, 40, 10,
-                              kilim::rgba(70, 90, 140, 255));
-        }
-
-        k.text("Desktop ready", 14, menubar_h + 16, 14,
-               kilim::rgba(180, 190, 210, 255));
+        /* Soft top/bottom bands under system chrome. */
+        k.fill_rect(0, 0, sw, 40, kilim::rgba(20, 24, 34, 255));
+        k.fill_rect(0, sh - 100, sw, 100, kilim::rgba(18, 22, 32, 255));
+        k.text("Desktop", 14, 48, 16, kilim::rgba(170, 180, 200, 255));
 
         (void)k.commit_frame();
 

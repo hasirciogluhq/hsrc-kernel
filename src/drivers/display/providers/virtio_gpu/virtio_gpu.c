@@ -19,8 +19,8 @@
 #define VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM 1
 #define VIRTIO_GPU_MAX_SCANOUTS          16
 #define VIRTIO_GPU_RESOURCE_ID           1
-#define VIRTIO_GPU_DEFAULT_W             800
-#define VIRTIO_GPU_DEFAULT_H             600
+#define VIRTIO_GPU_DEFAULT_W             1920
+#define VIRTIO_GPU_DEFAULT_H             1080
 
 typedef struct virtio_gpu_ctrl_hdr {
     uint32_t type;
@@ -400,12 +400,14 @@ static int virtio_gpu_bringup(void)
         width = VIRTIO_GPU_DEFAULT_W;
         height = VIRTIO_GPU_DEFAULT_H;
     }
-    /* Keep MKDX path light (blur/compositor); match BGA default. */
-    if (width == 0 || height == 0 || width > VIRTIO_GPU_DEFAULT_W ||
-        height > VIRTIO_GPU_DEFAULT_H) {
+    /* Prefer 1080p desktop; clamp absurd host modes. */
+    if (width < 640 || height < 480 || width > 3840 || height > 2160) {
         width = VIRTIO_GPU_DEFAULT_W;
         height = VIRTIO_GPU_DEFAULT_H;
     }
+    /* Force 1080p for consistent UI layout (QEMU often reports 800x600). */
+    width = VIRTIO_GPU_DEFAULT_W;
+    height = VIRTIO_GPU_DEFAULT_H;
 
     g_fb_bytes = width * height * 4u;
     g_fb = (uint32_t *)kmalloc_aligned(g_fb_bytes, 4096);

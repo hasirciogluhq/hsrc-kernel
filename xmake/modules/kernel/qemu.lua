@@ -1,7 +1,13 @@
 -- Launch QEMU with kernel + initrd + disk
--- Display: -vga std → Bochs LFB (display_bga). Do NOT also add virtio-gpu-pci:
--- that steals display_active() (higher prio) while the visible window stays std → black screen.
--- Virtio GPU boot: use -vga virtio (no -vga std) when testing display_virtio.
+--
+-- Display (pick ONE primary — dual GPU = black window):
+--   BGA path:    "-vga", "std"              → display_bga, LFB 0xfd00_0000
+--   Virtio path: "-vga", "virtio"           → virtio-vga = visible window + virtio-gpu
+--
+-- NEVER do: comment out -vga std and only add "-device", "virtio-gpu-pci"
+--   → QEMU still keeps default std VGA; BGA blacks that window; present goes to
+--     the invisible virtio head (prio 20) → splash/WM “work” but you see black.
+-- NEVER combine "-vga", "std" with "-device", "virtio-gpu-pci" for the same reason.
 function qemu_args()
     local ROOT = os.projectdir()
     local BUILD = path.join(ROOT, "build")
@@ -10,7 +16,7 @@ function qemu_args()
         "-initrd", path.join(BUILD, "drivers", "initrd.img"),
         "-m", "1G",
         "-smp", "4,sockets=1,cores=4,threads=1",
-        -- "-vga", "std",
+        "-vga", "none",
         "-device", "virtio-gpu-pci",
         "-serial", "stdio",
         "-drive", "if=none,id=vd0,file=" .. path.join(ROOT, "disk.img") .. ",format=raw,cache=writethrough",
