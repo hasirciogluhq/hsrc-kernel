@@ -23,7 +23,6 @@ void netif_init(void)
 
 int netif_register(netif_t *nif)
 {
-    int rc;
     if (!nif || !nif->tx || g_nifs >= NETIF_MAX)
         return -EINVAL;
     if (!nif->name[0])
@@ -32,8 +31,10 @@ int netif_register(netif_t *nif)
         nif->mtu = 1500;
     nif->up = 1;
     g_ifs[g_nifs++] = nif;
-    rc = dhcp_configure(nif);
-    (void)rc;
+    /* Driver already filled a static address (e.g. QEMU 10.0.2.15) — do not
+     * block boot on DHCP discover busy-wait. Use netif_dhcp_renew() later. */
+    if (nif->ip == 0)
+        (void)dhcp_configure(nif);
     return 0;
 }
 

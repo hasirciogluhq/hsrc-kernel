@@ -2,6 +2,7 @@
 #include <kernel/netstack.h>
 #include <kernel/errno.h>
 #include <kernel/string.h>
+#include <kernel/time.h>
 #include <drivers/vga.h>
 
 #define DHCP_CLIENT_PORT 68
@@ -30,8 +31,10 @@
 #define DHCP_STATE_REQUESTING 2
 
 #define DHCP_PKT_MAX          300
-#define DHCP_RETRIES          5
-#define DHCP_WAIT_POLLS       20000
+/* Bound wall time — old 5×20000 busy polls stalled boot ~10–15s in QEMU. */
+#define DHCP_RETRIES          3
+#define DHCP_ATTEMPT_MS       150u
+#define DHCP_ATTEMPT_NS       ((uint64_t)DHCP_ATTEMPT_MS * 1000000ull)
 
 typedef struct {
     netif_t *nif;
@@ -187,19 +190,22 @@ static int dhcp_send(netif_t *nif, dhcp_client_t *cli, uint8_t msg_type)
 
 static int dhcp_wait_reply(netif_t *nif, dhcp_client_t *cli, uint8_t want)
 {
-    int attempt, spin;
+    int attempt;
     uint8_t req = (want == DHCP_MSG_OFFER) ? DHCP_MSG_DISCOVER : DHCP_MSG_REQUEST;
 
     for (attempt = 0; attempt < DHCP_RETRIES; attempt++) {
+        uint64_t t0 = time_mono_nsec_now();
         cli->reply_type = 0;
         if (dhcp_send(nif, cli, req) < 0)
             continue;
-        for (spin = 0; spin < DHCP_WAIT_POLLS; spin++) {
+        for (;;) {
             net_poll();
             if (cli->reply_type == want)
                 return 0;
             if (cli->reply_type == DHCP_MSG_NAK)
                 return -EHOSTUNREACH;
+            if (time_mono_nsec_now() - t0 >= DHCP_ATTEMPT_NS)
+                break;
         }
     }
     return -EAGAIN;
