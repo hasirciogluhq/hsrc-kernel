@@ -1007,6 +1007,7 @@ static int fat_init(driver_t *drv, void *ctx)
                 (void)api->mkdir("/proc", 0755);
                 (void)api->mkdir("/sys", 0755);
                 (void)api->mkdir("/tmp", 0755);
+                (void)api->mkdir("/run", 0755);
                 (void)api->mkdir("/root", 0755);
                 (void)api->mkdir("/etc", 0755);
                 (void)api->mkdir("/home", 0755);

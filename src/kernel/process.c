@@ -419,6 +419,7 @@ static process_t *alloc_process(const char *name)
         p->ppid = lead ? lead->pid : 0;
         p->state = PROC_READY;
         p->cpu = -1;
+        p->home_cpu = -1;
         p->cpu_affinity = -1;
         p->kill_pending = 0;
         p->group = NULL;
@@ -461,25 +462,42 @@ static process_t *alloc_process(const char *name)
     return p;
 }
 
+static void fpu_area_init(void *area)
+{
+    memset(area, 0, CPU_FPU_AREA_SIZE);
+    __asm__ volatile("fninit; fxsave %0" : "=m"(*(char (*)[CPU_FPU_AREA_SIZE])area) :: "memory");
+}
+
+void process_ctx_init(process_t *p)
+{
+    uint32_t cr3;
+
+    if (!p)
+        return;
+    memset(&p->ctx, 0, sizeof(p->ctx));
+    fpu_area_init(p->fpu_state);
+    p->ctx.fpu_area = p->fpu_state;
+    __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
+    p->ctx.cr3 = cr3;
+}
+
 static void setup_kstack(process_t *p, void (*trampoline)(void (*)(void)), void (*entry)(void))
 {
     uint32_t *sp = (uint32_t *)p->kstack_top;
     /*
-     * context_switch frame (low→high): eflags,eax,ecx,edx,ebx,esi,edi,ebp,eip
-     * then cdecl: dummy_ret, entry for trampoline(void (*entry)(void)).
+     * Playbook switch: callee-saved live in cpu_context_t; stack only needs
+     * ret_eip (+ cdecl trampoline args below).
+     *   [esp]=trampoline, [esp+4]=dummy_ret, [esp+8]=entry
      */
+    process_ctx_init(p);
     *--sp = (uint32_t)entry;
     *--sp = 0; /* dummy return for trampoline */
     *--sp = (uint32_t)trampoline; /* ret eip */
-    *--sp = 0; /* ebp */
-    *--sp = 0; /* edi */
-    *--sp = 0; /* esi */
-    *--sp = 0; /* ebx */
-    *--sp = 0; /* edx */
-    *--sp = 0; /* ecx */
-    *--sp = 0; /* eax */
-    *--sp = 0x202; /* eflags: reserved1 | IF */
-    p->esp = sp;
+    p->ctx.esp = (uint32_t)(uintptr_t)sp;
+    p->ctx.ebx = 0;
+    p->ctx.esi = 0;
+    p->ctx.edi = 0;
+    p->ctx.ebp = 0;
     memset(&p->regs, 0, sizeof(p->regs));
     thread_regs_from_stack(p);
 }
@@ -488,19 +506,16 @@ void thread_regs_from_stack(process_t *p)
 {
     uint32_t *s;
 
-    if (!p || !p->esp)
+    if (!p || !p->ctx.esp)
         return;
-    s = p->esp;
-    p->regs.eflags = s[0];
-    p->regs.eax = s[1];
-    p->regs.ecx = s[2];
-    p->regs.edx = s[3];
-    p->regs.ebx = s[4];
-    p->regs.esi = s[5];
-    p->regs.edi = s[6];
-    p->regs.ebp = s[7];
-    p->regs.eip = s[8];
-    p->regs.esp = (uint32_t)(uintptr_t)s;
+    s = (uint32_t *)(uintptr_t)p->ctx.esp;
+    p->regs.eip = s[0];
+    p->regs.ebx = p->ctx.ebx;
+    p->regs.esi = p->ctx.esi;
+    p->regs.edi = p->ctx.edi;
+    p->regs.ebp = p->ctx.ebp;
+    p->regs.esp = p->ctx.esp;
+    p->regs.eflags = 0x202;
     p->regs.cs = 0x08;
     p->regs.ds = 0x10;
     p->regs.es = 0x10;
@@ -706,8 +721,13 @@ pid_t process_create_user(const char *name, void (*entry)(void))
         return -1;
     p->is_user = 1;
     p->user_entry = entry;
-    /* Any online CPU; DX/PS2 paths serialized by klock_gfx. */
-    p->cpu_affinity = -1;
+    /*
+     * Pin user/GUI to BSP. klock_gfx serializes DX *syscalls*, but apps write
+     * mapped surfaces from userspace without that lock. An AP doing GX while
+     * BSP runs drivers_poll/compose races → #GP/#UD with a garbage EIP
+     * (settings spawn was dying as eip=0x263). Revisit when DX is SMP-safe.
+     */
+    p->cpu_affinity = 0;
     setup_kstack(p, user_trampoline, entry);
     return p->pid;
 }
@@ -780,10 +800,12 @@ pid_t process_thread_create(void (*entry)(void *), void *arg)
     t->thread_detached = 0;
     t->join_tid = 0;
     /*
-     * Inherit leader affinity (-1 = any CPU). GX paths use klock_gfx.
+     * Inherit leader affinity (BSP for GUI). Floating workers on APs while
+     * the leader does GX still races the unlocked surface/compose path.
      */
     t->cpu_affinity = lead->cpu_affinity;
-    /* Soft-spread initial hint: round-robin last_cpu preference via last_run. */
+    t->home_cpu = lead->home_cpu;
+    /* Fairness seed among siblings. */
     idx = process_count_threads(lead) - 1; /* includes this new thread */
     if (idx < 0)
         idx = 0;

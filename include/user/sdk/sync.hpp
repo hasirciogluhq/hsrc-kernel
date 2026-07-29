@@ -1,14 +1,8 @@
 #pragma once
 
 /*
- * Userspace sync + locks (single header).
- *
- *   Event / ConditionVariable  — wait for a signal
- *   Mutex / LockGuard          — blocking mutual exclusion
- *   lock::SpinLock             — busy-wait (tiny CS only)
- *   lock::RecursiveMutex       — same-thread reentrant mutex
- *
- * Kernel side: <kernel/klock.h> (spin/klock), <kernel/sync.h> (kevent/suspend).
+ * Userspace sync + locks — CPU-level atomics (LOCK/XCHG + PAUSE).
+ * No __sync_* as the locking source of truth (playbook).
  */
 
 #include <kernel/types.h>
@@ -17,6 +11,39 @@
 #include <user/sdk/thread.hpp>
 
 namespace hsrc::sdk {
+namespace detail {
+
+inline int cpu_cas32(volatile uint32_t *ptr, uint32_t expected, uint32_t desired)
+{
+    uint32_t out;
+    __asm__ volatile("lock; cmpxchgl %2, %1"
+                     : "=a"(out), "+m"(*ptr)
+                     : "r"(desired), "a"(expected)
+                     : "memory", "cc");
+    return out == expected;
+}
+
+inline uint32_t cpu_xchg32(volatile uint32_t *ptr, uint32_t val)
+{
+    __asm__ volatile("xchgl %0, %1"
+                     : "+r"(val), "+m"(*ptr)
+                     :
+                     : "memory");
+    return val;
+}
+
+inline void cpu_store_release32(volatile uint32_t *ptr, uint32_t val)
+{
+    __asm__ volatile("" ::: "memory");
+    *ptr = val;
+}
+
+inline void cpu_pause(void)
+{
+    __asm__ volatile("pause" ::: "memory");
+}
+
+} /* namespace detail */
 
 class Event {
 public:
@@ -93,25 +120,22 @@ public:
     void lock()
     {
         for (;;) {
-            if (__sync_bool_compare_and_swap(&locked_, 0, 1))
+            if (detail::cpu_cas32(&locked_, 0, 1))
                 return;
             (void)gate_.wait(kWaitForever);
         }
     }
 
-    bool try_lock()
-    {
-        return __sync_bool_compare_and_swap(&locked_, 0, 1);
-    }
+    bool try_lock() { return detail::cpu_cas32(&locked_, 0, 1) != 0; }
 
     void unlock()
     {
-        __sync_lock_release(&locked_);
+        detail::cpu_store_release32(&locked_, 0);
         gate_.signal();
     }
 
 private:
-    volatile int locked_ = 0;
+    volatile uint32_t locked_ = 0;
     Event gate_{};
 };
 
@@ -170,21 +194,19 @@ public:
     void lock()
     {
         for (;;) {
-            if (__sync_bool_compare_and_swap(&locked_, 0, 1))
+            if (detail::cpu_xchg32(&locked_, 1) == 0)
                 return;
-            __asm__ volatile("pause" ::: "memory");
+            while (locked_ != 0)
+                detail::cpu_pause();
         }
     }
 
-    bool try_lock()
-    {
-        return __sync_bool_compare_and_swap(&locked_, 0, 1);
-    }
+    bool try_lock() { return detail::cpu_xchg32(&locked_, 1) == 0; }
 
-    void unlock() { __sync_lock_release(&locked_); }
+    void unlock() { detail::cpu_store_release32(&locked_, 0); }
 
 private:
-    volatile int locked_ = 0;
+    volatile uint32_t locked_ = 0;
 };
 
 class RecursiveMutex {
@@ -201,7 +223,7 @@ public:
             return;
         }
         for (;;) {
-            if (__sync_bool_compare_and_swap(&locked_, 0, 1)) {
+            if (detail::cpu_cas32(&locked_, 0, 1)) {
                 owner_ = self;
                 depth_ = 1;
                 return;
@@ -217,7 +239,7 @@ public:
             depth_++;
             return true;
         }
-        if (!__sync_bool_compare_and_swap(&locked_, 0, 1))
+        if (!detail::cpu_cas32(&locked_, 0, 1))
             return false;
         owner_ = self;
         depth_ = 1;
@@ -232,31 +254,16 @@ public:
         if (--depth_ > 0)
             return;
         owner_ = 0;
-        __sync_lock_release(&locked_);
+        detail::cpu_store_release32(&locked_, 0);
         gate_.signal();
     }
 
 private:
-    volatile int locked_ = 0;
-    volatile int depth_ = 0;
-    volatile tid_t owner_ = 0;
+    volatile uint32_t locked_ = 0;
+    tid_t owner_ = 0;
+    int depth_ = 0;
     Event gate_{};
 };
 
-template <typename L>
-class Guard {
-public:
-    explicit Guard(L &lock) : lock_(lock) { lock_.lock(); }
-    ~Guard() { lock_.unlock(); }
-    Guard(const Guard &) = delete;
-    Guard &operator=(const Guard &) = delete;
-
-private:
-    L &lock_;
-};
-
-using SpinGuard = Guard<SpinLock>;
-using RecursiveGuard = Guard<RecursiveMutex>;
-
-} // namespace lock
-} // namespace hsrc::sdk
+} /* namespace lock */
+} /* namespace hsrc::sdk */

@@ -62,6 +62,7 @@ void smp_ap_main(uint32_t cpu_index)
     }
 
     lapic_init_ap();
+    cpu_fpu_init();
     gdt_load_cpu(c->id);
     idt_load();
     c->started = 1;

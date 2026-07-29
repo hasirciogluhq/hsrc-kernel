@@ -1,0 +1,70 @@
+---
+description: Production CPU-level context switch + locking (playbook law). No soft atomics.
+alwaysApply: true
+---
+
+# Kernel ASM / locking — playbook is law
+
+This repo follows the **Production-Grade x86 Context Switch + Locking Playbook**.
+Anything that conflicts is wrong and must be rewritten. No soft/compiler atomics
+as the locking source of truth. **CPU-level only** (`LOCK` / implicit-LOCK `XCHG`,
+`PAUSE`, `CMPXCHG`, `XADD`, `FXSAVE`/`XSAVE`, CR3-if-changed).
+
+Current tree may still assemble as i686 (`elf32`); semantics must match the
+playbook. x86-64 register names in the playbook map to the 32-bit callee-saved
+set on i386 until the arch migrates. Do **not** invent parallel “compat”
+locking paths.
+
+## Hard bans
+
+- `__sync_*`, `__atomic_*`, C `volatile` CAS loops as the **implementation** of
+  kernel spinlocks (wrappers may call asm; the atomicity lives in asm).
+- Spin loops **without** `pause`.
+- Context switch that skips FPU/SIMD state when the compiler may use XMM.
+- Unconditional `mov cr3` when old CR3 == new CR3 (full TLB flush tax).
+- Claiming “atomic” without `LOCK` / implicit-LOCK `XCHG` / aligned single-word
+  store under x86 TSO (document which).
+- Mixing cdecl (i386) with SysV AMD64 arg regs in the same asm ABI.
+
+## Context switch contract
+
+- Name: `context_switch_locked(old_ctx, new_ctx)` — caller holds runqueue lock +
+  IRQs off. The switch function does **not** take locks.
+- Saves callee-saved GPRs into `cpu_context_t`, swaps stack via saved SP.
+- Saves/restores FPU via `FXSAVE`/`FXRSTOR` (or `XSAVE`/`XRSTOR` when mask ready)
+  through `fpu_area*` (16B+ aligned, ≥512B).
+- Reads CR3 into old; writes new CR3 **only if different**.
+- After stack switch: update TSS ESP0/RSP0 before returning to user (if ring3).
+- Count every push/pop and document offsets in comments. Never “probably right”.
+
+## Spinlock contract
+
+```text
+acquire: xchg(1) → if was 0 ok; else pause + load-test until 0, retry xchg
+release: aligned store 0  (x86 TSO = store-release; no LOCK needed on x86)
+```
+
+- Short critical sections only; never sleep while holding.
+- IRQ handlers: `cli` + spin (`irqsave`) or deadlock on same CPU.
+- Nested locks: document lock order; never AB-BA.
+- Prefer ticket lock when fairness across many cores matters.
+
+## Atomics
+
+- `lock inc` / `lock xadd` / `lock cmpxchg` in asm (or equivalent single insn).
+- RMW without `LOCK` is not SMP-safe.
+
+## AI output rules (every asm change)
+
+1. Hand-count stack/offsets; show math in comments.
+2. Never skip FPU/SIMD in switch.
+3. CR3 write only when changed (PCID later).
+4. State IRQ/lock precondition in the symbol name or a one-line contract comment.
+5. Prove atomics (`LOCK` / `XCHG`).
+6. Always `pause` in spin wait.
+7. Treat new kernel asm as **reference until tested** — silent corruption is the failure mode.
+
+## OS thread vs HW thread
+
+- `process_t` / `cpu_context_t` = OS thread private state.
+- `cpu_t` = HW logical CPU (core/SMT). Scheduler maps OS threads onto logical CPUs.

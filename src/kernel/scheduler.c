@@ -13,12 +13,17 @@
 #include <drivers/driver.h>
 
 /*
- * Per-CPU round-robin. Timer IRQ only accounts time; context switch happens
- * when the thread life expires AND another Ready thread is waiting.
- * If life expires with nobody waiting, refresh the slice and keep running.
+ * Per-CPU round-robin over OS threads.
+ *
+ * Model:
+ *   - cpu_t / logical id  = HW thread (core or SMT sibling): shared ALU/FPU/cache
+ *   - process_t           = OS thread: private kstack + callee-saved frame
+ * Scheduler maps Ready OS threads onto the calling logical CPU. Same-app
+ * threads (process group) soft-pack onto one home_cpu when possible.
  */
 
-static uint32_t *bootstrap_esp[CPU_MAX];
+static cpu_context_t bootstrap_ctx[CPU_MAX];
+static _Alignas(16) uint8_t bootstrap_fpu[CPU_MAX][CPU_FPU_AREA_SIZE];
 static uint64_t g_switch_ticks;
 static spinlock_t g_sched_lock;
 static volatile int g_sched_active;
@@ -114,11 +119,100 @@ static int proc_can_run_on(process_t *p, int cpu, process_t *cur)
         return 0;
     if (p->is_idle && p->cpu_affinity >= 0 && p->cpu_affinity != cpu)
         return 0;
+    /* One OS thread runs on at most one logical CPU at a time. */
     if (p->state == PROC_RUNNING && p != cur)
         return 0;
     if (p->cpu_affinity >= 0 && p->cpu_affinity != cpu && !p->is_idle)
         return 0;
     return 1;
+}
+
+/* Logical CPUs that share a physical core (SMT siblings). */
+static int same_hw_core(int cpu_a, int cpu_b)
+{
+    cpu_t *a, *b;
+
+    if (cpu_a < 0 || cpu_b < 0)
+        return 0;
+    if (cpu_a == cpu_b)
+        return 1;
+    a = cpu_get(cpu_a);
+    b = cpu_get(cpu_b);
+    if (!a || !b)
+        return 0;
+    return a->package == b->package && a->core == b->core;
+}
+
+static process_t *app_leader(process_t *p)
+{
+    return process_leader(p);
+}
+
+/* Soft home for the process group (stored on the leader). */
+static int app_home_cpu(process_t *p)
+{
+    process_t *lead = app_leader(p);
+    if (!lead)
+        return -1;
+    return lead->home_cpu;
+}
+
+/* True if another OS thread of the same app is (or was) on this core. */
+static int app_packed_on_cpu(process_t *p, int cpu)
+{
+    process_t *lead = app_leader(p);
+    process_t **table;
+    int home;
+
+    if (!lead || lead->is_idle)
+        return 0;
+    home = lead->home_cpu;
+    if (home >= 0 && same_hw_core(home, cpu))
+        return 1;
+
+    table = process_table();
+    for (int i = 0; i < PROC_MAX; i++) {
+        process_t *th = table[i];
+        if (!th || th->is_idle || th->state == PROC_UNUSED || th->state == PROC_ZOMBIE)
+            continue;
+        if (app_leader(th) != lead)
+            continue;
+        if (th->cpu >= 0 && same_hw_core(th->cpu, cpu))
+            return 1;
+    }
+    return 0;
+}
+
+/*
+ * Pick score (higher wins): place OS thread on this logical CPU.
+ *   stickiness → same-app core pack → fairness (older last_run).
+ */
+static int pick_score(process_t *p, int cpu)
+{
+    int score = 0;
+    int home;
+
+    if (p->cpu == cpu)
+        score += 100;
+    else if (p->cpu >= 0 && same_hw_core(p->cpu, cpu))
+        score += 80;
+
+    home = app_home_cpu(p);
+    if (home < 0)
+        score += 30; /* unbound app: free to claim this CPU as home */
+    else if (same_hw_core(home, cpu))
+        score += 60;
+    else
+        score -= 40; /* prefer CPUs near the app's home core */
+
+    if (app_packed_on_cpu(p, cpu))
+        score += 50;
+
+    /* Age: fewer recent ticks → slightly higher (fair share). */
+    if (p->last_run_tick < 0xFFFFFFFFu)
+        score += (int)(0xFFu - (p->last_run_tick & 0xFFu));
+
+    return score;
 }
 
 /* True if a different Ready (waiting) thread could run on this CPU. */
@@ -148,7 +242,7 @@ static int has_waiting_ready(process_t *cur, int cpu)
 }
 
 /*
- * Dynamic pick: soft affinity → least-recently-run Ready → idle.
+ * Dynamic pick: soft stickiness + same-app core pack + fair last_run → idle.
  * When prefer_other is set (timeslice preempt), skip cur if another Ready waits.
  */
 static process_t *pick_next(process_t *cur, int cpu, int prefer_other)
@@ -157,6 +251,7 @@ static process_t *pick_next(process_t *cur, int cpu, int prefer_other)
     uint64_t now = irq_timer_ticks();
     process_t *fallback_idle = NULL;
     process_t *best = NULL;
+    int best_score = -0x7FFFFFFF;
     int start;
 
     start = cur && cur->slot >= 0 && cur->slot < PROC_MAX ? cur->slot : 0;
@@ -164,6 +259,8 @@ static process_t *pick_next(process_t *cur, int cpu, int prefer_other)
     for (int i = 0; i < PROC_MAX; i++) {
         int idx = (start + i) % PROC_MAX;
         process_t *p = table[idx];
+        int score;
+
         if (!proc_runnable(p, now) || !proc_can_run_on(p, cpu, cur))
             continue;
         if (p->is_idle) {
@@ -173,18 +270,13 @@ static process_t *pick_next(process_t *cur, int cpu, int prefer_other)
         }
         if (prefer_other && p == cur)
             continue;
-        if (!best) {
+
+        score = pick_score(p, cpu);
+        if (!best || score > best_score ||
+            (score == best_score && p->last_run_tick < best->last_run_tick)) {
             best = p;
-            continue;
+            best_score = score;
         }
-        if (p->cpu == cpu && best->cpu != cpu) {
-            best = p;
-            continue;
-        }
-        if (best->cpu == cpu && p->cpu != cpu)
-            continue;
-        if (p->last_run_tick < best->last_run_tick)
-            best = p;
     }
 
     if (best)
@@ -197,6 +289,16 @@ static process_t *pick_next(process_t *cur, int cpu, int prefer_other)
         !cur->is_idle)
         return cur;
     return fallback_idle;
+}
+
+static void assign_home_cpu(process_t *p, int cpu)
+{
+    process_t *lead = app_leader(p);
+
+    if (!lead || lead->is_idle)
+        return;
+    if (lead->home_cpu < 0)
+        lead->home_cpu = cpu;
 }
 
 static void idle_halt(void)
@@ -261,10 +363,21 @@ void scheduler_init(void)
 {
     cpu_t *bsp = cpu_get(0);
     uint32_t life;
+    uint32_t cr3;
     int i;
 
     spin_init(&g_sched_lock);
-    memset(bootstrap_esp, 0, sizeof(bootstrap_esp));
+    memset(bootstrap_ctx, 0, sizeof(bootstrap_ctx));
+    __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
+    for (i = 0; i < CPU_MAX; i++) {
+        memset(bootstrap_fpu[i], 0, CPU_FPU_AREA_SIZE);
+        __asm__ volatile("fninit; fxsave %0"
+                         : "=m"(bootstrap_fpu[i])
+                         :
+                         : "memory");
+        bootstrap_ctx[i].fpu_area = bootstrap_fpu[i];
+        bootstrap_ctx[i].cr3 = cr3;
+    }
     g_switch_ticks = 0;
     g_sched_active = 0;
     g_tick_us = irq_timer_period_us();
@@ -312,7 +425,7 @@ void schedule(void)
     process_t *next;
     int cpu;
     int prefer;
-    uint32_t **old_esp;
+    cpu_context_t *old_ctx;
     uint32_t flags;
     uint64_t now;
 
@@ -368,6 +481,7 @@ void schedule(void)
     next->state = PROC_RUNNING;
     next->cpu = cpu;
     next->last_run_tick = now;
+    assign_home_cpu(next, cpu);
 
     if (cpu >= 0 && cpu < CPU_MAX && next != cur)
         g_slice_left[cpu] = scheduler_life_ticks();
@@ -385,14 +499,11 @@ void schedule(void)
     process_set_current(next);
     gdt_set_kernel_stack(next->kstack_top);
 
-    if (cur)
-        old_esp = &cur->esp;
-    else
-        old_esp = &bootstrap_esp[cpu];
+    old_ctx = (cur) ? &cur->ctx : &bootstrap_ctx[cpu];
 
     /*
-     * Kick idle APs only when some Ready thread can actually run there
-     * (affinity -1 or pinned to that CPU). BSP-pinned GUI work stays local.
+     * Kick idle APs when Ready OS threads can run elsewhere (no hard pin to
+     * this CPU). Same-app soft home still allows other CPUs as fallback.
      */
     {
         process_t **table = process_table();
@@ -410,7 +521,8 @@ void schedule(void)
             smp_kick_idle_cpus();
     }
 
-    context_switch(old_esp, next->esp, cur ? &cur->regs : NULL);
+    /* PRE: g_sched_lock + IRQs off — playbook contract. */
+    context_switch_locked(old_ctx, &next->ctx);
     spin_unlock_irqrestore(&g_sched_lock, flags);
 }
 

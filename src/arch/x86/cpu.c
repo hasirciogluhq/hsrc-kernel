@@ -150,8 +150,9 @@ void cpu_debug_dump(void)
     klog_uint("[cpu] cores_per_pkg(cpuid)=", info->cores_per_pkg);
     klog_uint("[cpu] online_logical=", (uint32_t)g_cpu_count);
     klog_uint("[cpu] CPU_MAX=", CPU_MAX);
-    klog("[cpu] model: each online logical CPU runs its own OS thread "
-         "(private kstack + thread_regs); scheduler picks Ready threads\n");
+    klog("[cpu] model: OS thread (process_t) ≠ HW logical CPU (cpu_t); "
+         "scheduler maps Ready OS threads onto online logical CPUs; "
+         "same-app threads soft-pack via home_cpu\n");
 
     for (i = 0; i < g_cpu_count; i++) {
         cpu_t *c = &g_cpus[i];
@@ -189,6 +190,27 @@ void cpu_debug_dump(void)
     klog("[cpu] --------------------------------\n");
 }
 
+void cpu_fpu_init(void)
+{
+    uint32_t cr0, cr4;
+
+    /*
+     * Playbook requires FXSAVE/FXRSTOR on every context switch.
+     * Clear EM/TS, set MP; set CR4.OSFXSR (+ OSXMMEXCPT).
+     */
+    __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
+    cr0 &= ~((1u << 2) | (1u << 3)); /* EM, TS */
+    cr0 |= (1u << 1);                /* MP */
+    __asm__ volatile("mov %0, %%cr0" :: "r"(cr0) : "memory");
+
+    __asm__ volatile("mov %%cr4, %0" : "=r"(cr4));
+    cr4 |= (1u << 9);  /* OSFXSR */
+    cr4 |= (1u << 10); /* OSXMMEXCPT */
+    __asm__ volatile("mov %0, %%cr4" :: "r"(cr4) : "memory");
+
+    __asm__ volatile("fninit" ::: "memory");
+}
+
 void cpu_init_bsp(void)
 {
     uint8_t apic;
@@ -198,6 +220,7 @@ void cpu_init_bsp(void)
     g_bsp_ready = 0;
 
     cpu_detect();
+    cpu_fpu_init();
     lapic_init_bsp();
     apic = (uint8_t)lapic_id();
 

@@ -555,8 +555,8 @@ bool open_category(const char *id)
 bool open_deeplink(const char *uri)
 {
     const char *target = (uri && uri[0]) ? uri : kDefaultDeepLink;
-    if (!write_deeplink_file(target))
-        return false;
+    /* Best-effort deeplink; still spawn if /run is missing. */
+    (void)write_deeplink_file(target);
 
     long wid = find_settings_window();
     if (wid >= 0) {

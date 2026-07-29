@@ -7,6 +7,7 @@
 #include <kernel/env.h>
 #include <kernel/argv.h>
 #include <kernel/proc_abi.h>
+#include <arch/x86/cpu_context.h>
 
 /* Hard ceiling - slots are pointers only; structs/stacks grow on demand. */
 #define PROC_MAX         8192
@@ -68,16 +69,15 @@ typedef struct sys_info {
 #define PROC_THREADS_HARD_MAX 256
 
 /*
- * Per-OS-thread CPU register file. Live state while not Running lives on the
- * kernel stack at esp (see context_switch); regs mirrors that frame for debug
- * and so each thread owns a full private GPR + flags set (OS-thread model).
+ * Debug snapshot (Activity Monitor). Live resume = cpu_context_t + FXSAVE.
+ * OS thread ≠ HW logical CPU: process_t is an OS thread; cpu_t is core/SMT.
  */
 typedef struct thread_regs {
     uint32_t ebp, edi, esi, ebx;
     uint32_t edx, ecx, eax;
     uint32_t eflags;
     uint32_t eip;
-    uint32_t esp; /* kernel stack pointer (same as process.esp) */
+    uint32_t esp;
     uint32_t cs, ds, es, fs, gs, ss;
 } thread_regs_t;
 
@@ -89,8 +89,9 @@ typedef struct process {
     char         name[PROC_NAME_MAX];
     int          is_user;      /* 1 = ring-3 userspace */
     int          is_idle;      /* 1 = kernel idle thread (HLT when scheduled) */
-    int          cpu;          /* CPU currently running this thread (-1 if none) */
-    int          cpu_affinity; /* -1 = any CPU; else only that cpu id */
+    int          cpu;          /* logical CPU currently running this OS thread (-1 if none) */
+    int          home_cpu;     /* soft pack: preferred logical CPU for this app (-1 = unset) */
+    int          cpu_affinity; /* hard pin: -1 = any logical CPU; else only that id */
     int          kill_pending; /* remote kill request observed at schedule() */
     struct process *group;     /* NULL = process leader; else owning process */
     void        *thread_arg;   /* arg for user thread entry(void *) */
@@ -104,8 +105,9 @@ typedef struct process {
     uint32_t    *ustack_base;
     uint32_t     kstack_top;
     uint32_t     ustack_top;
-    uint32_t    *esp;          /* saved kernel stack pointer */
-    thread_regs_t regs;        /* private CPU register file for this thread */
+    cpu_context_t ctx;         /* playbook CPU context (esp/GP/CR3/fpu*) */
+    _Alignas(16) uint8_t fpu_state[CPU_FPU_AREA_SIZE];
+    thread_regs_t regs;        /* debug mirror */
     struct process *free_next; /* freelist link when unused */
     void       (*user_entry)(void);
     int          exit_code;
@@ -165,8 +167,8 @@ int  process_alloc_sock_fd(process_t *p, int sock_id);
 int  process_lookup_fd(process_t *p, int user_fd);
 void process_free_fd(process_t *p, int user_fd);
 
-void context_switch(uint32_t **old_esp, uint32_t *new_esp, thread_regs_t *old_regs);
 void enter_usermode(uint32_t entry, uint32_t user_stack);
 void thread_regs_from_stack(process_t *p);
+void process_ctx_init(process_t *p);
 
 #endif

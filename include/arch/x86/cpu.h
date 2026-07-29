@@ -38,6 +38,7 @@ typedef struct cpu_info {
 } cpu_info_t;
 
 void   cpu_init_bsp(void);
+void   cpu_fpu_init(void);         /* CR0/CR4: enable FXSAVE path (playbook) */
 void   cpu_detect(void);           /* CPUID probe (call once on BSP) */
 void   cpu_debug_dump(void);       /* serial debug: topology + online CPUs */
 const cpu_info_t *cpu_info(void);

@@ -1,113 +1,76 @@
-; context_switch — x86 cdecl kernel context switch
+; context_switch.asm — playbook context switch (i386 cdecl).
 ;
-; void context_switch(uint32_t **old_esp, uint32_t *new_esp, thread_regs_t *old_regs);
+; void context_switch_locked(cpu_context_t *old_ctx, cpu_context_t *new_ctx);
+; PRE: IRQs off + sched/runqueue lock held by CALLER. This fn takes NO locks.
 ;
-; PRE: interrupts OFF (caller holds irqsave spinlock).
-; new_esp must point at a frame built by this function or setup_kstack:
-;   [esp]=eflags, eax, ecx, edx, ebx, esi, edi, ebp, ret_eip
+; cpu_context_t offsets (byte) — hand-counted:
+;   0  esp
+;   4  ebx
+;   8  esi
+;  12  edi
+;  16  ebp
+;  20  cr3
+;  24  fpu_area*   (16B aligned, ≥512B FXSAVE area)
 ;
-; thread_regs_t offsets (must match process.h):
-;   0 ebp, 4 edi, 8 esi, 12 ebx, 16 edx, 20 ecx, 24 eax
-;   28 eflags, 32 eip, 36 esp, 40 cs, 44 ds, 48 es, 52 fs, 56 gs, 60 ss
+; Entry stack (cdecl), no pushes before arg load:
+;   [esp+0] = ret_eip (4)
+;   [esp+4] = old_ctx*
+;   [esp+8] = new_ctx*
+; Args loaded into eax/edx so ebx/esi/edi/ebp stay as live callee-saved.
 
 bits 32
 section .text
-global context_switch
+global context_switch_locked
 
-REG_EBP    equ 0
-REG_EDI    equ 4
-REG_ESI    equ 8
-REG_EBX    equ 12
-REG_EDX    equ 16
-REG_ECX    equ 20
-REG_EAX    equ 24
-REG_EFLAGS equ 28
-REG_EIP    equ 32
-REG_ESP    equ 36
-REG_CS     equ 40
-REG_DS     equ 44
-REG_ES     equ 48
-REG_FS     equ 52
-REG_GS     equ 56
-REG_SS     equ 60
+CTX_ESP      equ 0
+CTX_EBX      equ 4
+CTX_ESI      equ 8
+CTX_EDI      equ 12
+CTX_EBP      equ 16
+CTX_CR3      equ 20
+CTX_FPU_PTR  equ 24
 
-; Clear TF/IOPL/NT/RF/VM/AC; force bit1=1 so a corrupt frame cannot #DB.
-EFLAGS_SAFE_MASK equ 0xFFF88EFF
-EFLAGS_BIT1      equ 0x00000002
+context_switch_locked:
+    mov eax, [esp + 4]          ; old_ctx*
+    mov edx, [esp + 8]          ; new_ctx*
 
-context_switch:
-    push ebp
-    push edi
-    push esi
-    push ebx
-    push edx
-    push ecx
-    push eax
-    pushf
-    ; 8 dwords pushed → ret at [esp+32], args at +36/+40/+44
+    ; ---- 1) callee-saved GP → old ----
+    mov [eax + CTX_EBX], ebx
+    mov [eax + CTX_ESI], esi
+    mov [eax + CTX_EDI], edi
+    mov [eax + CTX_EBP], ebp
+    mov [eax + CTX_ESP], esp    ; includes ret_eip at [esp]
 
-    mov eax, [esp + 36]     ; old_esp **
-    mov [eax], esp
-
-    mov esi, [esp + 40]     ; new_esp *
-    mov ecx, [esp + 44]     ; old_regs *
+    ; ---- 2) FPU/SIMD (FXSAVE) — compilers use XMM even in “GP” code ----
+    mov ecx, [eax + CTX_FPU_PTR]
     test ecx, ecx
-    jz .switch
+    jz .skip_fpu_save
+    fxsave [ecx]
+.skip_fpu_save:
 
-    mov eax, [esp + 28]
-    mov [ecx + REG_EBP], eax
-    mov eax, [esp + 24]
-    mov [ecx + REG_EDI], eax
-    mov eax, [esp + 20]
-    mov [ecx + REG_ESI], eax
-    mov eax, [esp + 16]
-    mov [ecx + REG_EBX], eax
-    mov eax, [esp + 12]
-    mov [ecx + REG_EDX], eax
-    mov eax, [esp + 8]
-    mov [ecx + REG_ECX], eax
-    mov eax, [esp + 4]
-    mov [ecx + REG_EAX], eax
-    mov eax, [esp]
-    mov [ecx + REG_EFLAGS], eax
-    mov eax, [esp + 32]
-    mov [ecx + REG_EIP], eax
-    mov [ecx + REG_ESP], esp
+    ; ---- 3) CR3: save; write new only if different and non-zero ----
+    mov ecx, cr3
+    mov [eax + CTX_CR3], ecx
+    mov ebx, [edx + CTX_CR3]
+    cmp ecx, ebx
+    je .same_as
+    test ebx, ebx
+    jz .same_as
+    mov cr3, ebx
+.same_as:
 
-    mov ax, cs
-    movzx eax, ax
-    mov [ecx + REG_CS], eax
-    mov ax, ds
-    movzx eax, ax
-    mov [ecx + REG_DS], eax
-    mov ax, es
-    movzx eax, ax
-    mov [ecx + REG_ES], eax
-    mov ax, fs
-    movzx eax, ax
-    mov [ecx + REG_FS], eax
-    mov ax, gs
-    movzx eax, ax
-    mov [ecx + REG_GS], eax
-    mov ax, ss
-    movzx eax, ax
-    mov [ecx + REG_SS], eax
+    ; ---- 4) restore FPU ----
+    mov ecx, [edx + CTX_FPU_PTR]
+    test ecx, ecx
+    jz .skip_fpu_restore
+    fxrstor [ecx]
+.skip_fpu_restore:
 
-.switch:
-    mov esp, esi
+    ; ---- 5) restore GP + switch stack ----
+    mov ebx, [edx + CTX_EBX]
+    mov esi, [edx + CTX_ESI]
+    mov edi, [edx + CTX_EDI]
+    mov ebp, [edx + CTX_EBP]
+    mov esp, [edx + CTX_ESP]
 
-    ; Sanitize eflags before popf — corrupt TF caused vector=1 (#DB).
-    mov eax, [esp]
-    and eax, EFLAGS_SAFE_MASK
-    or  eax, EFLAGS_BIT1
-    mov [esp], eax
-
-    popf
-    pop eax
-    pop ecx
-    pop edx
-    pop ebx
-    pop esi
-    pop edi
-    pop ebp
     ret

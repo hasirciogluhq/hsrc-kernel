@@ -14,7 +14,7 @@ typedef struct sched_params {
     uint32_t tick_us;         /* interrupt period (µs) */
     uint32_t thread_life_us;  /* max continuous run before preempt (µs) */
     uint32_t life_ticks;      /* derived: life_us / tick_us */
-    uint32_t cpu_count;       /* online HW threads */
+    uint32_t cpu_count;       /* online HW logical CPUs (cores/SMT) */
     uint32_t threads_max;     /* per-process thread cap */
 } sched_params_t;
 
