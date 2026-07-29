@@ -25,6 +25,7 @@
 #include <user/input.h>
 #include <user/disp.h>
 #include <kernel/heap.h>
+#include <kernel/proc_mem.h>
 #include <drivers/input/mouse.h>
 #include <drivers/input/keyboard.h>
 
@@ -1727,6 +1728,87 @@ long syscall_dispatch(long n, long a1, long a2, long a3, long a4, long a5)
 
     case SYS_INPUT_STATE:      return do_input_state(a1);
     case SYS_DISP_CALL:        return do_disp_call(a1, a2);
+
+    case SYS_OPEN_PROCESS:
+        return sys_open_process((pid_t)a1, (uint32_t)a2);
+    case SYS_CLOSE_HANDLE:
+        return sys_close_handle((int)a1);
+    case SYS_READ_PROCESS_MEMORY: {
+        size_t n = 0;
+        uint8_t *kbuf;
+        long rc;
+        if (a4 <= 0 || a4 > (long)(256u * 1024u) || !a3)
+            return -EINVAL;
+        kbuf = (uint8_t *)kmalloc((size_t)a4);
+        if (!kbuf)
+            return -ENOMEM;
+        rc = sys_read_process_memory((int)a1, (uint32_t)a2, kbuf, (size_t)a4, &n);
+        if (rc >= 0 && n > 0) {
+            if (copy_to_user((void *)a3, kbuf, n) < 0)
+                rc = -EFAULT;
+            else
+                rc = (long)n;
+        }
+        kfree(kbuf);
+        return rc;
+    }
+    case SYS_WRITE_PROCESS_MEMORY: {
+        size_t n = 0;
+        uint8_t *kbuf;
+        long rc;
+        if (a4 <= 0 || a4 > (long)(256u * 1024u) || !a3)
+            return -EINVAL;
+        kbuf = (uint8_t *)kmalloc((size_t)a4);
+        if (!kbuf)
+            return -ENOMEM;
+        if (copy_from_user(kbuf, (const void *)a3, (size_t)a4) < 0) {
+            kfree(kbuf);
+            return -EFAULT;
+        }
+        rc = sys_write_process_memory((int)a1, (uint32_t)a2, kbuf, (size_t)a4, &n);
+        kfree(kbuf);
+        return rc >= 0 ? (long)n : rc;
+    }
+    case SYS_VIRTUAL_ALLOC:
+        return sys_virtual_alloc((uint32_t)a1, (size_t)a2, (uint32_t)a3,
+                                 (uint32_t)a4);
+    case SYS_VIRTUAL_FREE:
+        return sys_virtual_free((uint32_t)a1, (size_t)a2, (uint32_t)a3);
+    case SYS_VIRTUAL_ALLOC_EX:
+        return sys_virtual_alloc_ex((int)a1, (uint32_t)a2, (size_t)a3,
+                                    (uint32_t)a4, (uint32_t)a5);
+    case SYS_VIRTUAL_FREE_EX:
+        return sys_virtual_free_ex((int)a1, (uint32_t)a2, (size_t)a3,
+                                   (uint32_t)a4);
+    case SYS_QUERY_PROCESS: {
+        uint8_t tmp[128];
+        long rc;
+        if (a3 <= 0 || (size_t)a3 > sizeof(tmp) || !a2)
+            return -EINVAL;
+        rc = sys_query_process((int)a1, tmp, (size_t)a3);
+        if (rc > 0 && copy_to_user((void *)a2, tmp, (size_t)rc) < 0)
+            return -EFAULT;
+        return rc;
+    }
+    case SYS_QUERY_PROCESS_VM: {
+        uint8_t *tmp;
+        long rc;
+        if (a3 <= 0 || a3 > (long)(32u * sizeof(proc_vm_region_t)) || !a2)
+            return -EINVAL;
+        tmp = (uint8_t *)kmalloc((size_t)a3);
+        if (!tmp)
+            return -ENOMEM;
+        rc = sys_query_process_vm((int)a1, tmp, (size_t)a3);
+        if (rc > 0) {
+            size_t bytes = (size_t)rc * sizeof(proc_vm_region_t);
+            if (bytes > (size_t)a3)
+                bytes = (size_t)a3;
+            if (copy_to_user((void *)a2, tmp, bytes) < 0)
+                rc = -EFAULT;
+        }
+        kfree(tmp);
+        return rc;
+    }
 
     default:         return -1;
     }

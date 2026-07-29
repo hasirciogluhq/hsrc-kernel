@@ -102,6 +102,18 @@
 /* Display orchestrator (Reed) — a1=DISP_OP_* a2=&args */
 #define SYS_DISP_CALL       296
 
+/* Process memory / handles (Windows-like; private numbers). */
+#define SYS_OPEN_PROCESS         297  /* a1=pid a2=access → handle */
+#define SYS_CLOSE_HANDLE         298  /* a1=handle */
+#define SYS_READ_PROCESS_MEMORY  299  /* a1=h a2=addr a3=buf a4=len */
+#define SYS_WRITE_PROCESS_MEMORY 300  /* a1=h a2=addr a3=buf a4=len */
+#define SYS_VIRTUAL_ALLOC        301  /* a1=addr a2=size a3=type a4=prot → ptr */
+#define SYS_VIRTUAL_FREE         302  /* a1=addr a2=size a3=type */
+#define SYS_VIRTUAL_ALLOC_EX     303  /* a1=h a2=addr a3=size a4=type a5=prot */
+#define SYS_VIRTUAL_FREE_EX      304  /* a1=h a2=addr a3=size a4=type */
+#define SYS_QUERY_PROCESS        305  /* a1=h a2=&info a3=sizeof */
+#define SYS_QUERY_PROCESS_VM     306  /* a1=h a2=&regions a3=nbytes → count */
+
 /* epoll (Linux-like; private numbers — 254/255 taken by SPAWN/WAITPID). */
 #define SYS_EPOLL_CREATE1   292  /* a1=flags → epfd */
 #define SYS_EPOLL_CTL       293  /* a1=epfd a2=op a3=fd a4=&epoll_event */

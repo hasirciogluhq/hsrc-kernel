@@ -17,6 +17,7 @@
 #include <kernel/ksym.h>
 #include <kernel/module.h>
 #include <kernel/process.h>
+#include <kernel/proc_mem.h>
 #include <kernel/env.h>
 #include <kernel/service.h>
 #include <kernel/scheduler.h>
@@ -86,6 +87,7 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     epoll_init();
     ksym_init();
     process_init();
+    proc_mem_init();
     sync_init();
     env_init();
     service_init();

@@ -1,6 +1,6 @@
 ---
 name: GPU Display Stack
-overview: "End-to-end grafik: GpuProvider, display.kmod, Reed, Kilim, usermode WM. Backward compat YOK. Legacy dx/gfx silindi. Pipeline DONE; hybrid shell v1 chrome DONE; full app UX parity NEXT. Her oturumda bu plan güncellenir."
+overview: "End-to-end grafik: GpuProvider, display.kmod, Reed, Kilim, usermode WM. Backward compat YOK. Legacy dx/gfx silindi. Pipeline DONE; hybrid shell v1 chrome DONE; restore-app-ux-deep + process memory API landed."
 todos:
   - id: gpu-framework
     content: "DONE — gpu_provider_ops + DRIVER_CLASS_GPU + display→gpu bridge"
@@ -21,7 +21,7 @@ todos:
     content: "DONE — dx/*, mkdx/*, BGA eski yol, gfx.hpp, gx.h, SYS_WM_*/SYS_GX_*, dx_api silindi; gui_stack_ready=display+disp_api"
     status: completed
   - id: migrate-apps
-    content: "DONE (stub) — os-shell/settings/terminal/files/activity-monitor/minesweeper/imgui-demo → wm+kilim smoke stubs"
+    content: "DONE — apps on wm+kilim; files/terminal real; imgui kilim backend"
     status: completed
   - id: input-feed
     content: "DONE — SYS_INPUT_STATE dx'siz; hit/focus usermode WM; present path'te ps2_poll yok"
@@ -39,14 +39,17 @@ todos:
     content: "DONE — docs/graphics-reed-kilim.tr.md + .en.md"
     status: completed
   - id: restore-app-ux
-    content: "DONE (v1) — interactive dock/menu, Fluent+macOS chrome; settings/terminal/files/monitor/mines UI; deeper TTY/FS/imgui NEXT"
+    content: "DONE (v1) — interactive dock/menu, Fluent+macOS chrome; settings/terminal/files/monitor/mines UI"
     status: completed
   - id: harden-lessons
     content: "DONE — static kilim::Context; ustack default 1MiB + exec stack_size; import share; tek GPU QEMU; splash #1A1F2E; atexit stub"
     status: completed
   - id: restore-app-ux-deep
-    content: "NEXT — real FS browser, real TTY, imgui kilim backend polish"
-    status: pending
+    content: "DONE — real FS browser, real TTY, imgui_impl_kilim + mmap heap"
+    status: completed
+  - id: process-memory-api
+    content: "DONE — OpenProcess/RPM/WPM/VirtualAlloc(Ex), driver hooks (proc_audit), userspace+drv mirrors"
+    status: completed
 isProject: false
 ---
 
@@ -58,68 +61,37 @@ isProject: false
 - Her oturumda bu dosyanın `todos` + “İlerleme” güncellenir.
 - Mevcut çalışan stack’i bozmadan ilerlenir (static Context, import-share, tek primary QEMU, WM tek present).
 
-## İlerleme (2026-07-29 — chrome UX + atexit)
+## İlerleme (2026-07-29 — FS/TTY/imgui + process mem)
 
 | Adım | Durum |
 |------|-------|
 | Pipeline + docs + rules | **DONE** |
-| Freestanding `atexit` / `__cxa_atexit` stub | **DONE** |
-| WM Fluent chrome + rounded dock + traffic lights + resize | **DONE** |
-| Interactive dock / menubar launch | **DONE** |
-| Apps visual refresh | **DONE** (v1) |
-| Real TTY / FS / imgui depth | **NEXT** |
+| Real Files (getdents/chdir) | **DONE** |
+| Real Terminal (line buffer + cmds) | **DONE** |
+| imgui_impl_kilim + mmap malloc | **DONE** |
+| OpenProcess / RPM / WPM / VirtualAlloc | **DONE** |
+| Driver open-hook (proc_audit.kmod) | **DONE** |
 
-## Drivers layout
+## Process memory (Windows-like)
 
 ```text
-src/drivers/
-  core/ bus/pci/ console/ input/
-  display/{display.c,gpu.c,display_mod.c,providers/{bga,virtio_gpu}}
-  block/ fs/ vfs/ part/ net/
-include/drivers/{driver.h,bus/,console/,input/,display/,vfs/}
+Userspace:  <user/sdk/process_mem.hpp> + <user/sdk/heap.hpp> + mmap.hpp
+Syscalls:   SYS_OPEN_PROCESS(297) … SYS_QUERY_PROCESS_VM(306)
+Kernel:     src/kernel/proc_mem.c  — handles + permissions + open hooks
+Drivers:    drv_* mirror + proc_register_open_hook (deny → OpenProcess -EACCES)
+Pseudo:     PROCESS_HANDLE_CURRENT (-1) for self without OpenProcess
 ```
-
-## Silinen legacy (kabul)
-
-- `src/drivers/dx/*`, `src/drivers/mkdx/*`
-- `dx_api.*`, `gfx.hpp`, `gx.h`, `gfx.cpp`, `ugx_font.inc`, `bake_ugx_font`
-- Tüm `SYS_WM_*` / `SYS_GX_*`
-- `gui_stack_ready` = `display_active() && disp_api_get()`
-- `klock_gfx` → `klock_disp`
-
-`rg SYS_WM_|SYS_GX_|gfx\.hpp|dx_api|klock_gfx` aktif path’te → **yok**.
 
 ## Aktif stack
 
 ```text
-Apps (stub) → wm::Window + kilim::Context + reed::Device
-                ↓ file IPC /tmp/wm/
-         window-manager (compose + chrome + present)
-                ↓ SYS_DISP_CALL
-         display.kmod → GpuProvider ← display_bga / display_virtio
+Apps → wm::Window + kilim::Context + reed::Device
+         ↓ /tmp/wm
+window-manager → SYS_DISP_CALL → display.kmod → GpuProvider
 ```
 
-### Frame sözleşmesi
+## Sonraki iş
 
-- İstemci: `begin_frame` → draw → `commit_frame` (present yok)
-- WM: compose → `end_frame` (tek scanout)
-- `kilim::Context` **static/BSS/heap** (~3MiB); ustack yasak (default 1 MiB; Context yine sığmaz)
-
-### QEMU
-
-- BGA: `-vga std`
-- Virtio: `-vga virtio` **veya** `-vga none` + `-device virtio-gpu-pci`
-- Yasak: std/default VGA + `virtio-gpu-pci` → siyah ekran
-
-## Cursor rules (güncel)
-
-Tüm `graphics-*.mdc` + `kernel-gui-disk.mdc` (eski `graphics-eng-*` / `gfx-eng-*` rename).
-
-## Docs
-
-- [docs/graphics-reed-kilim.tr.md](../../docs/graphics-reed-kilim.tr.md)
-- [docs/graphics-reed-kilim.en.md](../../docs/graphics-reed-kilim.en.md)
-
-## Sonraki iş (restore-app-ux)
-
-Eski masaüstü UX parity: interactive dock/menubar, settings hub, terminal emulator, files, activity-monitor, minesweeper, imgui Kilim backend. Pipeline’ı bozmadan, stub’ların üzerine yazılacak.
+- ImGui GPU path (kilim textured batches) instead of SW blit
+- Per-process page tables (mmap MAP_FIXED)
+- Richer proc_audit policy (sysfs toggle)

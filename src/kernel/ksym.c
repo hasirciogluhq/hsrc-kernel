@@ -10,6 +10,7 @@
 #include <kernel/epoll.h>
 #include <kernel/initrd_store.h>
 #include <kernel/process.h>
+#include <kernel/proc_mem.h>
 #include <kernel/sync.h>
 #include <kernel/scheduler.h>
 #include <arch/x86/irq.h>
@@ -123,6 +124,20 @@ static const ksym_t g_ksyms[] = {
     { "process_block",      (void *)process_suspend },
     { "process_wake",       (void *)process_wake },
     { "schedule",           (void *)schedule },
+    { "proc_register_open_hook",   (void *)proc_register_open_hook },
+    { "proc_unregister_open_hook", (void *)proc_unregister_open_hook },
+    { "drv_heap_alloc",            (void *)drv_heap_alloc },
+    { "drv_heap_free",             (void *)drv_heap_free },
+    { "drv_vm_alloc_pages",        (void *)drv_vm_alloc_pages },
+    { "drv_vm_free_pages",         (void *)drv_vm_free_pages },
+    { "drv_open_process",          (void *)drv_open_process },
+    { "drv_close_handle",          (void *)drv_close_handle },
+    { "drv_read_process_memory",   (void *)drv_read_process_memory },
+    { "drv_write_process_memory",  (void *)drv_write_process_memory },
+    { "drv_virtual_alloc",         (void *)drv_virtual_alloc },
+    { "drv_virtual_free",          (void *)drv_virtual_free },
+    { "drv_virtual_alloc_ex",      (void *)drv_virtual_alloc_ex },
+    { "drv_virtual_free_ex",       (void *)drv_virtual_free_ex },
     { "irq_timer_ticks",    (void *)irq_timer_ticks },
     { "modules_load_blob",  (void *)modules_load_blob },
     { "module_load_path",   (void *)module_load_path },

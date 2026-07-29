@@ -121,8 +121,19 @@ define_app("activity-monitor", 0x02E00000, {"userspace/activity-monitor/main.cpp
     nil, nil, nil, kGuiLibs)
 define_app("minesweeper", 0x03000000, {"userspace/minesweeper/main.cpp"},
     nil, nil, nil, kGuiLibs)
-define_app("imgui-demo", 0x03200000, {"userspace/imgui-demo/main.cpp"},
-    nil, nil, nil, kGuiLibs)
+define_app("imgui-demo", 0x03200000, {
+    "userspace/imgui-demo/main.cpp",
+    "userspace/imgui-demo/imgui_impl_kilim.cpp",
+    "userspace/imgui-demo/support.cpp",
+    "userspace/imgui-demo/third_party/imgui/imgui.cpp",
+    "userspace/imgui-demo/third_party/imgui/imgui_draw.cpp",
+    "userspace/imgui-demo/third_party/imgui/imgui_tables.cpp",
+    "userspace/imgui-demo/third_party/imgui/imgui_widgets.cpp",
+}, {
+    "userspace/imgui-demo",
+    "userspace/imgui-demo/freestanding",
+    "userspace/imgui-demo/third_party/imgui",
+}, kernel_imgui_cxxflags(), nil, kGuiLibs)
 
 define_app("libfs-demo", 0x03400000, {
     "userspace/libfs-demo/main.cpp",

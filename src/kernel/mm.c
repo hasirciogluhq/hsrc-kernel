@@ -68,15 +68,12 @@ long mm_mmap(process_t *p, uint32_t addr, size_t len, int prot, int flags,
         }
     }
 
-    if (addr)
-        start = addr & ~(PAGE_SIZE - 1);
-    else {
-        start = 0x04000000u; /* default mmap base */
-        for (i = 0; i < VMA_MAX; i++) {
-            if (vmas[i].used && vmas[i].end > start)
-                start = (vmas[i].end + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-        }
-    }
+    /*
+     * Identity AS: VA == backing pointer. Ignore MAP_FIXED hints that cannot
+     * be honored without a real page table; always publish pages as start.
+     */
+    (void)addr;
+    start = (uint32_t)(uintptr_t)pages;
 
     for (i = 0; i < VMA_MAX; i++) {
         if (!vmas[i].used) {
@@ -99,7 +96,6 @@ long mm_mmap(process_t *p, uint32_t addr, size_t len, int prot, int flags,
     vmas[slot].pages = pages;
     vmas[slot].npages = npages;
 
-    /* Identity map: return physical address of backing pages. */
     return (long)(uintptr_t)pages;
 }
 

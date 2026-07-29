@@ -55,13 +55,14 @@ kernel_define_kmod("virtio_net", {"src/drivers/net/virtio_net/*.c"})
 kernel_define_kmod("display_bga", {"src/drivers/display/providers/bga/*.c"})
 kernel_define_kmod("display_virtio", {"src/drivers/display/providers/virtio_gpu/*.c"})
 kernel_define_kmod("display", {"src/drivers/display/display_mod.c"})
+kernel_define_kmod("proc_audit", {"src/drivers/proc_audit/proc_audit.c"})
 
 local KMOD_ORDER = {
     "block", "vfs", "part_gpt", "part_mbr", "ramfs",
     "ramdisk", "loop", "virtio_blk", "fat",
     "tmpfs", "devtmpfs", "procfs", "sysfs", "initrdfs",
     "exfat", "ext", "iso9660", "udf", "ntfs", "ahci", "nvme",
-    "display_bga", "display_virtio", "display", "virtio_net",
+    "display_bga", "display_virtio", "display", "virtio_net", "proc_audit",
 }
 
 target("drivers")
