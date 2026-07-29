@@ -131,12 +131,17 @@ static int has_waiting_ready(process_t *cur, int cpu)
         process_t *p = table[i];
         if (!p || p->is_idle || p == cur)
             continue;
-        /* Only threads sitting in Ready - not Running elsewhere / Suspended. */
-        if (p->state != PROC_READY)
+        /* Ready, or timed-suspend whose wake_tick already elapsed. */
+        if (p->state == PROC_READY) {
+            /* ok */
+        } else if (p->state == PROC_SUSPENDED &&
+                   p->wake_tick != ~(uint64_t)0 && p->wake_tick <= now) {
+            /* ok - will be woken on pick */
+        } else {
             continue;
+        }
         if (!proc_can_run_on(p, cpu, cur))
             continue;
-        (void)now;
         return 1;
     }
     return 0;
@@ -351,6 +356,10 @@ void schedule(void)
         spin_unlock_irqrestore(&g_sched_lock, flags);
         return;
     }
+
+    /* Timed suspend may be picked before wake_sleepers; clear wait metadata. */
+    if (next->state == PROC_SUSPENDED)
+        process_wake(next);
 
     if (cur && cur->state == PROC_RUNNING)
         cur->state = PROC_READY;

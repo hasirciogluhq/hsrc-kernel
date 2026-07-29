@@ -13,6 +13,7 @@ void copy_page_entry(ProcListEntry *dst, const proc_page_entry_t *src)
     dst->ppid = src->ppid;
     dst->state = src->state;
     dst->is_user = src->is_user;
+    dst->thread_count = src->thread_count;
     dst->cpu_ticks = src->cpu_ticks;
     dst->uptime_ticks = src->uptime_ticks;
     dst->mem_bytes = src->mem_bytes;

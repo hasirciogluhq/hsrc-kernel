@@ -1101,8 +1101,9 @@ int process_list_range(proc_list_entry_t *out, size_t max_entries, size_t skip)
             memset(dst, 0, sizeof(*dst));
             dst->pid = p->pid;
             dst->ppid = p->ppid;
-            dst->state = (uint32_t)p->state;
+            dst->state = (uint32_t)process_group_state(p);
             dst->is_user = (uint32_t)p->is_user;
+            dst->thread_count = process_group_thread_count(p);
             dst->cpu_ticks = ticks;
             dst->uptime_ticks = process_uptime_ticks(p, now_ticks);
             dst->stack_bytes = stacks;
@@ -1152,8 +1153,9 @@ int process_stat(pid_t pid, proc_stat_t *out)
     memset(out, 0, sizeof(*out));
     out->pid = p->pid;
     out->ppid = p->ppid;
-    out->state = (uint32_t)p->state;
+    out->state = (uint32_t)process_group_state(p);
     out->is_user = (uint32_t)p->is_user;
+    out->thread_count = process_group_thread_count(p);
     out->cpu_ticks = ticks;
     out->start_ticks = p->start_ticks;
     out->uptime_ticks = process_uptime_ticks(p, now_ticks);

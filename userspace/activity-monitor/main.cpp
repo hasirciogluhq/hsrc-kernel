@@ -39,15 +39,16 @@ constexpr int kRowH = 22;
 constexpr int kVisibleRows = 12;
 constexpr int kHeaderLines = 3;
 constexpr int kListY = ui_panel_body_top(kHeaderLines);
-/* Column X offsets (name, pid, ppid, kind, state, cpu, mem, ticks). */
+/* Column X offsets (name, pid, ppid, kind, state, threads, cpu, mem, ticks). */
 constexpr int kColName = 12;
-constexpr int kColPid = 168;
-constexpr int kColPpid = 214;
-constexpr int kColKind = 260;
-constexpr int kColState = 296;
-constexpr int kColCpu = 388;
-constexpr int kColMem = 452;
-constexpr int kColTicks = 548;
+constexpr int kColPid = 160;
+constexpr int kColPpid = 204;
+constexpr int kColKind = 248;
+constexpr int kColState = 284;
+constexpr int kColThreads = 372;
+constexpr int kColCpu = 420;
+constexpr int kColMem = 480;
+constexpr int kColTicks = 580;
 /* User stacks are 8KiB - keep snapshot buffers in BSS, not on the stack. */
 constexpr int kMaxEntries = 96;
 constexpr int kStatusChars = 128;
@@ -309,6 +310,7 @@ bool refresh_monitor(bool keep_status, bool force = false)
     if (denom == 0 && sample_dt > 0)
         denom = sample_dt;
 
+    /* Wall-clock share: include idle so a lone brief wake is not 100%. */
     uint32_t next_cpu = 0;
     if (have_baseline && denom > 0 && busy_delta > 0) {
         next_cpu = (uint32_t)((busy_delta * 100ull) / denom);
@@ -317,10 +319,14 @@ bool refresh_monitor(bool keep_status, bool force = false)
     }
 
     for (int i = 0; i < count; i++) {
-        if (busy_delta > 0 && have_baseline)
-            g_entries[i].cpu_pct = (uint32_t)(((uint64_t)g_delta_scratch[i] * 100ull) / busy_delta);
-        else
+        if (have_baseline && denom > 0 && g_delta_scratch[i] > 0) {
+            uint32_t pct = (uint32_t)(((uint64_t)g_delta_scratch[i] * 100ull) / denom);
+            if (pct > 100)
+                pct = 100;
+            g_entries[i].cpu_pct = pct;
+        } else {
             g_entries[i].cpu_pct = 0;
+        }
     }
 
     for (int i = 0; i < count; i++) {
@@ -360,6 +366,7 @@ bool refresh_monitor(bool keep_status, bool force = false)
             g_selected_stat.ppid = e.ppid;
             g_selected_stat.state = e.state;
             g_selected_stat.is_user = e.is_user;
+            g_selected_stat.thread_count = e.thread_count;
             g_selected_stat.cpu_ticks = e.cpu_ticks;
             g_selected_stat.uptime_ticks = e.uptime_ticks;
             g_selected_stat.mem_bytes = e.mem_bytes;
@@ -419,6 +426,7 @@ void paint()
     s.text(kColPpid, ui_panel_text_y(2), "ppid", t.text_dim, 1);
     s.text(kColKind, ui_panel_text_y(2), "kind", t.text_dim, 1);
     s.text(kColState, ui_panel_text_y(2), "state", t.text_dim, 1);
+    s.text(kColThreads, ui_panel_text_y(2), "threads", t.text_dim, 1);
     s.text(kColCpu, ui_panel_text_y(2), "cpu%", t.text_dim, 1);
     s.text(kColMem, ui_panel_text_y(2), "memory", t.text_dim, 1);
     s.text(kColTicks, ui_panel_text_y(2), "ticks", t.text_dim, 1);
@@ -438,6 +446,7 @@ void paint()
 
         char pid_text[16];
         char ppid_text[16];
+        char thr_text[16];
         char cpu_text[16];
         char mem_text[32];
         char tick_text[24];
@@ -445,6 +454,9 @@ void paint()
         append_uint(pid_text, sizeof(pid_text), (uint32_t)entry.proc.pid);
         ppid_text[0] = 0;
         append_uint(ppid_text, sizeof(ppid_text), (uint32_t)entry.proc.ppid);
+        thr_text[0] = 0;
+        append_uint(thr_text, sizeof(thr_text),
+                    entry.proc.thread_count ? entry.proc.thread_count : 1u);
         cpu_text[0] = 0;
         append_uint(cpu_text, sizeof(cpu_text), entry.cpu_pct);
         append_text(cpu_text, sizeof(cpu_text), "%");
@@ -460,6 +472,7 @@ void paint()
         s.text(kColPpid, y + row_text_dy, ppid_text, dim, 1);
         s.text(kColKind, y + row_text_dy, entry.proc.is_user ? "user" : "kern", dim, 1);
         s.text(kColState, y + row_text_dy, hsrc::sdk::process::state_name(entry.proc.state), dim, 1);
+        s.text(kColThreads, y + row_text_dy, thr_text, fg, 1);
         s.text(kColCpu, y + row_text_dy, cpu_text, fg, 1);
         s.text(kColMem, y + row_text_dy, mem_text, fg, 1);
         s.text(kColTicks, y + row_text_dy, tick_text, dim, 1);
@@ -482,6 +495,9 @@ void paint()
         append_text(detail, sizeof(detail), g_selected_stat.is_user ? "user" : "kernel");
         append_text(detail, sizeof(detail), "  ");
         append_text(detail, sizeof(detail), hsrc::sdk::process::state_name(g_selected_stat.state));
+        append_text(detail, sizeof(detail), "  threads=");
+        append_uint(detail, sizeof(detail),
+                    g_selected_stat.thread_count ? g_selected_stat.thread_count : 1u);
         s.text(kPad, kWinH - 56, detail, t.text, 1);
 
         stack_txt[0] = 0;
@@ -618,6 +634,7 @@ void handle_click(const Input &in)
         g_selected_stat.ppid = e.ppid;
         g_selected_stat.state = e.state;
         g_selected_stat.is_user = e.is_user;
+        g_selected_stat.thread_count = e.thread_count;
         g_selected_stat.cpu_ticks = e.cpu_ticks;
         g_selected_stat.uptime_ticks = e.uptime_ticks;
         g_selected_stat.mem_bytes = e.mem_bytes;
