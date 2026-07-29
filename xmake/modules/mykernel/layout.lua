@@ -1,4 +1,4 @@
--- Shared initrd / driver ordering
+-- Shared initrd / driver / disk layout
 function kmod_order()
     return {
         "block", "vfs", "part_gpt", "part_mbr", "ramfs", "devtmpfs",
@@ -8,9 +8,21 @@ function kmod_order()
     }
 end
 
-function app_mke_names()
+-- Only init stays in initrd (RAM). Everything else is on the FAT disk.
+function initrd_mke_names()
+    return {"init"}
+end
+
+function disk_mke_names()
     return {
-        "init", "systemd", "window-manager", "os-shell", "os-settings",
+        "systemd", "window-manager", "os-shell", "os-settings",
         "terminal", "files", "activity-monitor", "minesweeper", "imgui-demo",
     }
+end
+
+function app_mke_names()
+    local t = {}
+    for _, n in ipairs(initrd_mke_names()) do table.insert(t, n) end
+    for _, n in ipairs(disk_mke_names()) do table.insert(t, n) end
+    return t
 end

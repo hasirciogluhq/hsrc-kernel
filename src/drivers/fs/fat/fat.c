@@ -15,11 +15,11 @@
  *     first-cluster / size fields.
  *   - Writes go through the block API sector by sector.
  *
- * readdir returns the 8.3 short name for each entry (long file name
- * entries are recognized and skipped - we always report the short
- * name in that case).
+ * readdir returns the VFAT long name when present, otherwise the 8.3
+ * short name. Lookup matches either form.
  *
- * File create is supported (8.3 short names). Not implemented:
+ * File create is supported (8.3 short names only). Host tool pack_fat
+ * writes LFN+short entries for long application names. Not implemented:
  * mkdir/rmdir/rename/unlink.
  */
 
@@ -249,6 +249,7 @@ static int name_to_fat83(const char *name, uint8_t out[11])
     if (!name || !name[0] || name[0] == '.')
         return -EINVAL;
     nlen = strlen(name);
+    /* Short-name create only; long names use LFN on disk (host pack_fat). */
     if (nlen >= 13)
         return -ENAMETOOLONG;
     memset(out, ' ', 11);
@@ -291,6 +292,23 @@ static int name_eq(const char *a, const char *b)
     return *a == *b;
 }
 
+/* Decode one VFAT LFN entry into utf8-ish (ASCII subset) slots. */
+static void lfn_entry_extract(const uint8_t *ent, char *out, size_t out_cap, int start)
+{
+    static const int pos[] = {1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30};
+    int i;
+    for (i = 0; i < 13; i++) {
+        uint16_t ch = (uint16_t)(ent[pos[i]] | (ent[pos[i] + 1] << 8));
+        size_t idx = (size_t)(start + i);
+        if (ch == 0 || ch == 0xFFFF)
+            break;
+        if (idx + 1 >= out_cap)
+            break;
+        out[idx] = (ch < 128) ? (char)ch : '?';
+        out[idx + 1] = 0;
+    }
+}
+
 /* ---------------- Directory iteration ---------------- */
 
 /*
@@ -299,34 +317,59 @@ static int name_eq(const char *a, const char *b)
  * directory entry buffer plus the sector LBA and offset it lives at,
  * so it can update size and first-cluster fields when writing.
  *
+ * lfn is the reconstructed long name when VFAT LFN entries precede the
+ * short entry; otherwise NULL (caller should use 8.3).
+ *
  * Return 1 from cb to stop iteration.
  */
-typedef int (*fat_ent_cb)(void *ctx, const uint8_t *ent, uint32_t sec_lba,
-                          uint32_t off_in_sec, uint32_t containing_cluster);
+typedef int (*fat_ent_cb)(void *ctx, const uint8_t *ent, const char *lfn,
+                          uint32_t sec_lba, uint32_t off_in_sec,
+                          uint32_t containing_cluster);
 
 static int fat_scan_dir_root_area(fat_fs_t *fs, fat_ent_cb cb, void *ctx)
 {
     uint32_t root_secs = (fs->root_ents * 32 + fs->bytes_per_sec - 1) / fs->bytes_per_sec;
     uint32_t root_lba  = fs->reserved + fs->fats * fs->fat_sectors;
     uint8_t *sec = (uint8_t *)kmalloc(512);
+    char lfn[256];
+    int lfn_active = 0;
     uint32_t i;
     uint32_t e;
 
     if (!sec) return -ENOMEM;
+    lfn[0] = 0;
     for (i = 0; i < root_secs; i++) {
         if (fat_read_sector(fs, root_lba + i, sec) < 0)
             return -EIO;
         for (e = 0; e < 512; e += 32) {
             if (sec[e] == 0)
                 return 0;
-            if (sec[e] == 0xE5)
+            if (sec[e] == 0xE5) {
+                lfn_active = 0;
+                lfn[0] = 0;
                 continue;
-            if ((sec[e + 11] & 0x0F) == 0x0F)
-                continue; /* LFN */
-            if (sec[e + 11] & 0x08)
+            }
+            if ((sec[e + 11] & 0x0F) == 0x0F) {
+                int seq = sec[e] & 0x1F;
+                int ord = seq - 1;
+                if (sec[e] & 0x40) {
+                    memset(lfn, 0, sizeof(lfn));
+                    lfn_active = 1;
+                }
+                if (lfn_active && ord >= 0 && seq <= 20)
+                    lfn_entry_extract(sec + e, lfn, sizeof(lfn), ord * 13);
+                continue;
+            }
+            if (sec[e + 11] & 0x08) {
+                lfn_active = 0;
+                lfn[0] = 0;
                 continue; /* volume label */
+            }
             {
-                int rc = cb(ctx, sec + e, root_lba + i, e, 0);
+                const char *ln = (lfn_active && lfn[0]) ? lfn : NULL;
+                int rc = cb(ctx, sec + e, ln, root_lba + i, e, 0);
+                lfn_active = 0;
+                lfn[0] = 0;
                 if (rc)
                     return rc;
             }
@@ -339,9 +382,12 @@ static int fat_scan_dir_cluster_chain(fat_fs_t *fs, uint32_t start_clust,
                                       fat_ent_cb cb, void *ctx)
 {
     uint8_t *sec = (uint8_t *)kmalloc(512);
+    char lfn[256];
+    int lfn_active = 0;
     uint32_t cl = start_clust;
 
     if (!sec) return -ENOMEM;
+    lfn[0] = 0;
     while (cl >= 2 && cl < 0x0FFFFFF8u) {
         uint32_t s;
         for (s = 0; s < fs->sec_per_clust; s++) {
@@ -352,14 +398,32 @@ static int fat_scan_dir_cluster_chain(fat_fs_t *fs, uint32_t start_clust,
             for (e = 0; e < 512; e += 32) {
                 if (sec[e] == 0)
                     return 0;
-                if (sec[e] == 0xE5)
+                if (sec[e] == 0xE5) {
+                    lfn_active = 0;
+                    lfn[0] = 0;
                     continue;
-                if ((sec[e + 11] & 0x0F) == 0x0F)
+                }
+                if ((sec[e + 11] & 0x0F) == 0x0F) {
+                    int seq = sec[e] & 0x1F;
+                    int ord = seq - 1;
+                    if (sec[e] & 0x40) {
+                        memset(lfn, 0, sizeof(lfn));
+                        lfn_active = 1;
+                    }
+                    if (lfn_active && ord >= 0 && seq <= 20)
+                        lfn_entry_extract(sec + e, lfn, sizeof(lfn), ord * 13);
                     continue;
-                if (sec[e + 11] & 0x08)
+                }
+                if (sec[e + 11] & 0x08) {
+                    lfn_active = 0;
+                    lfn[0] = 0;
                     continue;
+                }
                 {
-                    int rc = cb(ctx, sec + e, lba, e, cl);
+                    const char *ln = (lfn_active && lfn[0]) ? lfn : NULL;
+                    int rc = cb(ctx, sec + e, ln, lba, e, cl);
+                    lfn_active = 0;
+                    lfn[0] = 0;
                     if (rc)
                         return rc;
                 }
@@ -391,14 +455,14 @@ typedef struct {
     uint32_t    ent_off;
 } fat_lookup_ctx_t;
 
-static int fat_lookup_cb(void *ctx, const uint8_t *ent, uint32_t sec_lba,
-                         uint32_t off_in_sec, uint32_t cclust)
+static int fat_lookup_cb(void *ctx, const uint8_t *ent, const char *lfn,
+                         uint32_t sec_lba, uint32_t off_in_sec, uint32_t cclust)
 {
     fat_lookup_ctx_t *c = (fat_lookup_ctx_t *)ctx;
     char nm[16];
     (void)cclust;
     fat83_to_name(ent, nm);
-    if (name_eq(nm, c->want)) {
+    if ((lfn && name_eq(lfn, c->want)) || name_eq(nm, c->want)) {
         uint16_t lo = *(uint16_t *)(ent + 26);
         uint16_t hi = *(uint16_t *)(ent + 20);
         c->first_clust = ((uint32_t)hi << 16) | lo;
@@ -420,17 +484,19 @@ typedef struct {
     size_t        written;
 } fat_readdir_ctx_t;
 
-static int fat_readdir_cb(void *ctx, const uint8_t *ent, uint32_t sec_lba,
-                          uint32_t off_in_sec, uint32_t cclust)
+static int fat_readdir_cb(void *ctx, const uint8_t *ent, const char *lfn,
+                          uint32_t sec_lba, uint32_t off_in_sec, uint32_t cclust)
 {
     fat_readdir_ctx_t *c = (fat_readdir_ctx_t *)ctx;
     char nm[16];
+    const char *use;
     (void)sec_lba; (void)off_in_sec; (void)cclust;
     if (c->written >= c->max)
         return 1;
     fat83_to_name(ent, nm);
-    if (nm[0] == 0) return 0;
-    strncpy(c->out[c->written].name, nm, sizeof(c->out[c->written].name) - 1);
+    use = (lfn && lfn[0]) ? lfn : nm;
+    if (!use[0]) return 0;
+    strncpy(c->out[c->written].name, use, sizeof(c->out[c->written].name) - 1);
     c->out[c->written].name[sizeof(c->out[c->written].name) - 1] = 0;
     c->out[c->written].type = (ent[11] & 0x10) ? S_IFDIR : S_IFREG;
     {
@@ -917,15 +983,16 @@ static int fat_init(driver_t *drv, void *ctx)
     (void)api->register_filesystem(&g_vfat);
     vga_print("fat: registered\n");
 
-    /* Persist /root on virtio disk when present (raw FAT on vda). */
+    /* Applications live on the virtio disk (FAT), not initrd RAM. */
     if (api->mount && api->mkdir) {
+        (void)api->mkdir("/applications", 0755);
         (void)api->mkdir("/root", 0755);
-        if (api->mount("vda", "/root", "fat", 0, NULL) == 0)
-            vga_print("fat: mounted vda -> /root (persistent)\n");
-        else if (api->mount("vda", "/root", "vfat", 0, NULL) == 0)
-            vga_print("fat: mounted vda -> /root (vfat, persistent)\n");
+        if (api->mount("vda", "/applications", "fat", 0, NULL) == 0)
+            vga_print("fat: mounted vda -> /applications (on-disk apps)\n");
+        else if (api->mount("vda", "/applications", "vfat", 0, NULL) == 0)
+            vga_print("fat: mounted vda -> /applications (vfat)\n");
         else
-            vga_print("fat: vda not mounted - /root is RAM only!\n");
+            vga_print("fat: vda not mounted - /applications unavailable!\n");
     }
     return 0;
 }

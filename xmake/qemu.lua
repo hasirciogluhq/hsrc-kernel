@@ -5,6 +5,7 @@ local BUILD = path.join(ROOT, "build")
 for _, t in ipairs({
     {"pack_initrd", "tools/pack_initrd.c"},
     {"pack_mke", "tools/pack_mke.c"},
+    {"pack_fat", "tools/pack_fat.c"},
     {"mkfatimg", "tools/mkfatimg.c"},
 }) do
     target(t[1])
@@ -16,10 +17,11 @@ for _, t in ipairs({
         set_filename(t[1])
 end
 
+-- Initrd: kmods + init.mke only (apps live on disk).
 target("initrd")
     set_kind("phony")
     set_default(true)
-    add_deps("drivers", "userspace", "pack_initrd")
+    add_deps("drivers", "app-init", "pack_initrd")
     after_build(function (target)
         import("mykernel.layout")
         local packer = path.join(BUILD, "tools", "pack_initrd")
@@ -29,32 +31,39 @@ target("initrd")
         for _, n in ipairs(layout.kmod_order()) do
             table.insert(args, path.join(BUILD, "drivers", n .. ".kmod"))
         end
-        for _, n in ipairs(layout.app_mke_names()) do
+        for _, n in ipairs(layout.initrd_mke_names()) do
             table.insert(args, path.join(BUILD, "userspace", n, n .. ".mke"))
         end
-        table.insert(args, path.join(ROOT, "assets/os/wallpaper-default.bmp"))
+        os.execv(packer, args)
+    end)
+
+-- Disk: recreate FAT and install userspace binaries + assets.
+target("disk")
+    set_kind("phony")
+    set_default(true)
+    add_deps("mkfatimg", "pack_fat", "userspace")
+    after_build(function (target)
+        import("mykernel.layout")
+        local img = path.join(ROOT, "disk.img")
+        local mkfat = path.join(BUILD, "tools", "mkfatimg")
+        local packer = path.join(BUILD, "tools", "pack_fat")
+        os.execv(mkfat, {img, "64"})
+        local args = {img}
+        for _, n in ipairs(layout.disk_mke_names()) do
+            local src = path.join(BUILD, "userspace", n, n .. ".mke")
+            table.insert(args, src .. ":" .. n .. ".mke")
+        end
+        table.insert(args, path.join(ROOT, "assets/os/wallpaper-default.bmp") .. ":wallpaper-default.bmp")
         for _, ic in ipairs({
             "theme-sun.svg", "theme-moon.svg", "status-wifi.svg",
             "status-wifi-off.svg", "status-battery.svg", "status-bolt.svg",
         }) do
-            table.insert(args, path.join(ROOT, "assets/os/icons", ic))
+            table.insert(args, path.join(ROOT, "assets/os/icons", ic) .. ":" .. ic)
         end
-        local env_asset = path.join(BUILD, "environment")
-        os.cp(path.join(ROOT, "assets/etc/environment"), env_asset)
-        table.insert(args, env_asset)
-        table.insert(args, path.join(ROOT, "userspace/systemd/units/window-manager.service"))
-        table.insert(args, path.join(ROOT, "userspace/systemd/units/os-shell.service"))
+        table.insert(args, path.join(ROOT, "assets/etc/environment") .. ":environment")
+        table.insert(args, path.join(ROOT, "userspace/systemd/units/window-manager.service") .. ":window-manager.service")
+        table.insert(args, path.join(ROOT, "userspace/systemd/units/os-shell.service") .. ":os-shell.service")
         os.execv(packer, args)
-    end)
-
-target("disk")
-    set_kind("phony")
-    set_default(true)
-    add_deps("mkfatimg")
-    after_build(function (target)
-        local img = path.join(ROOT, "disk.img")
-        if os.isfile(img) then return end
-        os.execv(path.join(BUILD, "tools", "mkfatimg"), {img, "64"})
     end)
 
 -- Wire QEMU into `xmake run` (builtin runs the default binary target = kernel).
@@ -65,7 +74,6 @@ target("kernel")
         qemu.run_qemu()
     end)
 
--- Optional alias: `xmake qemu`
 target("qemu")
     set_kind("phony")
     set_default(false)

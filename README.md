@@ -109,12 +109,13 @@ Open it from the dock after `xmake run`. Theme follows system settings. Flex opt
 
 ```bash
 xmake f -p cross -a i386 --cross=i686-elf-   # once; SDK auto-detected from PATH
-xmake                                        # kernel.bin + kmods + userspace + initrd
+xmake                                        # kernel.bin + kmods + userspace + disk.img
 xmake run                                    # QEMU: 1G RAM, -smp 3, virtio disk+net, serial on stdio
 xmake clean
 xmake project -k compile_commands            # clangd
 ```
 
+Boot: kernel loads kmods from initrd, mounts `disk.img` (FAT) at `/applications`, spawns **init** from initrd → **systemd** (disk) → **window-manager** + **os-shell**. Apps are on-disk binaries, not kept in RAM.
 Serial goes to your terminal. GUI is the VGA window. Smash apps from the dock.
 
 ---

@@ -8,8 +8,10 @@
 #include <kernel/errno.h>
 
 /*
- * Minimal userspace service manager.
- * Starts critical session units, then respawns them if they die.
+ * Minimal userspace service manager (PID1's child).
+ * Starts session units from the on-disk /applications tree, then
+ * respawns them if they die. Kernel only boots init; init only
+ * starts systemd; systemd owns window-manager + os-shell (+ more later).
  */
 
 namespace {

@@ -119,16 +119,17 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
 
     if (env_load_initrd() < 0)
         klog("[boot] env_load_initrd failed (using defaults)\n");
-    if (env_load_file("/etc/environment") < 0)
-        klog("[boot] no /etc/environment on disk\n");
+    /* Disk apps are mounted at /applications by the fat kmod (vda). */
+    if (env_load_file("/applications/environment") < 0 &&
+        env_load_file("/etc/environment") < 0)
+        klog("[boot] no environment file on disk\n");
 
     {
-        int rc = vfs_mkdir("/applications", 0755);
-        if (rc < 0 && rc != -EEXIST)
-            klog("[boot] mkdir /applications failed\n");
-        rc = vfs_mount("initrd", "/applications", "initrdfs", MS_RDONLY, NULL);
-        if (rc < 0)
-            klog("[boot] mount /applications initrdfs failed\n");
+        int fd = vfs_open("/applications", O_RDONLY);
+        if (fd < 0)
+            klog("[boot] /applications missing - disk apps not mounted\n");
+        else
+            (void)vfs_close(fd);
     }
 
     if (!display_active()) {
