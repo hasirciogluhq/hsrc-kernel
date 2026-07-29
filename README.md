@@ -110,7 +110,7 @@ Open it from the dock after `xmake run`. Theme follows system settings. Flex opt
 ```bash
 xmake f -p cross -a i386 --cross=i686-elf-   # once; SDK auto-detected from PATH
 xmake                                        # kernel.bin + kmods + userspace + disk.img
-xmake run                                    # QEMU: 1G RAM, -smp 3, virtio disk+net, serial on stdio
+xmake run                                    # QEMU: 1G RAM, -smp 6, virtio disk+net, serial on stdio
 xmake clean
 xmake project -k compile_commands            # clangd
 ```

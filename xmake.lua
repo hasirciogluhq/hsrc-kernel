@@ -11,8 +11,9 @@ set_config("cross", "i686-elf-")
 
 -- Auto-detect Homebrew / PATH prefix for i686-elf-gcc when --sdk is unset.
 on_config(function ()
+    import("core.project.config")
     import("lib.detect.find_tool")
-    if get_config("sdk") and get_config("sdk") ~= "" then
+    if config.get("sdk") and config.get("sdk") ~= "" then
         return
     end
     local gcc = find_tool("i686-elf-gcc")
@@ -22,7 +23,7 @@ on_config(function ()
     local bindir = path.directory(gcc.program)
     local sdk = path.directory(bindir)
     if sdk and sdk ~= "" then
-        set_config("sdk", sdk)
+        config.set("sdk", sdk)
     end
 end)
 
