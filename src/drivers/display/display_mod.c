@@ -16,13 +16,9 @@
 /*
  * display.kmod — Reed resource orchestrator + command translator.
  *
- * Reed DISP_CMD_* → gpu_cmd_* views → GpuProvider gpu_submit (virtio ring).
- * No CPU raster / soft-GPU path.
- *
- * Lock: callers enter via disp_api (klock_disp). Tables are single-threaded
- * under that lock; no extra spinlock needed for table mutations.
- *
- * Handles: (generation << 16) | index ; generation starts at 1.
+ * Reed DISP_CMD_* → gpu_cmd_* (resolved views) → GpuProvider gpu_submit.
+ * Renderer backend lives in the provider (virtio: VirGL or CPU rast).
+ * display.kmod does not rasterize.
  */
 
 #define DISP_MAX_BUF 256
@@ -275,12 +271,12 @@ static long op_info(disp_info *out) {
     display_ops_t *d = display_active();
     if (!d || d->get_mode(&mode) < 0)
       return -1;
-        out->caps = GPU_CAP_SCANOUT;
-        out->hw_accel_available = 0;
-    } else {
-        out->caps = gpu->caps;
-        out->hw_accel_available = gpu->gpu_submit ? 1u : 0u;
-    }
+    out->caps = GPU_CAP_SCANOUT;
+    out->hw_accel_available = 0;
+  } else {
+    out->caps = gpu->caps;
+    out->hw_accel_available = gpu->gpu_submit ? 1u : 0u;
+  }
   out->width = mode.width;
   out->height = mode.height;
   out->bpp = mode.bpp;
@@ -1121,10 +1117,10 @@ static long op_submit(disp_submit *a, uint32_t pid) {
   if (gpu_size == 0)
     return 0;
 
-    /* Always provider ring path — no CPU fill fallback. */
-    rc = gpu->gpu_submit(gpu, g_gpu_cmd_scratch, gpu_size);
-    if (rc < 0)
-        return rc;
+  /* Always forward to provider — renderer backend is inside virtio/BGA. */
+  rc = gpu->gpu_submit(gpu, g_gpu_cmd_scratch, gpu_size);
+  if (rc < 0)
+    return rc;
   if (a->fence) {
     disp_handle_arg f;
     f.handle = a->fence;

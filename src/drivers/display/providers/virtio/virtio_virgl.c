@@ -1204,6 +1204,10 @@ int virtio_virgl_init(virtio_ring_t *ring, virtio_scanout_t *so)
 {
     if (!ring || !so)
         return -1;
+    if (!virtio_ring_has_virgl()) {
+        vga_print("virgl: skip (feature not negotiated)\n");
+        return -1;
+    }
 
     memset(&g_vg, 0, sizeof(g_vg));
     g_vg.ring = ring;
@@ -1357,7 +1361,7 @@ int virtio_virgl_exec(const void *gpu_cmds, uint32_t size)
             break;
         }
         case GPU_CMD_PRESENT:
-            return -1; /* virtio_cmd owns present */
+            return -1; /* virtio_gpu owns present */
         default:
             return -1;
         }

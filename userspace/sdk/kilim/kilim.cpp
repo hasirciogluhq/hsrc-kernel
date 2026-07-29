@@ -687,11 +687,12 @@ int Context::end_frame()
         return -1;
     flush();
     cmd_.end();
-    (void)cmd_.submit(nullptr);
+    int src = cmd_.submit(nullptr);
     release_frame_bufs();
-    int rc = cmd_.present(target_, nullptr);
     frame_open_ = false;
-    return rc;
+    if (src < 0)
+        return src;
+    return cmd_.present(target_, nullptr);
 }
 
 void Context::fill_rect(int x, int y, int w, int h, uint32_t color)

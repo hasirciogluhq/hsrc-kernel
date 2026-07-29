@@ -195,6 +195,10 @@ static int negotiate_features(virtio_ring_t *vr)
         vga_print("virtio: FEATURES_OK rejected\n");
         return -1;
     }
+    if (g_gpu_features_lo & (1u << VIRTIO_GPU_F_VIRGL))
+        vga_print("virtio: VIRGL feature ok\n");
+    else
+        vga_print("virtio: VIRGL feature missing (need virtio-gpu-gl + virglrenderer)\n");
     return 0;
 }
 
