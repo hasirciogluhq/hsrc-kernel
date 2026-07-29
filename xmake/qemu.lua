@@ -43,12 +43,14 @@ target("initrd")
     end)
 
 --[[
-  Dev disk image layout (FAT on vda):
-    /.osdisk/system/bin/*.exec       → bind /system
-    /.osdisk/system/lib/*.dynlib     → dynamic userspace libraries
-    /.osdisk/applications/*.exec     → bind /applications
-    /.osdisk/system/share/...        assets
-    /.osdisk/system/etc/environment
+  Dev disk image layout (FAT on vda = /):
+    /init                     PID1
+    /system/bin/*.exec        OS / GUI package
+    /system/lib/*.dynlib      dynamic libraries
+    /system/share/...         assets
+    /system/etc/environment
+    /applications/*.exec      user apps
+  Virtual mounts on top after boot: /dev /proc /sys /tmp
 ]]
 target("disk")
     set_kind("phony")
@@ -63,6 +65,8 @@ target("disk")
         local size_mb = os.getenv("DISK_SIZE_MB") or "64"
         os.execv(mkfat, {img, size_mb})
         local args = {img}
+        -- PID1 lives on the root disk like Linux /init
+        table.insert(args, path.join(BUILD, "userspace/init/init.exec") .. ":init.exec")
         for _, n in ipairs(layout.system_exec_names()) do
             local src = path.join(BUILD, "userspace", n, n .. ".exec")
             table.insert(args, src .. ":system/bin/" .. n .. ".exec")

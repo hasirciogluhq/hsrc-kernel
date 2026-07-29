@@ -8,8 +8,8 @@ alwaysApply: true
 ## Kernel is standalone
 
 - The kernel must boot and remain usable **without** a GUI stack.
-- Do **not** halt if `display_active()` or `mkdx_api_get()` / DX is missing.
-- **GUI mode**: display driver + DX/mkdx loaded → splash → hand off to `/init`.
+- Do **not** halt if `display_active()` or DX is missing.
+- **GUI mode**: display driver + DX loaded → splash → hand off to `/init`.
 - **Console mode**: no GUI stack (or no `/init`) → `kshell` (VGA/keyboard console).
 - Kernel never spawns session apps (WM, shell, terminal). Only `/init` (or kshell).
 
@@ -19,22 +19,29 @@ alwaysApply: true
 |---------|------------------|----------|
 | Kernel + kmods | `kernel.bin` + initrd | core OS, drivers, optional PID1 blob `init` |
 | System / GUI | `/system/bin`, `/system/share`, `/system/etc` | window-manager, os-shell, terminal, files, settings, icons |
-| User apps | `/applications` | minesweeper, imgui-demo, third-party `.mke` |
+| User apps | `/applications` | minesweeper, imgui-demo, third-party `.exec` |
+| Dynlibs | `/system/lib` | `*.dynlib` |
 
 - No window-manager / no DX → **no GUI**; console works.
 - PATH default: `/system/bin:/applications`.
-- Executables use `.mke` (MKE1); bare names resolve via PATH.
+- Executables use `.exec`; bare names resolve via PATH.
 
-## Disk image (dev)
+## Disk image (dev) — Linux-like FHS
 
-- Single FAT `disk.img` (vda) mounted at `/.osdisk`, bind-mounted to `/system` and `/applications`.
+- Single FAT `disk.img` (vda) is mounted as **`/`** (real root).
+- Virtual FS on top: `/dev` (devtmpfs), `/proc` (procfs), `/sys` (sysfs), `/tmp` (tmpfs).
+- No `/.osdisk`, no bind mounts for `/system` or `/applications`.
 - After build, install artifacts with:
   - `scripts/dev-disk-install.sh` (or `xmake build disk` / `disk-install`)
   - then `xmake run`
-- `pack_fat` accepts `host:disk/path` including directories (`system/bin/foo.mke`).
+
+## Identity
+
+- Root-only for now: no multi-user, no cgroup, no permission enforcement.
+- `getuid` / `geteuid` always return 0.
 
 ## Init
 
-- Conventional PID1 path is **`/init`** (not under `/applications`).
+- Conventional PID1 path is **`/init`** (on the root disk; initrd can still seed it).
 - Default `/init` starts system session units from PATH (`window-manager`, `os-shell`).
 - User apps are never started by kernel or as hard-coded PID1 defaults.

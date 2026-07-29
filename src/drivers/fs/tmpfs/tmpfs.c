@@ -292,7 +292,13 @@ static int tmpfs_init(driver_t *drv, void *ctx)
     alloc_dentry = (dentry_t *(*)(const char *, dentry_t *, inode_t *))api->alloc_dentry;
     if (api->register_filesystem(&g_fs) < 0)
         return -1;
-    vga_print("tmpfs: registered\n");
+    /* Linux-like: /tmp is a tmpfs on top of the disk root. */
+    if (api->mkdir)
+        (void)api->mkdir("/tmp", 0755);
+    if (api->mount && api->mount("tmpfs", "/tmp", "tmpfs", 0, NULL) == 0)
+        vga_print("tmpfs: mounted /tmp\n");
+    else
+        vga_print("tmpfs: registered\n");
     return 0;
 }
 

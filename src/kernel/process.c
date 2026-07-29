@@ -378,7 +378,7 @@ static process_t *alloc_process(const char *name)
             p->euid = lead->euid;
             strncpy(p->cwd, lead->cwd, sizeof(p->cwd) - 1);
         } else {
-            /* Default credentials: root. Shell / desktop spawn with full rights. */
+            /* Default credentials: root-only kernel (no multi-user). */
             p->uid = 0;
             p->euid = 0;
             strcpy(p->cwd, "/");

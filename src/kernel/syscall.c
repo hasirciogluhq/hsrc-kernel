@@ -830,16 +830,17 @@ static long do_getdents(long fd, long buf, long count)
     return n;
 }
 
+/* Root-only kernel: no multi-user identity. Always uid 0. */
 static long do_getuid(void)
 {
-    process_t *p = process_current();
-    return p ? (long)p->uid : 0;
+    (void)process_current();
+    return 0;
 }
 
 static long do_geteuid(void)
 {
-    process_t *p = process_current();
-    return p ? (long)p->euid : 0;
+    (void)process_current();
+    return 0;
 }
 
 static long do_mount(long source, long target, long fstype, long flags, long data)

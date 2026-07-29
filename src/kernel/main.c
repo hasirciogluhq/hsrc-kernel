@@ -119,7 +119,7 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
 
     if (env_load_initrd() < 0)
         klog("[boot] env_load_initrd failed (using defaults)\n");
-    /* Disk: /.osdisk with bind mounts /system + /applications (fat kmod). */
+    /* Disk is / (FAT); env files live under the on-disk FHS. */
     if (env_load_file("/system/etc/environment") < 0 &&
         env_load_file("/applications/environment") < 0 &&
         env_load_file("/etc/environment") < 0)

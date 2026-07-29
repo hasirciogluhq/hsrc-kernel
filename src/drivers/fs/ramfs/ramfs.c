@@ -395,17 +395,13 @@ static int ramfs_init(driver_t *drv, void *ctx)
     alloc_dentry = (dentry_t *(*)(const char *, dentry_t *, inode_t *))api->alloc_dentry;
     if (api->register_filesystem(&g_ramfs) < 0)
         return -1;
+    /*
+     * Early temporary root (like Linux rootfs/initramfs). FAT later replaces
+     * "/" with the real disk. Virtual FS kmods must run after FAT.
+     */
     if (api->mount(NULL, "/", "ramfs", 0, NULL) < 0)
         return -1;
-    if (api->mkdir) {
-        (void)api->mkdir("/root", 0755);
-        (void)api->mkdir("/home", 0755);
-        (void)api->mkdir("/tmp", 0755);
-        (void)api->mkdir("/etc", 0755);
-        (void)api->mkdir("/usr", 0755);
-        (void)api->mkdir("/var", 0755);
-    }
-    vga_print("ramfs: mounted /\n");
+    vga_print("ramfs: early / (replaced by disk root)\n");
     return 0;
 }
 

@@ -59,8 +59,9 @@ kernel_define_kmod("display_virtio", {"src/drivers/display/virtio_gpu/*.c"})
 kernel_define_kmod("dx", {"src/drivers/dx/*.c"})
 
 local KMOD_ORDER = {
-    "block", "vfs", "part_gpt", "part_mbr", "ramfs", "devtmpfs",
-    "ramdisk", "loop", "virtio_blk", "fat", "tmpfs", "procfs", "sysfs", "initrdfs",
+    "block", "vfs", "part_gpt", "part_mbr", "ramfs",
+    "ramdisk", "loop", "virtio_blk", "fat",
+    "tmpfs", "devtmpfs", "procfs", "sysfs", "initrdfs",
     "exfat", "ext", "iso9660", "udf", "ntfs", "ahci", "nvme",
     "display_bga", "display_virtio", "dx", "virtio_net",
 }
