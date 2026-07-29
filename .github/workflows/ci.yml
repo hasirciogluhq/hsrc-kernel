@@ -14,25 +14,23 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache xmake + build
-        uses: actions/cache@v4
+      - uses: xmake-io/github-action-setup-xmake@v1
         with:
-          path: |
-            ~/.local/bin/xmake
-            ~/.local/share/xmake
-            .xmake
-            build/.build_cache
-          key: hsrc-xmake-${{ hashFiles('xmake.lua', 'xmake/**/*.lua', 'userspace/**/xmake.lua') }}-${{ github.sha }}
-          restore-keys: |
-            hsrc-xmake-${{ hashFiles('xmake.lua', 'xmake/**/*.lua', 'userspace/**/xmake.lua') }}-
-            hsrc-xmake-
+          xmake-version: latest
+          actions-cache-folder: .xmake-cache
+          build-cache: true
 
-      - name: Setup
-        run: bash scripts/ci-install-deps.sh
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm qemu-system-x86 \
+            gcc-i686-linux-gnu g++-i686-linux-gnu binutils-i686-linux-gnu
+          for t in gcc g++ ld objcopy nm ar as ranlib strip; do
+            sudo ln -sf "$(command -v i686-linux-gnu-$t)" /usr/local/bin/i686-elf-$t
+          done
 
       - name: Build
         run: |
@@ -46,9 +44,8 @@ jobs:
         if: github.event_name != 'pull_request'
         run: bash scripts/pack-release.sh --skip-build "ci-${GITHUB_SHA::7}"
 
-      - name: Upload artifacts
+      - uses: actions/upload-artifact@v4
         if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v4
         with:
           name: hsrc-ci-${{ github.sha }}
           path: |
@@ -56,9 +53,8 @@ jobs:
             dist/*.sha256
           retention-days: 14
 
-      - name: Upload smoke log on failure
+      - uses: actions/upload-artifact@v4
         if: failure()
-        uses: actions/upload-artifact@v4
         with:
           name: smoke-log-${{ github.sha }}
           path: build/smoke-boot.log

@@ -11,7 +11,6 @@ on:
         type: string
       prerelease:
         description: "Pre-release?"
-        required: false
         type: boolean
         default: false
 
@@ -22,17 +21,28 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-env:
-  DISK_SIZE_MB: "32"
-
 jobs:
   release:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: latest
+          actions-cache-folder: .xmake-cache
+          build-cache: true
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm qemu-system-x86 \
+            gcc-i686-linux-gnu g++-i686-linux-gnu binutils-i686-linux-gnu
+          for t in gcc g++ ld objcopy nm ar as ranlib strip; do
+            sudo ln -sf "$(command -v i686-linux-gnu-$t)" /usr/local/bin/i686-elf-$t
+          done
 
       - name: Version
         id: ver
@@ -51,28 +61,16 @@ jobs:
             echo "prerelease=false" >>"$GITHUB_OUTPUT"
           fi
 
-      - name: Cache xmake
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.local/bin/xmake
-            ~/.local/share/xmake
-          key: hsrc-xmake-bin-v1
-          restore-keys: hsrc-xmake-bin-
-
-      - name: Setup
-        run: bash scripts/ci-install-deps.sh
-
       - name: Build
         run: |
           xmake f -y -p cross -a i386 --cross=i686-elf-
-          xmake -j"$(nproc)"
+          DISK_SIZE_MB=32 xmake -j"$(nproc)"
 
       - name: Smoke boot
         run: bash scripts/smoke-boot.sh 40
 
       - name: Pack
-        run: bash scripts/pack-release.sh --skip-build "${{ steps.ver.outputs.version }}"
+        run: DISK_SIZE_MB=32 bash scripts/pack-release.sh --skip-build "${{ steps.ver.outputs.version }}"
 
       - name: Ensure tag
         if: github.event_name == 'workflow_dispatch'
@@ -87,20 +85,6 @@ jobs:
           TAG="${{ steps.ver.outputs.tag }}"
           VER="${{ steps.ver.outputs.version }}"
           NAME="hsrc-kernel-${VER}"
-          NOTES="hsrc-kernel ${VER}
-
-          \`\`\`bash
-          tar -xzf ${NAME}.tar.gz && cd ${NAME} && ./run.sh
-          \`\`\`
-
-          Mount: \`sudo mount -o loop disk.img /mnt\`
-
-          - \`${NAME}.tar.gz\` — full runnable tree
-          - \`${NAME}-image.tar.gz\` — boot + disk + run.sh
-          - \`${NAME}-boot.tar.gz\` — kernel + initrd
-          - \`${NAME}-executables.tar.gz\` — .exec / .dynlib
-          - \`${NAME}.sha256\` — checksums
-          "
           FILES=(
             "dist/${NAME}.tar.gz"
             "dist/${NAME}-image.tar.gz"
@@ -108,6 +92,14 @@ jobs:
             "dist/${NAME}-executables.tar.gz"
             "dist/${NAME}.sha256"
           )
+          NOTES="hsrc-kernel ${VER}
+
+          \`\`\`bash
+          tar -xzf ${NAME}.tar.gz && cd ${NAME} && ./run.sh
+          \`\`\`
+
+          Mount: \`sudo mount -o loop disk.img /mnt\`
+          "
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${FILES[@]}" --clobber
             gh release edit "$TAG" --notes "$NOTES"
@@ -115,7 +107,5 @@ jobs:
             extra=()
             [[ "${{ steps.ver.outputs.prerelease }}" == "true" ]] && extra+=(--prerelease)
             gh release create "$TAG" "${FILES[@]}" \
-              --title "hsrc-kernel ${VER}" \
-              --notes "$NOTES" \
-              "${extra[@]}"
+              --title "hsrc-kernel ${VER}" --notes "$NOTES" "${extra[@]}"
           fi
