@@ -3,96 +3,152 @@ name: God-level window API
 overview: OS dalgaları B–Q + Settings/Explorer/net/fs. Grafik → gpu_display_stack. Build/userspace/init→systemd → xmake_userspace_boot. Shell deep-link/dock-pin bu planda; çizim Reed/Kilim.
 todos:
   - id: wave-b-process
-    content: "Wave B: fork/execve/waitpid/exit status, spawn .mke, getppid, kill-lite"
-    status: pending
+    content: "Wave B: SYS_SPAWN/SYS_WAITPID/SYS_GETPPID/SYS_KILL + zombie/ppid alanlari TAMAM (process.c/process.h); SYS_EXECVE (path+argv+env → yeni image) hâlâ yok, SYS_FORK gercek clone degil (stub -1)"
+    status: in_progress
   - id: wave-c-fd-ipc
-    content: "Wave C: pipe/dup/dup2/fcntl; poll/select-lite; ioctl stub tablosu"
+    content: "Wave C: pipe/dup/dup2/fcntl/poll/select/ioctl syscall.h'de YOK — hâlâ baslanmadi"
     status: pending
   - id: wave-d-fs
-    content: "Wave D: stat/fstat/lstat, access, chmod, readlink/symlink, truncate, utimens, sync"
+    content: "Wave D: stat/fstat/lstat/access/chmod/readlink/symlink/truncate/utimens/sync/openat syscall.h'de YOK — hâlâ baslanmadi (xattr/flock/mmap/aio zaten var)"
     status: pending
   - id: wave-e-time-mem
-    content: "Wave E: clock_gettime/nanosleep/gettimeofday; brk/sbrk/mprotect"
-    status: pending
+    content: "Wave E: SYS_TIME_MAP/GET/SET/SETTZ/SETFLAGS (shared time-page modeli, plandakinden farkli ama isini goruyor) TAMAM; brk/sbrk/mprotect hâlâ yok"
+    status: in_progress
   - id: wave-f-net-driver
-    content: "Wave F1: QEMU virtio-net-pci dogrula/fix; eksikse PCI e1000 fallback driver; TX/RX paket yolu"
-    status: pending
+    content: "Wave F1: virtio-net-pci TX/RX + netif calisiyor (src/drivers/net); e1000 fallback yok"
+    status: in_progress
   - id: wave-f-net-stack
-    content: "Wave F2: ARP/IPv4/ICMP + DHCP client; routing/gateway; netif config syscalls"
-    status: pending
+    content: "Wave F2: ARP/IPv4/ICMP/DHCP + SYS_NETIF_GET/SET + SYS_DHCP_RENEW TAMAM (netstack.c, dhcp.c)"
+    status: completed
   - id: wave-f-net-tcp-udp
-    content: "Wave F3: UDP sertlestir + TCP SOCK_STREAM connect/listen/accept/send/recv; socket opts"
-    status: pending
+    content: "Wave F3: socket.c'de TCP state machine + SOCK_STREAM var (~118 satir eslesme); UDP + SYS_LISTEN/ACCEPT/SEND/RECV/SHUTDOWN mevcut; sertlik/edge-case testleri (retransmit, concurrent PCB sayisi) dogrulanmadi"
+    status: in_progress
   - id: wave-f-net-sdk
-    content: "Wave F4: net SDK (connect IP, TcpClient/Server) + errno/sys.h; fs/process/time SDK glue"
+    content: "Wave F4: net SDK (TcpClient/Server, UdpSocket, inet_*) kapsamini dogrula — user/sdk altinda ayri net.hpp yok, syscall dogrudan mi cagriliyor kontrol et"
     status: pending
   - id: wave-g-verify
-    content: "Wave G: boot+apps+net dogrulama; grafik smoke gpu_display_stack ile"
+    content: "Wave G: boot+apps+net dogrulama; grafik smoke gpu_display_stack ile (kernel dx hâlâ aktif oldugu icin bu checklist o mimariye gore yeniden yazilmali)"
     status: pending
   - id: phase-h-headers
-    content: "Phase H1: syscall.h sys.h errno.h (OS/net/fs/proc); grafik header yok — Reed/Kilim diğer plan"
-    status: pending
+    content: "Phase H1: syscall.h'de OS SYS_* + grafik SYS_GX_*/SYS_WM_* AYNI dosyada bir arada (ayrilmadi); SYS_DISP_* henuz yok — Reed/Kilim gercek ABI'si gpu_display_stack planinda tanimlanmali"
+    status: in_progress
   - id: phase-h-kernel-core
-    content: "Phase H2: syscall process/mke/netstack/socket; WM/mkdx dispatch YOK"
-    status: pending
+    content: "Phase H2: syscall process/net/service/time/thread/event dispatch TAMAM; WM/mkdx dispatch (SYS_WM_*/SYS_GX_*) plana gore YOK denmisti ama fiilen syscall.c'de VAR ve aktif kullaniliyor — plan varsayimi gecersiz, asagidaki 'Mimari sapma' bolumune bak"
+    status: in_progress
   - id: phase-h-input
-    content: "Phase H5: PS/2 + virtio-input + layout API; event feed usermode WM (grafik plan)"
+    content: "Phase H5: PS/2 calisiyor (SYS_INPUT_STATE); virtio-input PCI keşfi ve SYS_KBD_*/SYS_INPUT_DEVICE_LIST/layout API hâlâ yok"
     status: pending
   - id: wave-i-settings
-    content: "Wave I: usermode System Settings app — tum sayfalar + OS info; OS menu deep-link"
-    status: pending
+    content: "Wave I: os-settings.mke TAMAM ve cok gelismis (userspace/os-settings/main.cpp ~1250 satir) — sidebar/tema/deeplink/persist calisir durumda"
+    status: completed
   - id: phase-h-app-settings
-    content: "Phase H13: os-settings — sayfalar + Desktop/Dock pin UI; UI Kilim/Reed (grafik plan)"
-    status: pending
+    content: "Phase H13: os-settings sayfalari + Desktop/Dock pin UI TAMAM; UI kernel dx SDK (hsrc::sdk::gfx) uzerinden, Kilim/Reed degil — grafik migrasyonu bekliyor"
+    status: completed
   - id: phase-h-dock-custom
-    content: "Phase H9/H13: dinamik dock pin kurallari; menubar deeplink; wallpaper prefs (cizim grafik plan)"
-    status: pending
+    content: "Phase H9/H13: dinamik dock pin∪running kurallari, menubar deeplink, wallpaper prefs TAMAM (userspace/os-shell/main.cpp + settings.cpp)"
+    status: completed
   - id: wave-j-image-wallpaper
-    content: "Wave J: PNG/WebP/JPEG/BMP/TGA/GIF/QOI/ICO decode; 4K wallpaper asset; present yolu grafik plan"
-    status: pending
+    content: "Wave J: set_wallpaper_default()/set_wallpaper_color() var; PNG/WebP/JPEG/BMP/TGA/GIF/QOI/ICO tam decode matrisi dogrulanmadi — muhtemelen sadece tek format/renk fallback"
+    status: in_progress
   - id: phase-h-net-drv
-    content: "Phase H6: virtio_net.kmod + e1000.kmod; QEMU net — xmake_userspace_boot ile derle"
-    status: pending
+    content: "Phase H6: virtio_net.kmod var; e1000.kmod yok; xmake_userspace_boot plani artik repoda yok (bkz. not) — build zaten xmake ile calisiyor"
+    status: in_progress
   - id: phase-h-vfs-fs
-    content: "Phase H7: vfs.kmod + fs kmods stat/chmod/symlink/pipe destekleri"
+    content: "Phase H7: vfs.kmod + fs kmods'ta stat/chmod/symlink/pipe destekleri hâlâ yok (Wave D'ye bagli)"
     status: pending
   - id: phase-h-sdk
-    content: "Phase H8: user SDK process fs net time settings deeplink errno; gfx SDK grafik planda"
-    status: pending
+    content: "Phase H8: user SDK cok genis (gfx/settings/time/process/thread/sync/svg/fs) TAMAM; net.hpp/errno.h/process.hpp fs.hpp kapsamini dogrula, TCP/pipe eklenince genisletilecek"
+    status: in_progress
   - id: phase-h-app-osui
-    content: "Phase H9: os-shell — menubar Settings deep-link; dinamik dock; render grafik plan"
-    status: pending
+    content: "Phase H9: os-ui → os-shell adiyla yeniden yazildi, menubar Settings/System Information deep-link + dinamik dock TAMAM; render hâlâ kernel dx (SYS_WM_*/SYS_GX_*) uzerinden, Reed/Kilim'e gecmedi"
+    status: completed
   - id: phase-h-app-term
-    content: "Phase H10: terminal.cpp migrasyon + net builtins; pencere grafik plan"
-    status: pending
+    content: "Phase H10: terminal.cpp migrasyonu TAMAM (~1545 satir, event loop + PATH); net builtins (ping/nc) dogrulanmadi"
+    status: in_progress
   - id: phase-h-makefile-boot
-    content: "Phase H11: initrd/QEMU/boot — xmake_userspace_boot; Makefile yok"
-    status: pending
+    content: "Phase H11: initrd/QEMU/boot xmake ile calisiyor; ayri xmake_userspace_boot plani artik yok — bu phase'in hedefleri fiilen tamamlanmis sayilir, referans temizlenmeli"
+    status: completed
   - id: wave-k-shell
-    content: "Wave K: profesyonel shell davranisi — topbar/window yonetimi; hibrit chrome grafik plan"
-    status: pending
+    content: "Wave K: os-shell topbar tiklanabilir (Settings/System Information/status cluster), dock click-to-focus/minimize TAMAM"
+    status: completed
   - id: wave-l-files
-    content: "Wave L: File Explorer + terminal run/./ exec + /applications"
-    status: pending
+    content: "Wave L: userspace/files/main.cpp (471 satir) var — Explorer kismen calisiyor; terminal run/./ + /applications launch akisini dogrula"
+    status: in_progress
   - id: wave-m-services
-    content: "Wave M: systemd units semantiği — xmake_userspace_boot; kernel yalnız init"
-    status: pending
+    content: "Wave M: kernel → /init (userspace/init/main.cpp, 68 satir, gercek PID1: window-manager+os-shell spawn + waitpid + respawn) TAMAM; service.c'de SYS_SERVICE_* + basit 'int critical' flag var ama plandaki roles bitmask (CRITICAL/SESSION_UI/...) YOK; userspace/systemd (23 satir) zayif/ikincil kopya, .service unit dosyalari (window-manager.service/os-shell.service) hic parse edilmeyen dekoratif INI"
+    status: in_progress
   - id: wave-n-monitor
-    content: "Wave N: Activity Monitor app + SYS_PROC_STAT cpu/ram"
-    status: pending
+    content: "Wave N: userspace/activity-monitor/main.cpp (754 satir) + SYS_PROC_LIST/STAT/SYSINFO TAMAM"
+    status: completed
   - id: wave-o-console
-    content: "Wave O: per-process console kurallari; UI grafik planda AllocConsole"
-    status: pending
+    content: "Wave O: SYS_CONSOLE_SHOW var; per-process visible/hidden console kurallari (SPAWN_CONSOLE_VISIBLE/HIDDEN flag'leri) syscall.h'de yok — kismi"
+    status: in_progress
   - id: wave-p-env
-    content: "Wave P: global + process env; PATH; tool register"
-    status: pending
+    content: "Wave P: SYS_GETENV/SYS_SETENV var (env.c) — global/process ayrimi ve PATH resolve kapsamini dogrula"
+    status: in_progress
   - id: wave-q-term-path
-    content: "Wave Q: terminal PATH/run zenginlestirme; my-tool --help"
-    status: pending
+    content: "Wave Q: terminal PATH/run zenginlestirme kismen terminal.cpp'de var; which/env/export builtin kapsamini dogrula"
+    status: in_progress
 isProject: false
 ---
 
 # God-level OS Syscall Surface (process / net / fs / shell apps)
+
+## ⚠ Gerçeklik durumu (2026-07-29 — kod taramasi sonrasi)
+
+Bu plan yazildigindan beri kod tabani bu dosyadaki "pending" varsayimlarinin
+çoğunu geride birakti. Kod → plan yönünde güncellenen özet:
+
+- **Process/service/time/thread/event çekirdegi büyük ölçüde bitti.**
+  `include/kernel/syscall.h` içinde `SYS_SPAWN/WAITPID/GETPPID/KILL`,
+  `SYS_PROC_LIST/STAT/MAP/WAIT`, `SYS_SYSINFO`, `SYS_SERVICE_LIST/START/STOP/STATUS`,
+  `SYS_GETENV/SETENV`, `SYS_CONSOLE_SHOW`, `SYS_GETARGC/GETARGV`,
+  `SYS_TIME_MAP/GET/SET/SETTZ/SETFLAGS`, `SYS_EVENT_CREATE/DESTROY/WAIT/SIGNAL/BROADCAST`,
+  `SYS_THREAD_CREATE/EXIT`   numaralari **200 sonrasi** aralikta zaten tanimli ve
+  `src/kernel/process.c` (zombie/ppid/wait kuyrugu), `src/kernel/service.c`
+  (`service_info_t` registry — basit `int critical` flag, plandaki roles bitmask
+  `CRITICAL`/`SESSION_UI` **henüz yok**), `src/kernel/env.c`, `src/kernel/time.c`
+  içinde implement. Hâlâ eksik: gerçek `SYS_FORK` (copy/COW — syscall #2 tanımlı ama
+  dispatch'te `-1` stub), `SYS_EXECVE`, `brk/sbrk/mprotect`, `pipe/dup/fcntl/poll/select/ioctl`
+  (Wave C sıfırdan), `stat/access/chmod/readlink/symlink/truncate/utimens/sync/openat`
+  (Wave D sıfırdan). Gerçek boot yolu **`kernel → /init`** (`userspace/init/main.cpp`,
+  68 satır, window-manager+os-shell spawn + `waitpid` + respawn); `userspace/systemd`
+  (23 satır) daha zayıf/ikincil bir kopya ve `.service` unit dosyaları hiç parse
+  edilmeyen dekoratif INI — "init→systemd" ayrımı plandaki gibi net değil, tek gerçek
+  PID1 `/init`.
+- **Networking** (`src/kernel/netstack.c`, `dhcp.c`, `socket.c`) ARP/IPv4/ICMP/DHCP +
+  **TCP state machine + SOCK_STREAM** dahil önemli ölçüde ilerledi (Wave F1/F2 tamam,
+  F3 çoğunlukla tamam). Hâlâ eksik: e1000 fallback, pipe/poll/select/ioctl (Wave C sıfırdan),
+  fs `stat/access/chmod/...` ailesi (Wave D sıfırdan).
+- **Usermode apps çok daha ileride:** `userspace/os-shell` (eski `os-ui`, macOS-vari
+  dock magnification + menubar deep-link + tema + wifi/battery/clock status TAMAM),
+  `userspace/os-settings` (~1250 satır, tüm sayfalar + persist), `userspace/terminal`
+  (~1545 satır), `userspace/files` (~471 satır Explorer), `userspace/activity-monitor`
+  (~754 satır), `userspace/systemd` + `userspace/init` (service registry + unit dosyaları
+  `os-shell.service` / `window-manager.service`) hepsi **var ve çalışıyor**. Bu, Wave I/K/L/M/N
+  ve Phase H9/H10/H13'ün "pending" etiketini geçersiz kılıyor — bkz. güncellenmiş todo durumları.
+- **Kritik mimari sapma (grafik):** Bu planın H1/H2 maddeleri "`SYS_WM_*`/`SYS_GX_*`/`mkdx` OS
+  syscall dispatch'inde YOK, grafik `gpu_display_stack`'te" diyordu. Gerçekte
+  `SYS_WM_*`/`SYS_GX_*` (200-219, 275, 278 numaralı) hâlâ **aktif, üretimde kullanılan** ve
+  yukarıdaki tüm usermode app'lerin üzerine kurulu olduğu tek çalışan grafik ABI'si.
+  `userspace/sdk/reed` ve `userspace/sdk/kilim` yalnızca 12-13 satırlık stub (`-1` dönüyor);
+  `userspace/window-manager/main.cpp` kendi yorumunda bunu itiraf ediyor: *"compositor still
+  kernel mkdx for now; gpu_display_stack will replace the body."* Bu OS planı artık bu gerçeği
+  varsaymalı: grafik ABI değişene kadar **`SYS_WM_*`/`SYS_GX_*` silinmez**, yeni OS syscall'ları
+  (fd/ipc, fs, execve) bu numara aralığıyla (200-286 dolu) çakışmayacak şekilde eklenir.
+- **Kırık referans:** Hem bu plan hem `gpu_display_stack` planı `xmake_userspace_boot_a3be45ab.plan.md`
+  dosyasına link veriyor; bu dosya artık `.cursor/plans/` altında **yok**. Hedeflediği build/init→systemd
+  ayrımı zaten `userspace/systemd` + `userspace/init` + xmake ile fiilen tamamlanmış durumda — link
+  kaldırılmalı, referans yerine doğrudan bu iki dizine işaret edilmeli.
+- **SMP/locking kuralları:** `.cursor/rules/kernel-asm-locking.mdc` ve `kernel-smp-state.mdc` bu
+  konuşmadan sonra eklendi (bkz. `docs/playbook-smp-state.md`, `docs/smp-scan-report.md`).
+  `process.c`/`sync.c`/`cpu.c` zaten bu kurallara göre `g_proc_lock`/`g_sched_lock`/`g_cpu_table_lock`
+  ile sertleştirildi. **Bundan sonra process/service/env/socket alanına dokunan her yeni syscall
+  (Wave B execve/fork, Wave C pipe, Wave P env) bu lock order'a uymak zorunda**: `g_sched_lock` →
+  `g_proc_lock` → `g_heap_lock`; `g_sync_lock` asla `g_proc`'tan sonra alınmaz. `vfs_core.c` /
+  `socket.c` (`g_socks`/`g_ephemeral`) / `netstack.c` (`g_arp`/`g_ip_id`) / `env.c` (`g_global`) /
+  `service.c` (`g_services`) hâlâ `docs/smp-scan-report.md`'de "open" (kilitsiz) olarak işaretli —
+  bu dosyalara Wave C/D/P kapsamında dokunulduğunda kilit eklemek zorunlu, atlanamaz.
 
 ## Grafik / build — bu dosyada YOK
 
@@ -429,19 +485,26 @@ v1’de **app yazarken ihtiyaç duyulan** call’lar + **IPv4 TCP/UDP over Ether
 
 # Uygulama sırası (AI)
 
-0. **gpu_display_stack** end-to-end (Reed/Kilim/WM/GPU/display/shell çizim) — grafik kaynak plan
-1. Phase H5 input (PS/2 + virtio-input + layout) — Settings’ten önce; feed usermode WM
-2. Wave B process → Phase H2 process/mke
-3. Wave C pipe/poll → Phase H2 + H7
-4. Wave D FS → Phase H7
-5. Wave E time/mem → Phase H2
-6. Wave F networking → Phase H6 + H2 net + H8 net SDK + H10 terminal net
-7. Phase H8 SDK (fs/process/net/time/settings) — gfx SDK diğer planda
-8. Phase H13 os-settings + H9 deep-link/dock pin + Wave I
-9. Wave J image decode + wallpaper assets (present diğer plan)
-10. Wave K/L/M/N/O/P/Q shell UX + Explorer + services + monitor + console kuralları + env
-11. Phase H11 Makefile/boot (window-manager + os-shell + settings.mke)
-12. Wave G verify
+> **Güncel not (2026-07-29):** Bu sıra "grafik önce" varsayıyordu; gerçekte tam ters
+> oldu — 8/9/10/11 (os-settings, dock pin, shell UX, services, monitor, Makefile/boot)
+> **bitti**, 0 (gpu_display_stack) **neredeyse hiç başlamadı** (Reed/Kilim stub).
+> Kalan gerçek öncelik: **Wave C (pipe/poll) → Wave D (fs stat/chmod) → Wave B tamamlama
+> (execve/gerçek fork) → gpu_display_stack Stage 1-5**. Numaralı liste tarihsel referans
+> için korunuyor; gerçek durum için her Wave/Phase'in yukarıdaki todo satırına bak.
+
+0. **gpu_display_stack** end-to-end (Reed/Kilim/WM/GPU/display/shell çizim) — grafik kaynak plan; **stub aşamasında**
+1. Phase H5 input (PS/2 + virtio-input + layout) — Settings’ten önce; feed usermode WM; **PS/2 tamam, virtio-input/layout yok**
+2. Wave B process → Phase H2 process/mke; **spawn/wait/kill tamam, execve/fork eksik**
+3. Wave C pipe/poll → Phase H2 + H7; **hiç başlamadı**
+4. Wave D FS → Phase H7; **hiç başlamadı**
+5. Wave E time/mem → Phase H2; **time tamam, brk/mprotect eksik**
+6. Wave F networking → Phase H6 + H2 net + H8 net SDK + H10 terminal net; **çoğunlukla tamam**
+7. Phase H8 SDK (fs/process/net/time/settings) — gfx SDK diğer planda; **çoğunlukla tamam**
+8. Phase H13 os-settings + H9 deep-link/dock pin + Wave I; **TAMAM**
+9. Wave J image decode + wallpaper assets (present diğer plan); **wallpaper var, tam format matrisi doğrulanmadı**
+10. Wave K/L/M/N/O/P/Q shell UX + Explorer + services + monitor + console kuralları + env; **çoğunlukla TAMAM**
+11. Phase H11 Makefile/boot (window-manager + os-shell + settings.mke); **TAMAM (xmake ile)**
+12. Wave G verify; **checklist gerçek mimariye göre yeniden yazılmalı**
 
 **Kural:** OS Phase H\* kendi listesini bitirmeden sonrakine geçilmez. Grafik işi bu dosyada yeniden açılmaz.
 
