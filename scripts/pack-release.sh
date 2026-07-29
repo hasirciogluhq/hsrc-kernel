@@ -103,6 +103,7 @@ cp "$ROOT/build/userspace/init/init.exec" "$OUT/executables/initrd/init"
 IMG="$OUT/disk.img"
 "$MKFAT" "$IMG" "$DISK_SIZE_MB"
 fat_args=("$IMG")
+fat_args+=("$OUT/executables/initrd/init:init.exec")
 for n in "${SYSTEM_EXECS[@]}"; do
   fat_args+=("$OUT/executables/system/bin/$n.exec:system/bin/$n.exec")
 done
