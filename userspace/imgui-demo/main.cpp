@@ -5,7 +5,6 @@
 #include "imgui_impl_ugx.h"
 
 #include <user/gx.h>
-#include <user/mke.h>
 #include <user/sdk/gfx.hpp>
 #include <user/sdk/process.hpp>
 #include <user/sdk/settings.hpp>
