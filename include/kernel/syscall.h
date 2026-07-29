@@ -113,6 +113,7 @@
 #define SYS_VIRTUAL_FREE_EX      304  /* a1=h a2=addr a3=size a4=type */
 #define SYS_QUERY_PROCESS        305  /* a1=h a2=&info a3=sizeof */
 #define SYS_QUERY_PROCESS_VM     306  /* a1=h a2=&regions a3=nbytes → count */
+#define SYS_SLEEP                307  /* a1=ticks → suspend PROC_SUSPENDED (not Ready spin) */
 
 /* epoll (Linux-like; private numbers — 254/255 taken by SPAWN/WAITPID). */
 #define SYS_EPOLL_CREATE1   292  /* a1=flags → epfd */

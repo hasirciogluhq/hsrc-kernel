@@ -5,39 +5,13 @@
 #include <kernel/types.h>
 #include <kernel/syscall.h>
 #include <kernel/vfs.h>
+#include "../core/syscall_abi.h"
 
 #ifndef S_IFMT
 #define S_IFMT  0170000
 #define S_IFREG 0100000
 #define S_IFDIR 0040000
 #endif
-
-static long sc1(long n, long a1)
-{
-    long ret;
-    __asm__ volatile("int $0x80" : "=a"(ret) : "a"(n), "b"(a1) : "memory");
-    return ret;
-}
-
-static long sc2(long n, long a1, long a2)
-{
-    long ret;
-    __asm__ volatile("int $0x80"
-                     : "=a"(ret)
-                     : "a"(n), "b"(a1), "c"(a2)
-                     : "memory");
-    return ret;
-}
-
-static long sc3(long n, long a1, long a2, long a3)
-{
-    long ret;
-    __asm__ volatile("int $0x80"
-                     : "=a"(ret)
-                     : "a"(n), "b"(a1), "c"(a2), "d"(a3)
-                     : "memory");
-    return ret;
-}
 
 static size_t u_strlen(const char *s)
 {

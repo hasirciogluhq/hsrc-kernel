@@ -233,7 +233,7 @@ extern "C" void exec_main(void)
             g_prev_keys[i] = in.keys[i];
 
         if (k.begin_frame() < 0) {
-            hsrc::sdk::yield(1);
+            hsrc::sdk::sleep_ticks(1);
             continue;
         }
 
@@ -271,6 +271,6 @@ extern "C" void exec_main(void)
             (void)win.damage();
             g_dirty = 0;
         }
-        hsrc::sdk::yield(1);
+        hsrc::sdk::sleep_ticks(1);
     }
 }

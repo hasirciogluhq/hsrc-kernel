@@ -4,25 +4,25 @@ overview: "P0: .dynimports entry stride 96→68 (aligned(1)) — aksi halde yaln
 todos:
   - id: fix-stride
     content: "P0: dynlib_import_t + DYNLIB_IMPORT aligned(1); rebuild sonrası stride==0x44 doğrula"
-    status: pending
+    status: completed
   - id: verify-ref
     content: Referans sistemi doğrula (user.ld terminator, pack.lua dokunma, bind loop)
-    status: pending
+    status: completed
   - id: syscall-abi
     content: userspace/sdk/core/syscall_abi.h oluştur; libfs.c scN’leri buna geçir
-    status: pending
+    status: completed
   - id: api-slots
     content: "libfs_api.h DEFINE_SLOTS / extern ikili moda; demolar #define ekle"
-    status: pending
+    status: completed
   - id: xmake-cleanup
     content: userspace phony’ye app-libfs-demo(2) ekle; stale import.cpp yorumunu temizle
-    status: pending
+    status: completed
   - id: verify-build-nm
     content: "nm + objdump: __dynlib_imports var; ardışık _dynimp_* farkı tam 0x44; terminator offset doğru"
-    status: pending
+    status: completed
   - id: final-report
     content: Migration özet raporu (stride fix, dynlib/app/nm/EXEC_NEEDED_MAX)
-    status: pending
+    status: completed
 isProject: false
 ---
 

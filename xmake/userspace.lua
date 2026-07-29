@@ -50,7 +50,7 @@ local function define_app(name, load_addr, files, incs, flags, needed, extra_lib
         add_deps("sdk-core", "pack_exec")
         if needed then
             -- Build-order only: object-kind dep must not pull libfs.c.o into the app link
-            -- (import.cpp resolves libfs_* via dynlib; linking libfs.c.o doubles symbols).
+            -- (libfs_api.h / DYNLIB_IMPORT resolves libfs_* via dynlib at bind time).
             add_deps("dynlib-libfs", {inherit = false})
         end
         if extra_libs then
@@ -162,4 +162,5 @@ target("userspace")
     add_deps("sdk-core", "sdk-reed", "sdk-kilim", "sdk-wm", "dynlib-libfs",
         "app-init", "app-window-manager", "app-os-shell",
         "app-os-settings", "app-terminal", "app-files", "app-activity-monitor",
-        "app-minesweeper", "app-imgui-demo")
+        "app-minesweeper", "app-imgui-demo",
+        "app-libfs-demo", "app-libfs-demo2")

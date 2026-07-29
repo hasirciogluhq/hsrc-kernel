@@ -48,7 +48,7 @@ extern "C" void exec_main(void)
         (void)hsrc::sdk::process::poll_snapshot_publish();
 
         if (k.begin_frame() < 0) {
-            hsrc::sdk::yield(1);
+            hsrc::sdk::sleep_ticks(1);
             continue;
         }
 
@@ -120,6 +120,6 @@ extern "C" void exec_main(void)
         } else if ((++tick & 15) == 0) {
             (void)win.damage(); /* ~throttle process list refresh */
         }
-        hsrc::sdk::yield(2);
+        hsrc::sdk::sleep_ticks(2);
     }
 }

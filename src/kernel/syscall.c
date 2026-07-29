@@ -426,23 +426,48 @@ static long do_getppid(void)
     return (long)process_getppid();
 }
 
-static long do_yield(long sleep_ticks)
+/*
+ * Timed suspend helper (PROC_SUSPENDED). Cap ~350s at default 3.5ms tick
+ * (matches SYS_PROC_WAIT). Timer IRQ already drivers_poll()'s — do not
+ * re-poll here (BSP yield spam was a mouse-lag source).
+ */
+#define SLEEP_TICKS_MAX 100000u
+
+static void do_sleep_ticks(uint64_t ticks)
 {
     process_t *p = process_current();
+    uint64_t now;
 
-    /* Optional coop reschedule (sleep_ticks==0). sleep_ticks>0 → PROC_SUSPENDED.
-     * Fairness does not require yield - timer preemption handles CPU hogs. */
-    if (cpu_id() == 0)
-        drivers_poll();
-
-    if (p && sleep_ticks > 0) {
-        uint64_t now = scheduler_tick_count();
-        if (sleep_ticks > 1000)
-            sleep_ticks = 1000;
-        process_suspend(now + (uint64_t)sleep_ticks);
-    }
-
+    if (!p || ticks == 0)
+        return;
+    if (ticks > SLEEP_TICKS_MAX)
+        ticks = SLEEP_TICKS_MAX;
+    now = scheduler_tick_count();
+    process_suspend(now + ticks);
     schedule();
+}
+
+/* Coop reschedule (ticks==0). ticks>0 kept for compat → real suspend. */
+static long do_yield(long sleep_ticks)
+{
+    if (sleep_ticks > 0) {
+        do_sleep_ticks((uint64_t)sleep_ticks);
+        return 0;
+    }
+    schedule();
+    return 0;
+}
+
+/* Dedicated timed sleep — never a Ready spin. ticks==0 → coop yield. */
+static long do_sleep(long ticks)
+{
+    if (ticks < 0)
+        return -EINVAL;
+    if (ticks == 0) {
+        schedule();
+        return 0;
+    }
+    do_sleep_ticks((uint64_t)ticks);
     return 0;
 }
 
@@ -1722,6 +1747,7 @@ long syscall_dispatch(long n, long a1, long a2, long a3, long a4, long a5)
     case SYS_THREAD_JOIN: return do_thread_join(a1, a2);
     case SYS_THREAD_DETACH: return do_thread_detach(a1);
     case SYS_YIELD:  return do_yield(a1);
+    case SYS_SLEEP:  return do_sleep(a1);
     case SYS_SCHED_GET: return do_sched_get(a1);
     case SYS_SCHED_SET: return do_sched_set(a1, a2);
     case SYS_FORK:   return -1;

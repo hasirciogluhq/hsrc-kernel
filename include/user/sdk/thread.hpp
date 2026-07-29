@@ -44,7 +44,7 @@ inline void sleep_for(uint32_t ticks)
         yield();
         return;
     }
-    hsrc::sdk::yield(ticks);
+    hsrc::sdk::sleep_ticks(ticks);
 }
 
 [[noreturn]] inline void exit(int code = 0)

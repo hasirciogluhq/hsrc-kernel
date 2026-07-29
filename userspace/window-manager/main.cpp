@@ -1126,6 +1126,25 @@ static void compose_cursor_only(kilim::Context &k, int mx, int my)
  * the multi-second desktop freeze that used to happen while sweeping the
  * mouse across the dock (graphics-pipeline P05/P06/C07/C22).
  */
+static void rect_union(int *rx, int *ry, int *rw, int *rh, int ux, int uy, int uw,
+                       int uh)
+{
+    if (uw <= 0 || uh <= 0)
+        return;
+    int ux2 = ux + uw;
+    int uy2 = uy + uh;
+    int rx2 = *rx + *rw;
+    int ry2 = *ry + *rh;
+    int nx = *rx < ux ? *rx : ux;
+    int ny = *ry < uy ? *ry : uy;
+    int nx2 = rx2 > ux2 ? rx2 : ux2;
+    int ny2 = ry2 > uy2 ? ry2 : uy2;
+    *rx = nx;
+    *ry = ny;
+    *rw = nx2 - nx;
+    *rh = ny2 - ny;
+}
+
 static void compose_dock_partial(kilim::Context &k)
 {
     if (!g_dev)
@@ -1139,21 +1158,23 @@ static void compose_dock_partial(kilim::Context &k)
         my = st.mouse_y;
     }
 
+    int ox = g_cursor_x;
+    int oy = g_cursor_y;
+    int had_cursor = g_cursor_saved;
+
     int dx, dy, dw, dh;
     dock_geom(&dx, &dy, &dw, &dh);
     /* Dock rect + headroom for the hover-lift (-6px), glow (+3px) and the
-     * tooltip bubble drawn above it, plus the cursor sprite (24x24) which
-     * is almost certainly inside/near this rect while hovering. */
+     * tooltip bubble drawn above it. Cursor rects are unioned below so the
+     * previous sprite position is re-blitted when the mouse moves fast. */
     int rx = dx - 6;
     int ry = dy - 34;
     int rw = dw + 12;
     int rh = dh + 40;
-    if (mx - 2 < rx) { int d = rx - (mx - 2); rx -= d; rw += d; }
-    if (my - 2 < ry) { int d = ry - (my - 2); ry -= d; rh += d; }
-    if (mx + 26 > rx + rw)
-        rw = mx + 26 - rx;
-    if (my + 26 > ry + rh)
-        rh = my + 26 - ry;
+    /* Cursor sprite is 24x24; keep a 2px margin like compose_cursor_only. */
+    rect_union(&rx, &ry, &rw, &rh, mx - 2, my - 2, 28, 28);
+    if (had_cursor)
+        rect_union(&rx, &ry, &rw, &rh, ox - 2, oy - 2, 28, 28);
     if (rx < 0) { rw += rx; rx = 0; }
     if (ry < 0) { rh += ry; ry = 0; }
     if (rx + rw > g_screen_w)
@@ -1162,6 +1183,12 @@ static void compose_dock_partial(kilim::Context &k)
         rh = g_screen_h - ry;
     if (rw <= 0 || rh <= 0)
         return;
+
+    /* Pathological mouse jump: union can grow large; full compose is safer. */
+    if ((long)rw * (long)rh > (long)g_screen_w * (long)g_screen_h / 2) {
+        compose_frame(k);
+        return;
+    }
 
     if (k.begin_frame_region(rx, ry, rw, rh) < 0)
         return;
@@ -1280,16 +1307,23 @@ extern "C" void exec_main(void)
 
         int need_full = g_compose_dirty || g_drag_id >= 0 || g_resize_id >= 0 ||
                         g_menu_open;
+        int did_draw = 0;
         if (need_full) {
             compose_frame(kctx);
             g_dock_only_dirty = 0;
+            did_draw = 1;
         } else if (g_dock_only_dirty) {
             compose_dock_partial(kctx);
             g_dock_only_dirty = 0;
+            did_draw = 1;
         } else if (st.mouse_x != g_cursor_x || st.mouse_y != g_cursor_y) {
             compose_cursor_only(kctx, st.mouse_x, st.mouse_y);
+            did_draw = 1;
         }
-        /* No busy yield when idle — still pump often for input. */
-        hsrc::sdk::yield(need_full ? 0 : 0);
+        /* Drew this tick → coop yield; fully idle → real 1-tick sleep (~3.5ms). */
+        if (did_draw)
+            hsrc::sdk::yield(0);
+        else
+            hsrc::sdk::sleep_ticks(1);
     }
 }

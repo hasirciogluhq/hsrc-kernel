@@ -1,4 +1,5 @@
 #include <user/exec.h>
+#define LIBFS_API_DEFINE_SLOTS
 #include "../../sdk/libfs/libfs_api.h"
 #include <user/sdk/libfs.hpp>
 #include <user/sdk/syscall.hpp>
@@ -13,5 +14,5 @@ extern "C" void exec_main(void)
     (void)hsrc::sdk::libfs::print_listdir("/system/lib");
 
     for (;;)
-        hsrc::sdk::yield(10);
+        hsrc::sdk::sleep_ticks(10);
 }

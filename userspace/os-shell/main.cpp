@@ -118,5 +118,5 @@ extern "C" void exec_main(void)
     }
 
     for (;;)
-        hsrc::sdk::yield(50);
+        hsrc::sdk::sleep_ticks(50);
 }

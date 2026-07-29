@@ -574,6 +574,48 @@ static process_t *alloc_process(const char *name, int need_ustack, uint32_t usta
     return p;
 }
 
+/*
+ * Soft home for a new app: least-loaded online logical CPU.
+ * May be called while holding g_proc_lock; must NOT take g_sched_lock
+ * (lock order: g_sched → g_proc).
+ */
+static int process_pick_home_cpu(void)
+{
+    int ncpu = smp_cpu_count();
+    int best = 0;
+    int best_load = 0x7fffffff;
+    int load[CPU_MAX];
+    int i;
+
+    if (ncpu < 1)
+        ncpu = 1;
+    if (ncpu > CPU_MAX)
+        ncpu = CPU_MAX;
+    memset(load, 0, sizeof(load));
+
+    for (i = 0; i < PROC_MAX; i++) {
+        process_t *p = g_procs[i];
+        int c;
+
+        if (!p || p->is_idle)
+            continue;
+        if (p->state != PROC_READY && p->state != PROC_RUNNING)
+            continue;
+        c = p->home_cpu >= 0 ? p->home_cpu : p->cpu;
+        if (c < 0 || c >= ncpu)
+            continue;
+        load[c]++;
+    }
+
+    for (i = 0; i < ncpu; i++) {
+        if (load[i] < best_load) {
+            best_load = load[i];
+            best = i;
+        }
+    }
+    return best;
+}
+
 static void fpu_area_init(void *area)
 {
     memset(area, 0, CPU_FPU_AREA_SIZE);
@@ -843,13 +885,16 @@ pid_t process_create_user_stack(const char *name, void (*entry)(void),
     p->is_user = 1;
     p->user_entry = entry;
     /*
-     * Pin user/GUI to BSP. klock_disp serializes disp_api + drivers_poll, but
-     * apps write mapped surfaces from userspace without that lock. An AP doing
-     * present while BSP polls input races → #GP/#UD. Revisit when display is
-     * SMP-safe.
+     * Soft-pack onto the least-loaded online CPU; hard affinity stays -1
+     * (any logical CPU). disp_api wraps every call in klock_disp, so present
+     * vs drivers_poll is SMP-safe. Userspace surface reads/writes across
+     * CPUs may tear visually but must not #GP the kernel.
+     * (Former hard pin to CPU 0 starved APs when apps busy-looped.)
      */
-    p->cpu_affinity = 0;
+    p->home_cpu = process_pick_home_cpu();
+    p->cpu_affinity = -1;
     setup_kstack(p, user_trampoline, entry);
+    smp_kick_idle_cpus();
     return p->pid;
 }
 
@@ -921,16 +966,25 @@ pid_t process_thread_create(void (*entry)(void *), void *arg)
     t->thread_arg = arg;
     t->thread_detached = 0;
     t->join_tid = 0;
-    /*
-     * Inherit leader affinity (BSP for GUI). Floating workers on APs while
-     * the leader presents still races unlocked surface compose.
-     */
-    t->cpu_affinity = lead->cpu_affinity;
-    t->home_cpu = lead->home_cpu;
-    /* Fairness seed among siblings. */
-    idx = process_count_threads(lead) - 1; /* includes this new thread */
+    /* Fairness / soft-home seed among siblings (includes this new thread). */
+    idx = process_count_threads(lead) - 1;
     if (idx < 0)
         idx = 0;
+    /*
+     * No hard pin (affinity -1). Spread sibling soft homes across online
+     * CPUs so same-app workers can run truly in parallel; pick_score still
+     * prefers nearby cores when free.
+     */
+    t->cpu_affinity = -1;
+    {
+        int n = smp_cpu_count();
+        int base;
+
+        if (n < 1)
+            n = 1;
+        base = lead->home_cpu >= 0 ? lead->home_cpu : 0;
+        t->home_cpu = (base + idx) % n;
+    }
     t->last_run_tick = (uint64_t)(idx % (smp_cpu_count() > 0 ? smp_cpu_count() : 1));
     t->uid = lead->uid;
     t->euid = lead->euid;

@@ -59,7 +59,7 @@ extern "C" void exec_main(void)
         }
 
         if (k.begin_frame() < 0) {
-            hsrc::sdk::yield(1);
+            hsrc::sdk::sleep_ticks(1);
             continue;
         }
 
@@ -104,6 +104,6 @@ extern "C" void exec_main(void)
             (void)win.damage();
             prev_sel = sel;
         }
-        hsrc::sdk::yield(2);
+        hsrc::sdk::sleep_ticks(2);
     }
 }

@@ -41,7 +41,7 @@ typedef struct dynlib_import {
     char     lib[32];
     char     sym[32];
     uint32_t slot_addr;
-} __attribute__((packed)) dynlib_import_t;
+} __attribute__((packed, aligned(1))) dynlib_import_t;
 
 /* Ensure each needed dynlib, then bind import slots. */
 int dynlib_bind_exec(const char needed[][DYNLIB_NAME_MAX], int needed_count,
