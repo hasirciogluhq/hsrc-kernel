@@ -46,4 +46,14 @@ long syscall4(long n, long a1, long a2, long a3, long a4)
     return ret;
 }
 
+long syscall5(long n, long a1, long a2, long a3, long a4, long a5)
+{
+    long ret;
+    __asm__ volatile("int $0x80"
+                     : "=a"(ret)
+                     : "a"(n), "b"(a1), "c"(a2), "d"(a3), "S"(a4), "D"(a5)
+                     : "memory");
+    return ret;
+}
+
 } // namespace hsrc::sdk

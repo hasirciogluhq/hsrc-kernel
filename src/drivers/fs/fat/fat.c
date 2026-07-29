@@ -101,10 +101,9 @@ static uint32_t fat_eoc_value(fat_fs_t *fs)
 
 static uint32_t fat_next(fat_fs_t *fs, uint32_t cl)
 {
-    uint8_t *sec = (uint8_t *)kmalloc(512);
+    uint8_t sec[512];
     uint32_t fat_off, lba, ent = 0;
-    if (!sec)
-        return 0xFFFFFFFFu;
+
     if (fs->fat_bits == 32) {
         fat_off = cl * 4;
         lba = fs->reserved + (fat_off / fs->bytes_per_sec);
@@ -120,13 +119,22 @@ static uint32_t fat_next(fat_fs_t *fs, uint32_t cl)
             return 0xFFFFFFFFu;
         return *(uint16_t *)(sec + (fat_off % fs->bytes_per_sec));
     }
-    /* FAT12 */
+    /* FAT12 — entry may span two sectors */
     fat_off = cl + (cl / 2);
     lba = fs->reserved + (fat_off / fs->bytes_per_sec);
     if (fat_read_sector(fs, lba, sec) < 0)
         return 0xFFFFFFFFu;
     {
-        uint16_t w = *(uint16_t *)(sec + (fat_off % fs->bytes_per_sec));
+        uint32_t off = fat_off % fs->bytes_per_sec;
+        uint16_t w;
+        if (off + 1 < fs->bytes_per_sec) {
+            w = *(uint16_t *)(sec + off);
+        } else {
+            uint8_t sec2[512];
+            if (fat_read_sector(fs, lba + 1, sec2) < 0)
+                return 0xFFFFFFFFu;
+            w = (uint16_t)(sec[off] | ((uint16_t)sec2[0] << 8));
+        }
         ent = (cl & 1) ? (uint32_t)(w >> 4) : (uint32_t)(w & 0x0FFF);
     }
     return ent;
@@ -136,12 +144,9 @@ static int fat_write_entry(fat_fs_t *fs, uint32_t cl, uint32_t val)
 {
     uint32_t fat_off;
     uint32_t lba;
-    uint8_t *sec;
+    uint8_t sec[512];
     uint32_t f;
     int rc = 0;
-
-    sec = (uint8_t *)kmalloc(512);
-    if (!sec) return -ENOMEM;
 
     /* Write to every FAT copy. */
     for (f = 0; f < fs->fats; f++) {
@@ -167,39 +172,112 @@ static int fat_write_entry(fat_fs_t *fs, uint32_t cl, uint32_t val)
             lba = fat_base + (fat_off / fs->bytes_per_sec);
             if (fat_read_sector(fs, lba, sec) < 0) { rc = -EIO; continue; }
             {
-                uint16_t *w = (uint16_t *)(sec + (fat_off % fs->bytes_per_sec));
-                if (cl & 1)
-                    *w = (uint16_t)((*w & 0x000F) | ((val & 0x0FFF) << 4));
-                else
-                    *w = (uint16_t)((*w & 0xF000) | (val & 0x0FFF));
+                uint32_t off = fat_off % fs->bytes_per_sec;
+                if (off + 1 < fs->bytes_per_sec) {
+                    uint16_t *w = (uint16_t *)(sec + off);
+                    if (cl & 1)
+                        *w = (uint16_t)((*w & 0x000F) | ((val & 0x0FFF) << 4));
+                    else
+                        *w = (uint16_t)((*w & 0xF000) | (val & 0x0FFF));
+                    if (fat_write_sector(fs, lba, sec) < 0) rc = -EIO;
+                } else {
+                    uint8_t sec2[512];
+                    uint16_t w;
+                    if (fat_read_sector(fs, lba + 1, sec2) < 0) {
+                        rc = -EIO;
+                        continue;
+                    }
+                    w = (uint16_t)(sec[off] | ((uint16_t)sec2[0] << 8));
+                    if (cl & 1)
+                        w = (uint16_t)((w & 0x000F) | ((val & 0x0FFF) << 4));
+                    else
+                        w = (uint16_t)((w & 0xF000) | (val & 0x0FFF));
+                    sec[off] = (uint8_t)(w & 0xFF);
+                    sec2[0] = (uint8_t)(w >> 8);
+                    if (fat_write_sector(fs, lba, sec) < 0) rc = -EIO;
+                    if (fat_write_sector(fs, lba + 1, sec2) < 0) rc = -EIO;
+                }
             }
-            if (fat_write_sector(fs, lba, sec) < 0) rc = -EIO;
         }
     }
     return rc;
 }
 
+/*
+ * Find a free cluster. Old path called fat_next() once per cluster — each
+ * call did a full virtio sector read (+ leaked a 512B kmalloc). With ~32k
+ * clusters that stalled boot mkdir for ~10–15s. Scan one FAT sector at a
+ * time (256 FAT16 / 128 FAT32 entries per read).
+ */
 static uint32_t fat_alloc_cluster(fat_fs_t *fs)
 {
+    uint8_t sec[512];
+    uint8_t zero[512];
     uint32_t cl;
-    for (cl = 2; cl < fs->clusters + 2; cl++) {
-        uint32_t v = fat_next(fs, cl);
-        if (fs->fat_bits == 32) v &= 0x0FFFFFFFu;
-        if (v == 0) {
-            if (fat_write_entry(fs, cl, fat_eoc_value(fs) | (fs->fat_bits == 32 ? 0x0FFFFFFFu :
-                                                            (fs->fat_bits == 16 ? 0xFFFFu : 0x0FFFu))) < 0)
+    uint32_t eoc;
+    uint32_t i;
+
+    if (!fs || fs->clusters < 1)
+        return 0;
+
+    eoc = fat_eoc_value(fs);
+    if (fs->fat_bits == 32)
+        eoc |= 0x0FFFFFFFu;
+    else if (fs->fat_bits == 16)
+        eoc |= 0xFFFFu;
+    else
+        eoc |= 0x0FFFu;
+
+    if (fs->fat_bits == 16 || fs->fat_bits == 32) {
+        uint32_t ent_size = (fs->fat_bits == 32) ? 4u : 2u;
+        uint32_t ents_per_sec = fs->bytes_per_sec / ent_size;
+        uint32_t last = fs->clusters + 1u; /* inclusive max cluster index */
+        uint32_t start = 2;
+
+        while (start <= last) {
+            uint32_t fat_off = start * ent_size;
+            uint32_t lba = fs->reserved + (fat_off / fs->bytes_per_sec);
+            uint32_t idx0 = (fat_off / fs->bytes_per_sec) * ents_per_sec;
+            uint32_t e;
+
+            if (fat_read_sector(fs, lba, sec) < 0)
                 return 0;
-            /* Zero the new cluster on disk. */
-            {
-                uint8_t *zero = (uint8_t *)kmalloc(512);
-                uint32_t i;
-                if (!zero) return 0;
-                memset(zero, 0, 512);
+            for (e = 0; e < ents_per_sec; e++) {
+                uint32_t cand = idx0 + e;
+                uint32_t v;
+                if (cand < 2 || cand > last)
+                    continue;
+                if (fs->fat_bits == 32)
+                    v = *(uint32_t *)(sec + e * 4) & 0x0FFFFFFFu;
+                else
+                    v = *(uint16_t *)(sec + e * 2);
+                if (v != 0)
+                    continue;
+                if (fat_write_entry(fs, cand, eoc) < 0)
+                    return 0;
+                memset(zero, 0, sizeof(zero));
                 for (i = 0; i < fs->sec_per_clust; i++)
-                    (void)fat_write_sector(fs, clust_to_lba(fs, cl) + i, zero);
+                    (void)fat_write_sector(fs, clust_to_lba(fs, cand) + i, zero);
+                return cand;
             }
-            return cl;
+            start = idx0 + ents_per_sec;
+            if (start < 2)
+                start = 2;
         }
+        return 0;
+    }
+
+    /* FAT12: keep simple per-cluster walk (small volumes only). */
+    for (cl = 2; cl < fs->clusters + 2; cl++) {
+        uint32_t v = fat_next(fs, cl) & 0x0FFFu;
+        if (v != 0)
+            continue;
+        if (fat_write_entry(fs, cl, eoc) < 0)
+            return 0;
+        memset(zero, 0, sizeof(zero));
+        for (i = 0; i < fs->sec_per_clust; i++)
+            (void)fat_write_sector(fs, clust_to_lba(fs, cl) + i, zero);
+        return cl;
     }
     return 0;
 }
@@ -1099,19 +1177,17 @@ static int fat_init(driver_t *drv, void *ctx)
         else if (api->mount("vda", "/", "vfat", 0, NULL) == 0)
             mounted = 1;
         if (mounted) {
+            /* Mount-point dirs for virtual FS overlays. EEXIST is fine —
+             * still must not re-create (each mkdir alloc-scanned the FAT). */
+            static const char *const kBootDirs[] = {
+                "/dev", "/proc", "/sys", "/tmp", "/run",
+                "/root", "/etc", "/home", "/usr", "/var",
+                "/system", "/applications",
+            };
+            uint32_t di;
             if (api->mkdir) {
-                (void)api->mkdir("/dev", 0755);
-                (void)api->mkdir("/proc", 0755);
-                (void)api->mkdir("/sys", 0755);
-                (void)api->mkdir("/tmp", 0755);
-                (void)api->mkdir("/run", 0755);
-                (void)api->mkdir("/root", 0755);
-                (void)api->mkdir("/etc", 0755);
-                (void)api->mkdir("/home", 0755);
-                (void)api->mkdir("/usr", 0755);
-                (void)api->mkdir("/var", 0755);
-                (void)api->mkdir("/system", 0755);
-                (void)api->mkdir("/applications", 0755);
+                for (di = 0; di < sizeof(kBootDirs) / sizeof(kBootDirs[0]); di++)
+                    (void)api->mkdir(kBootDirs[di], 0755);
             }
             vga_print("fat: vda mounted as /\n");
         } else {

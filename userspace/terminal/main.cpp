@@ -761,9 +761,10 @@ void cmd_ping(const char *arg)
     uint32_t dip = 0;
     int j = 0;
     int sent = 0, recv = 0;
-    long s;
+    long s, epfd = -1;
     const char *p = skip_ws(arg);
     char msg[kCols + 1];
+    long last_err = 0;
 
     if (!*p) {
         line_push("ping: usage: ping <ipv4>", col_err());
@@ -786,6 +787,18 @@ void cmd_ping(const char *arg)
         return;
     }
 
+    epfd = hsrc::sdk::epoll_create1(0);
+    if (epfd >= 0) {
+        epoll_event_t ev;
+        memset(&ev, 0, sizeof(ev));
+        ev.events = EPOLLIN;
+        ev.data.fd = (int)s;
+        if (hsrc::sdk::epoll_ctl((int)epfd, EPOLL_CTL_ADD, (int)s, &ev) < 0) {
+            hsrc::sdk::close((int)epfd);
+            epfd = -1;
+        }
+    }
+
     line_push("PING (SOCK_RAW/ICMP) ...", col_dim());
     for (int i = 0; i < 4; i++) {
         uint8_t icmp[16];
@@ -793,7 +806,8 @@ void cmd_ping(const char *arg)
         uint16_t id = (uint16_t)(0xBEE0 + i);
         uint16_t seq = (uint16_t)(i + 1);
         uint16_t csum, v;
-        long n;
+        long n, rc;
+        epoll_event_t rev;
 
         memset(icmp, 0, sizeof(icmp));
         icmp[0] = 8; /* echo */
@@ -810,11 +824,21 @@ void cmd_ping(const char *arg)
         dst.sin_family = AF_INET;
         dst.sin_addr = htonl(dip);
 
-        if (hsrc::sdk::sendto((int)s, icmp, sizeof(icmp), &dst) < 0)
+        rc = hsrc::sdk::sendto((int)s, icmp, sizeof(icmp), &dst, 0);
+        if (rc < 0) {
+            last_err = rc;
             continue;
+        }
         sent++;
 
-        n = hsrc::sdk::recvfrom((int)s, icmp, sizeof(icmp), &src);
+        if (epfd >= 0) {
+            n = hsrc::sdk::epoll_wait((int)epfd, &rev, 1, 1000);
+            if (n <= 0)
+                continue;
+            n = hsrc::sdk::recvfrom((int)s, icmp, sizeof(icmp), &src, MSG_DONTWAIT);
+        } else {
+            n = hsrc::sdk::recvfrom((int)s, icmp, sizeof(icmp), &src, 0);
+        }
         if (n >= 8 && icmp[0] == 0) {
             uint16_t rid, rseq;
             memcpy(&rid, icmp + 4, 2);
@@ -823,6 +847,8 @@ void cmd_ping(const char *arg)
                 recv++;
         }
     }
+    if (epfd >= 0)
+        hsrc::sdk::close((int)epfd);
     hsrc::sdk::close((int)s);
 
     j = 0;
@@ -843,8 +869,25 @@ void cmd_ping(const char *arg)
         msg[j] = 0;
     }
     line_push(msg, recv > 0 ? col_accent() : col_err());
-    if (recv == 0)
+    if (sent == 0 && last_err < 0) {
+        const char *mid = "ping: sendto failed errno=";
+        j = 0;
+        while (*mid && j < kCols)
+            msg[j++] = *mid++;
+        {
+            int e = (int)(-last_err);
+            if (e >= 100 && j < kCols)
+                msg[j++] = (char)('0' + (e / 100) % 10);
+            if (e >= 10 && j < kCols)
+                msg[j++] = (char)('0' + (e / 10) % 10);
+            if (j < kCols)
+                msg[j++] = (char)('0' + e % 10);
+        }
+        msg[j] = 0;
+        line_push(msg, col_err());
+    } else if (recv == 0) {
         line_push("ping: timeout / unreachable", col_err());
+    }
 }
 
 void cmd_connect(const char *arg)

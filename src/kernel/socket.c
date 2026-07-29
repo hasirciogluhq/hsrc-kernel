@@ -1,4 +1,5 @@
 #include <kernel/socket.h>
+#include <kernel/epoll.h>
 #include <kernel/netif.h>
 #include <kernel/netstack.h>
 #include <kernel/errno.h>
@@ -49,6 +50,7 @@ typedef struct {
     int      parent_sid;
     uint8_t  shut_rd;
     uint8_t  shut_wr;
+    uint8_t  nonblock;
     int      error;
     uint16_t lport; /* host */
     uint32_t laddr; /* host */
@@ -85,15 +87,28 @@ static void sock_reset(socket_t *s)
     s->waiter = -1;
 }
 
+static int sock_sid_of(const socket_t *s)
+{
+    if (!s)
+        return -1;
+    return (int)(s - g_socks);
+}
+
 static void sock_wake_waiter(socket_t *s)
 {
     process_t *p;
-    if (!s || s->waiter <= 0)
+    int sid;
+    if (!s)
         return;
-    p = process_by_tid(s->waiter);
-    s->waiter = -1;
-    if (p)
-        process_wake(p);
+    sid = sock_sid_of(s);
+    if (s->waiter > 0) {
+        p = process_by_tid(s->waiter);
+        s->waiter = -1;
+        if (p)
+            process_wake(p);
+    }
+    if (sid >= 0)
+        epoll_sock_notify(sid);
 }
 
 /* Deschedule until woken; short tick backup so connect/ack cannot hang forever. */
@@ -604,13 +619,14 @@ ssize_t sock_send(int sid, const void *buf, size_t len, int flags)
 ssize_t sock_recv(int sid, void *buf, size_t len, int flags)
 {
     socket_t *s = sock_get(sid);
-    int wait = !(flags & MSG_DONTWAIT);
+    int wait;
     size_t got;
 
     if (!s || !buf)
         return -EINVAL;
     if (s->type != SOCK_STREAM)
         return -EINVAL;
+    wait = !(flags & MSG_DONTWAIT) && !s->nonblock;
 
     while (s->stream_rx_len == 0) {
         if (s->state == TCP_CLOSE_WAIT || s->state == TCP_CLOSED)
@@ -666,18 +682,22 @@ ssize_t sock_sendto(int sid, const void *buf, size_t len, int flags,
     }
 
     if (s->type == SOCK_DGRAM) {
+        int rc;
         if (len > SOCK_RX_BYTES)
             return -EMSGSIZE;
-        if (udp_output(nif, tcp_local_ip(s, nif), s->lport, dip, dport, buf, len) < 0)
-            return -EHOSTUNREACH;
+        rc = udp_output(nif, tcp_local_ip(s, nif), s->lport, dip, dport, buf, len);
+        if (rc < 0)
+            return rc;
         return (ssize_t)len;
     }
 
     if (s->type == SOCK_RAW) {
+        int rc;
         if (len > SOCK_RX_BYTES)
             return -EMSGSIZE;
-        if (ipv4_output(nif, dip, (uint8_t)s->proto, buf, len) < 0)
-            return -EHOSTUNREACH;
+        rc = ipv4_output(nif, dip, (uint8_t)s->proto, buf, len);
+        if (rc < 0)
+            return rc;
         return (ssize_t)len;
     }
     return -EPROTONOSUPPORT;
@@ -688,12 +708,13 @@ ssize_t sock_recvfrom(int sid, void *buf, size_t len, int flags,
 {
     socket_t *s = sock_get(sid);
     sock_pkt_t pkt;
-    int wait = !(flags & MSG_DONTWAIT);
+    int wait;
 
     if (!s || !buf)
         return -EINVAL;
     if (ensure_bound(s, sid) < 0)
         return -EADDRINUSE;
+    wait = !(flags & MSG_DONTWAIT) && !s->nonblock;
 
     if (s->type == SOCK_STREAM) {
         ssize_t n = sock_recv(sid, buf, len, flags);
@@ -896,4 +917,52 @@ void sock_input_icmp(uint32_t src_ip, const void *payload, size_t len)
             continue;
         (void)rx_push(s, src_ip, 0, payload, len);
     }
+}
+
+uint32_t sock_poll_events(int sid)
+{
+    socket_t *s = sock_get(sid);
+    uint32_t ev = 0;
+    if (!s)
+        return EPOLLERR;
+    if (s->error)
+        ev |= EPOLLERR;
+    if (s->type == SOCK_STREAM) {
+        if (s->state == TCP_LISTEN) {
+            if (s->aq_n > 0)
+                ev |= EPOLLIN;
+        } else {
+            if (s->stream_rx_len > 0)
+                ev |= EPOLLIN;
+            if (s->state == TCP_CLOSE_WAIT || s->state == TCP_CLOSED)
+                ev |= EPOLLIN | EPOLLHUP;
+            if ((s->state == TCP_ESTABLISHED || s->state == TCP_CLOSE_WAIT) &&
+                !s->shut_wr)
+                ev |= EPOLLOUT;
+            if (s->state == TCP_ESTABLISHED && s->connected)
+                ev |= EPOLLOUT;
+        }
+    } else {
+        if (s->rx_n > 0)
+            ev |= EPOLLIN;
+        ev |= EPOLLOUT;
+    }
+    return ev;
+}
+
+int sock_set_nonblock(int sid, int on)
+{
+    socket_t *s = sock_get(sid);
+    if (!s)
+        return -EBADF;
+    s->nonblock = on ? 1 : 0;
+    return 0;
+}
+
+int sock_get_nonblock(int sid)
+{
+    socket_t *s = sock_get(sid);
+    if (!s)
+        return -EBADF;
+    return s->nonblock ? 1 : 0;
 }

@@ -120,6 +120,16 @@
 #define SYS_SCHED_GET       290  /* a1=&sched_params_t → 0 */
 #define SYS_SCHED_SET       291  /* a1=tick_us(0=keep) a2=life_us(0=keep) → 0 */
 
+/* epoll (Linux-like; private numbers — 254/255 taken by SPAWN/WAITPID). */
+#define SYS_EPOLL_CREATE1   292  /* a1=flags → epfd */
+#define SYS_EPOLL_CTL       293  /* a1=epfd a2=op a3=fd a4=&epoll_event */
+#define SYS_EPOLL_WAIT      294  /* a1=epfd a2=events a3=maxevents a4=timeout_ms */
+#define SYS_FCNTL           295  /* a1=fd a2=cmd a3=arg */
+
+#define F_GETFL 3
+#define F_SETFL 4
+#define O_NONBLOCK 0x800
+
 /* SYS_SPAWN flags (Wave O). */
 #define SPAWN_CONSOLE_VISIBLE  0x01u
 #define SPAWN_CONSOLE_HIDDEN   0x02u

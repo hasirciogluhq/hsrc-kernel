@@ -7,6 +7,7 @@
 #include <kernel/scheduler.h>
 #include <kernel/sync.h>
 #include <kernel/socket.h>
+#include <kernel/epoll.h>
 #include <kernel/syscall.h>
 #include <kernel/vfs.h>
 #include <kernel/dx_api.h>
@@ -268,6 +269,8 @@ static void process_release_fds(process_t *p)
             continue;
         if (PROC_FD_IS_SOCK(fd))
             (void)sock_close(PROC_FD_SOCK_ID(fd));
+        else if (PROC_FD_IS_EPOLL(fd))
+            (void)epoll_close_inst(PROC_FD_EPOLL_ID(fd));
         else
             (void)vfs_close(fd);
         p->fds[i] = -1;
@@ -1279,6 +1282,20 @@ int process_alloc_sock_fd(process_t *p, int sock_id)
     for (int i = 0; i < VFS_MAX_FD; i++) {
         if (p->fds[i] < 0) {
             p->fds[i] = PROC_FD_MAKE_SOCK(sock_id);
+            return i;
+        }
+    }
+    return -1;
+}
+
+int process_alloc_epoll_fd(process_t *p, int epoll_id)
+{
+    p = process_leader(p);
+    if (!p)
+        return -1;
+    for (int i = 0; i < VFS_MAX_FD; i++) {
+        if (p->fds[i] < 0) {
+            p->fds[i] = PROC_FD_MAKE_EPOLL(epoll_id);
             return i;
         }
     }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <kernel/socket.h>
+#include <kernel/epoll.h>
 #include <kernel/syscall.h>
 #include <user/sdk/syscall.hpp>
 
@@ -31,10 +32,11 @@ inline long accept(int fd, sockaddr_in_t *addr)
     return syscall2(SYS_ACCEPT, fd, (long)addr);
 }
 
-/* dest may be null if the socket is connected. */
-inline long sendto(int fd, const void *buf, size_t len, const sockaddr_in_t *dest)
+/* dest may be null if the socket is connected. flags: MSG_DONTWAIT etc. */
+inline long sendto(int fd, const void *buf, size_t len, const sockaddr_in_t *dest,
+                   int flags = 0)
 {
-    return syscall4(SYS_SENDTO, fd, (long)buf, (long)len, (long)dest);
+    return syscall5(SYS_SENDTO, fd, (long)buf, (long)len, (long)dest, flags);
 }
 
 inline long send(int fd, const void *buf, size_t len)
@@ -43,9 +45,10 @@ inline long send(int fd, const void *buf, size_t len)
 }
 
 /* src may be null if peer address is not needed. */
-inline long recvfrom(int fd, void *buf, size_t len, sockaddr_in_t *src)
+inline long recvfrom(int fd, void *buf, size_t len, sockaddr_in_t *src,
+                     int flags = 0)
 {
-    return syscall4(SYS_RECVFROM, fd, (long)buf, (long)len, (long)src);
+    return syscall5(SYS_RECVFROM, fd, (long)buf, (long)len, (long)src, flags);
 }
 
 inline long recv(int fd, void *buf, size_t len)
@@ -56,6 +59,27 @@ inline long recv(int fd, void *buf, size_t len)
 inline long shutdown(int fd, int how)
 {
     return syscall2(SYS_SHUTDOWN, fd, how);
+}
+
+inline long epoll_create1(int flags = 0)
+{
+    return syscall1(SYS_EPOLL_CREATE1, flags);
+}
+
+inline long epoll_ctl(int epfd, int op, int fd, epoll_event_t *event)
+{
+    return syscall4(SYS_EPOLL_CTL, epfd, op, fd, (long)event);
+}
+
+inline long epoll_wait(int epfd, epoll_event_t *events, int maxevents,
+                       int timeout_ms)
+{
+    return syscall4(SYS_EPOLL_WAIT, epfd, (long)events, maxevents, timeout_ms);
+}
+
+inline long fcntl(int fd, int cmd, long arg = 0)
+{
+    return syscall3(SYS_FCNTL, fd, cmd, arg);
 }
 
 inline int inet_aton(const char *s, uint32_t *out_host)

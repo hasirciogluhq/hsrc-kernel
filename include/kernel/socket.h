@@ -62,6 +62,11 @@ ssize_t sock_recv(int sid, void *buf, size_t len, int flags);
 int     sock_shutdown(int sid, int how);
 int     sock_close(int sid);
 
+/* Linux-like readiness bits (EPOLLIN/OUT/ERR/HUP from epoll.h). */
+uint32_t sock_poll_events(int sid);
+int      sock_set_nonblock(int sid, int on);
+int      sock_get_nonblock(int sid);
+
 /* Deliver demuxed datagrams from the IP stack (kernel only). */
 void sock_input_udp(uint32_t src_ip, uint16_t src_port,
                     uint32_t dst_ip, uint16_t dst_port,

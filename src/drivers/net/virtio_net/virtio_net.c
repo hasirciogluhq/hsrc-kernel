@@ -23,10 +23,12 @@
 #define VRING_DESC_F_WRITE 2
 
 #define VIRTIO_NET_F_MAC 5
+/* Feature bit 32 (feature_select=1, bit 0): modern virtio requires this.
+ * With VERSION_1 the net hdr includes num_buffers (12 bytes). */
+#define VIRTIO_F_VERSION_1_BIT 0
 
 #define RX_BUFS 8
 #define PKT_MAX 1514
-#define NET_HDR_SIZE 12
 #define VQ_MAX  16
 
 typedef struct {
@@ -60,7 +62,10 @@ typedef struct {
     uint16_t gso_size;
     uint16_t csum_start;
     uint16_t csum_offset;
+    uint16_t num_buffers; /* present when VIRTIO_F_VERSION_1 negotiated */
 } __attribute__((packed)) virtio_net_hdr_t;
+
+#define NET_HDR_SIZE ((uint32_t)sizeof(virtio_net_hdr_t))
 
 typedef struct {
     vdesc_t *desc;
@@ -388,10 +393,23 @@ static int vnet_init_device(pci_device_t *pci)
     mmio_w8(vd->common + 20, VIRTIO_STATUS_ACKNOWLEDGE);
     mmio_w8(vd->common + 20, VIRTIO_STATUS_ACKNOWLEDGE | VIRTIO_STATUS_DRIVER);
 
-    mmio_w32(vd->common + 0, 0);
-    feats = mmio_r32(vd->common + 4);
-    mmio_w32(vd->common + 8, 0);
-    mmio_w32(vd->common + 12, feats & (1u << VIRTIO_NET_F_MAC));
+    {
+        uint32_t feats0, feats1;
+        mmio_w32(vd->common + 0, 0);
+        feats0 = mmio_r32(vd->common + 4);
+        mmio_w32(vd->common + 0, 1);
+        feats1 = mmio_r32(vd->common + 4);
+        /* Modern PCI net (0x1041): VERSION_1 is mandatory; locks 12-byte hdr. */
+        if (!(feats1 & (1u << VIRTIO_F_VERSION_1_BIT))) {
+            vga_print("virtio-net: VERSION_1 missing\n");
+            return -ENODEV;
+        }
+        mmio_w32(vd->common + 8, 0);
+        mmio_w32(vd->common + 12, feats0 & (1u << VIRTIO_NET_F_MAC));
+        mmio_w32(vd->common + 8, 1);
+        mmio_w32(vd->common + 12, feats1 & (1u << VIRTIO_F_VERSION_1_BIT));
+        feats = feats0;
+    }
     mmio_w8(vd->common + 20,
             VIRTIO_STATUS_ACKNOWLEDGE | VIRTIO_STATUS_DRIVER | VIRTIO_STATUS_FEATURES_OK);
     if (!(mmio_r8(vd->common + 20) & VIRTIO_STATUS_FEATURES_OK))

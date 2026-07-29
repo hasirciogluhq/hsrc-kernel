@@ -15,6 +15,7 @@
 #include <kernel/module.h>
 #include <kernel/netif.h>
 #include <kernel/socket.h>
+#include <kernel/epoll.h>
 #include <kernel/uaccess.h>
 #include <kernel/string.h>
 #include <drivers/serial.h>
@@ -376,6 +377,8 @@ static long do_close(long fd)
 
     if (PROC_FD_IS_SOCK(enc)) {
         (void)sock_close(PROC_FD_SOCK_ID(enc));
+    } else if (PROC_FD_IS_EPOLL(enc)) {
+        (void)epoll_close_inst(PROC_FD_EPOLL_ID(enc));
     } else if ((int)fd > STDERR_FILENO) {
         vfs_close(enc);
     }
@@ -1645,7 +1648,7 @@ long syscall_dispatch(long n, long a1, long a2, long a3, long a4, long a5)
                 return -EFAULT;
             dstp = &addr;
         }
-        n = sock_sendto(PROC_FD_SOCK_ID(enc), kbuf, len, 0, dstp);
+        n = sock_sendto(PROC_FD_SOCK_ID(enc), kbuf, len, (int)a5, dstp);
         return n;
     }
     case SYS_RECVFROM: {
@@ -1663,7 +1666,7 @@ long syscall_dispatch(long n, long a1, long a2, long a3, long a4, long a5)
         len = (size_t)a3;
         if (len > sizeof(kbuf))
             len = sizeof(kbuf);
-        n = sock_recvfrom(PROC_FD_SOCK_ID(enc), kbuf, len, 0, a4 ? &addr : NULL);
+        n = sock_recvfrom(PROC_FD_SOCK_ID(enc), kbuf, len, (int)a5, a4 ? &addr : NULL);
         if (n < 0)
             return n;
         if (n && copy_to_user((void *)a2, kbuf, (size_t)n) < 0)
@@ -1671,6 +1674,85 @@ long syscall_dispatch(long n, long a1, long a2, long a3, long a4, long a5)
         if (a4 && copy_to_user((void *)a4, &addr, sizeof(addr)) < 0)
             return -EFAULT;
         return n;
+    }
+    case SYS_EPOLL_CREATE1: {
+        process_t *p = process_current();
+        int eid, ufd;
+        if (!p)
+            return -ESRCH;
+        eid = epoll_create_inst((int)a1);
+        if (eid < 0)
+            return eid;
+        ufd = process_alloc_epoll_fd(p, eid);
+        if (ufd < 0) {
+            epoll_close_inst(eid);
+            return -EMFILE;
+        }
+        return ufd;
+    }
+    case SYS_EPOLL_CTL: {
+        process_t *p = process_current();
+        epoll_event_t ev;
+        int enc;
+        if (!p)
+            return -ESRCH;
+        enc = process_lookup_fd(p, (int)a1);
+        if (enc < 0 || !PROC_FD_IS_EPOLL(enc))
+            return -EBADF;
+        if (a2 != EPOLL_CTL_DEL) {
+            if (!a4 || copy_from_user(&ev, (const void *)a4, sizeof(ev)) < 0)
+                return -EFAULT;
+        } else {
+            memset(&ev, 0, sizeof(ev));
+        }
+        return epoll_ctl_inst(PROC_FD_EPOLL_ID(enc), (int)a2, (int)a3,
+                              ev.events, ev.data);
+    }
+    case SYS_EPOLL_WAIT: {
+        process_t *p = process_current();
+        epoll_event_t kev[32];
+        int enc, maxe, n, i;
+        if (!p)
+            return -ESRCH;
+        enc = process_lookup_fd(p, (int)a1);
+        if (enc < 0 || !PROC_FD_IS_EPOLL(enc))
+            return -EBADF;
+        maxe = (int)a3;
+        if (maxe <= 0)
+            return -EINVAL;
+        if (maxe > (int)(sizeof(kev) / sizeof(kev[0])))
+            maxe = (int)(sizeof(kev) / sizeof(kev[0]));
+        n = epoll_wait_inst(PROC_FD_EPOLL_ID(enc), kev, maxe, (int)a4);
+        if (n < 0)
+            return n;
+        for (i = 0; i < n; i++) {
+            if (copy_to_user((void *)(a2 + (long)i * (long)sizeof(epoll_event_t)),
+                             &kev[i], sizeof(kev[i])) < 0)
+                return -EFAULT;
+        }
+        return n;
+    }
+    case SYS_FCNTL: {
+        process_t *p = process_current();
+        int enc, nb;
+        if (!p)
+            return -ESRCH;
+        enc = process_lookup_fd(p, (int)a1);
+        if (enc < 0)
+            return -EBADF;
+        if (!PROC_FD_IS_SOCK(enc))
+            return -EINVAL;
+        if ((int)a2 == F_GETFL) {
+            nb = sock_get_nonblock(PROC_FD_SOCK_ID(enc));
+            if (nb < 0)
+                return nb;
+            return nb ? O_NONBLOCK : 0;
+        }
+        if ((int)a2 == F_SETFL) {
+            return sock_set_nonblock(PROC_FD_SOCK_ID(enc),
+                                     ((int)a3 & O_NONBLOCK) ? 1 : 0);
+        }
+        return -EINVAL;
     }
     case SYS_NETIF_GET:
         return do_netif_get(a1, a2);

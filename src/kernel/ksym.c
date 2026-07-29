@@ -7,6 +7,7 @@
 #include <kernel/block_api.h>
 #include <kernel/netif.h>
 #include <kernel/socket.h>
+#include <kernel/epoll.h>
 #include <kernel/initrd_store.h>
 #include <kernel/process.h>
 #include <kernel/sync.h>
@@ -100,6 +101,11 @@ static const ksym_t g_ksyms[] = {
     { "sock_recv",          (void *)sock_recv },
     { "sock_shutdown",      (void *)sock_shutdown },
     { "sock_close",         (void *)sock_close },
+    { "sock_poll_events",   (void *)sock_poll_events },
+    { "epoll_create_inst",  (void *)epoll_create_inst },
+    { "epoll_ctl_inst",     (void *)epoll_ctl_inst },
+    { "epoll_wait_inst",    (void *)epoll_wait_inst },
+    { "epoll_close_inst",   (void *)epoll_close_inst },
     { "initrd_store_get",   (void *)initrd_store_get },
     { "initrd_store_set",   (void *)initrd_store_set },
     { "process_current",    (void *)process_current },

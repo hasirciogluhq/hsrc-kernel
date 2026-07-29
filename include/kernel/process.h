@@ -15,11 +15,15 @@
 #define PROC_USTACK_SIZE 8192
 #define PROC_NAME_MAX    PROC_PAGE_NAME
 
-/* fds[]: VFS fd (>=0) or socket id tagged with PROC_FD_SOCK. */
-#define PROC_FD_SOCK     0x40000000
-#define PROC_FD_IS_SOCK(x) (((x) >= 0) && (((unsigned)(x) & PROC_FD_SOCK) != 0))
-#define PROC_FD_SOCK_ID(x) ((int)((unsigned)(x) & 0xFF))
-#define PROC_FD_MAKE_SOCK(id) ((int)(PROC_FD_SOCK | ((unsigned)(id) & 0xFF)))
+/* fds[]: VFS fd (>=0), or tagged socket / epoll instance ids. */
+#define PROC_FD_SOCK      0x40000000
+#define PROC_FD_EPOLL     0x20000000
+#define PROC_FD_IS_SOCK(x)  (((x) >= 0) && (((unsigned)(x) & PROC_FD_SOCK) != 0))
+#define PROC_FD_IS_EPOLL(x) (((x) >= 0) && (((unsigned)(x) & PROC_FD_EPOLL) != 0))
+#define PROC_FD_SOCK_ID(x)  ((int)((unsigned)(x) & 0xFF))
+#define PROC_FD_EPOLL_ID(x) ((int)((unsigned)(x) & 0xFF))
+#define PROC_FD_MAKE_SOCK(id)  ((int)(PROC_FD_SOCK  | ((unsigned)(id) & 0xFF)))
+#define PROC_FD_MAKE_EPOLL(id) ((int)(PROC_FD_EPOLL | ((unsigned)(id) & 0xFF)))
 
 typedef enum {
     PROC_UNUSED = 0,
@@ -164,6 +168,7 @@ void         process_snapshot_publish(void);
 
 int  process_alloc_fd(process_t *p, int vfs_fd);
 int  process_alloc_sock_fd(process_t *p, int sock_id);
+int  process_alloc_epoll_fd(process_t *p, int epoll_id);
 int  process_lookup_fd(process_t *p, int user_fd);
 void process_free_fd(process_t *p, int user_fd);
 

@@ -12,6 +12,7 @@
 #include <kernel/vfs.h>
 #include <kernel/netif.h>
 #include <kernel/socket.h>
+#include <kernel/epoll.h>
 #include <kernel/ksym.h>
 #include <kernel/module.h>
 #include <kernel/process.h>
@@ -81,6 +82,7 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     vfs_init();
     netif_init();
     socket_init();
+    epoll_init();
     ksym_init();
     process_init();
     sync_init();

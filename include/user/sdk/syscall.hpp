@@ -10,6 +10,7 @@ long syscall1(long n, long a1);
 long syscall2(long n, long a1, long a2);
 long syscall3(long n, long a1, long a2, long a3);
 long syscall4(long n, long a1, long a2, long a3, long a4);
+long syscall5(long n, long a1, long a2, long a3, long a4, long a5);
 
 inline void yield(uint32_t sleep_ticks = 0)
 {
