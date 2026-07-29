@@ -12,7 +12,16 @@
 /* Hard ceiling - slots are pointers only; structs/stacks grow on demand. */
 #define PROC_MAX         8192
 #define PROC_KSTACK_SIZE 8192
-#define PROC_USTACK_SIZE (64 * 1024) /* was 8K; locals + syscall frames need room */
+/*
+ * User stack — Windows-like per-binary reserve (PE SizeOfStackReserve ≈ 1 MiB).
+ * Contiguous kmalloc today (no guard-page grow yet). exec_header.stack_size
+ * selects size at spawn; 0 → DEFAULT. Clamp: MIN..MAX.
+ * Large objects (kilim::Context ~3MiB) still MUST be static/heap, not stack.
+ */
+#define PROC_USTACK_DEFAULT (1024u * 1024u)
+#define PROC_USTACK_MIN     (64u * 1024u)
+#define PROC_USTACK_MAX     (8u * 1024u * 1024u)
+#define PROC_USTACK_SIZE    PROC_USTACK_DEFAULT /* legacy alias */
 #define PROC_NAME_MAX    PROC_PAGE_NAME
 
 /* fds[]: VFS fd (>=0), or tagged socket / epoll instance ids. */
@@ -109,6 +118,7 @@ typedef struct process {
     uint32_t    *ustack_base;
     uint32_t     kstack_top;
     uint32_t     ustack_top;
+    uint32_t     ustack_size; /* bytes allocated for ustack_base (0 = none) */
     cpu_context_t ctx;         /* playbook CPU context (esp/GP/CR3/fpu*) */
     uint8_t fpu_state[CPU_FPU_AREA_SIZE] __attribute__((aligned(16)));
     thread_regs_t regs;        /* debug mirror */
@@ -142,6 +152,10 @@ void        process_reap_graveyard(void);
 
 pid_t process_create(const char *name, void (*entry)(void));
 pid_t process_create_user(const char *name, void (*entry)(void));
+/* stack_bytes: 0 = PROC_USTACK_DEFAULT; clamped to PROC_USTACK_MIN..MAX. */
+pid_t process_create_user_stack(const char *name, void (*entry)(void),
+                                uint32_t stack_bytes);
+uint32_t process_clamp_ustack(uint32_t stack_bytes);
 pid_t process_getpid(void);  /* process group / leader pid */
 pid_t process_getppid(void);
 pid_t process_gettid(void);  /* current thread id */

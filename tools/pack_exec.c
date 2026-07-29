@@ -64,7 +64,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    stack_size = 8192;
+    stack_size = 1048576; /* Windows-like default 1 MiB; override via argv */
     imports_off = 0;
     needed_i = 0;
     if (argc >= 9 && parse_u32(argv[8], &stack_size) < 0) {

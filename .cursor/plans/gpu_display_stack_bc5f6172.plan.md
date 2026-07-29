@@ -39,11 +39,14 @@ todos:
     content: "DONE — docs/graphics-reed-kilim.tr.md + .en.md"
     status: completed
   - id: restore-app-ux
-    content: "NEXT — interactive dock/menu, settings hub, terminal, files, activity-monitor, minesweeper, imgui kilim backend — feature parity"
-    status: pending
-  - id: harden-lessons
-    content: "DONE — static kilim::Context; PROC_USTACK 64KiB; import share+refcount; tek GPU QEMU; splash #1A1F2E"
+    content: "DONE (v1) — interactive dock/menu, Fluent+macOS chrome; settings/terminal/files/monitor/mines UI; deeper TTY/FS/imgui NEXT"
     status: completed
+  - id: harden-lessons
+    content: "DONE — static kilim::Context; ustack default 1MiB + exec stack_size; import share; tek GPU QEMU; splash #1A1F2E; atexit stub"
+    status: completed
+  - id: restore-app-ux-deep
+    content: "NEXT — real FS browser, real TTY, imgui kilim backend polish"
+    status: pending
 isProject: false
 ---
 
@@ -55,24 +58,16 @@ isProject: false
 - Her oturumda bu dosyanın `todos` + “İlerleme” güncellenir.
 - Mevcut çalışan stack’i bozmadan ilerlenir (static Context, import-share, tek primary QEMU, WM tek present).
 
-## İlerleme (2026-07-29 — plan audit + rules/docs sync)
+## İlerleme (2026-07-29 — chrome UX + atexit)
 
 | Adım | Durum |
 |------|-------|
-| GpuProvider + DRIVER_CLASS_GPU | **DONE** |
-| display.kmod + SYS_DISP_CALL | **DONE** |
-| Reed SW API | **DONE** |
-| Kilim full (batch/text/3D/widgets/acrylic) | **DONE** |
-| Usermode WM + sdk-wm | **DONE** |
-| Input dx'siz | **DONE** |
-| break-legacy (dx/gfx/SYS_WM_GX/mkdx) | **DONE** |
-| Apps → wm+kilim stubs | **DONE** (UX stub) |
-| `display_bga` + drivers tree + `klock_disp` | **DONE** |
-| `display_virtio` + QEMU sözleşmesi | **DONE** |
-| Hybrid shell v1 (WM menubar/dock + shell wallpaper) | **DONE** |
-| Hard lessons (Context/ustack, import share, tek GPU) | **DONE** |
-| Docs Reed/Kilim | **DONE** |
-| Full shell/app UX restore | **NEXT** |
+| Pipeline + docs + rules | **DONE** |
+| Freestanding `atexit` / `__cxa_atexit` stub | **DONE** |
+| WM Fluent chrome + rounded dock + traffic lights + resize | **DONE** |
+| Interactive dock / menubar launch | **DONE** |
+| Apps visual refresh | **DONE** (v1) |
+| Real TTY / FS / imgui depth | **NEXT** |
 
 ## Drivers layout
 
@@ -108,7 +103,7 @@ Apps (stub) → wm::Window + kilim::Context + reed::Device
 
 - İstemci: `begin_frame` → draw → `commit_frame` (present yok)
 - WM: compose → `end_frame` (tek scanout)
-- `kilim::Context` **static/BSS/heap** (~3MiB); ustack yasak (64KiB)
+- `kilim::Context` **static/BSS/heap** (~3MiB); ustack yasak (default 1 MiB; Context yine sığmaz)
 
 ### QEMU
 
@@ -118,7 +113,7 @@ Apps (stub) → wm::Window + kilim::Context + reed::Device
 
 ## Cursor rules (güncel)
 
-Tüm `gfx-eng-*.mdc` + `kernel-gui-disk.mdc` yeni stack’e göre yazıldı (DX/mkdx globs kaldırıldı; Context/import/QEMU dersleri eklendi).
+Tüm `graphics-*.mdc` + `kernel-gui-disk.mdc` (eski `graphics-eng-*` / `gfx-eng-*` rename).
 
 ## Docs
 

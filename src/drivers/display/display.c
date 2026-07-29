@@ -2,6 +2,8 @@
 #include <drivers/display/gpu.h>
 #include <drivers/bus/pci.h>
 #include <drivers/console/serial.h>
+#include <drivers/input/mouse.h>
+#include <kernel/string.h>
 
 /*
  * Display ops registry + boot-time video debug dump.
@@ -53,6 +55,13 @@ int display_register(display_ops_t *ops, int priority)
         g_active = ops;
         g_priority = priority;
         became_active = 1;
+    }
+
+    if (became_active && ops->get_mode) {
+        display_mode_t mode;
+        memset(&mode, 0, sizeof(mode));
+        if (ops->get_mode(&mode) == 0 && mode.width > 0 && mode.height > 0)
+            mouse_set_bounds((int32_t)mode.width, (int32_t)mode.height);
     }
 
     klog("[video] register display=");
@@ -188,6 +197,7 @@ void display_boot_log(void)
         klog("\n");
 
         if (ops->get_mode && ops->get_mode(&mode) == 0) {
+            mouse_set_bounds((int32_t)mode.width, (int32_t)mode.height);
             klog("[video] screen ");
             serial_print_uint(mode.width);
             klog("x");

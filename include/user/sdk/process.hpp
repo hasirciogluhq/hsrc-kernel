@@ -8,7 +8,7 @@
 namespace hsrc::sdk::process {
 
 constexpr int kMaxProcesses = PROC_PAGE_MAX;
-/* 8KiB user stacks - never allocate ProcListEntry[kMaxProcesses] on stack. */
+/* Default user stacks are 1 MiB (PROC_USTACK_DEFAULT); never put Context on stack. */
 constexpr int kMaxStackProcesses = 32;
 
 enum State : uint32_t {

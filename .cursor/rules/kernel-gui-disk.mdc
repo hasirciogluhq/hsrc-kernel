@@ -62,6 +62,13 @@ include/drivers/{driver.h,bus/,console/,input/,display/,vfs/}
 - Default `/init` starts system session units from PATH (`window-manager`, `os-shell`).
 - User apps are never started by kernel or as hard-coded PID1 defaults.
 
+## User stack (Windows-like)
+
+- Default reserve: **1 MiB** (`PROC_USTACK_DEFAULT`) — PE `SizeOfStackReserve` benzeri.
+- Per-binary: `exec_header.stack_size` (pack_exec); `0` → default. Clamp `64 KiB .. 8 MiB`.
+- Contiguous `kmalloc` today (no Linux-style guard-page grow yet).
+- Large frame locals / `kilim::Context` → static/heap, not stack.
+
 ## Locking note
 
 - `klock_disp` serializes `disp_api` + `drivers_poll` (asm spinlock). Not a graphics “DX” lock.

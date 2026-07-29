@@ -322,7 +322,8 @@ static int exec_spawn_header(const exec_header_t *hdr, uint32_t spawn_flags,
     }
 
     entry = (void (*)(void))(uintptr_t)(hdr->load_addr + hdr->entry_off);
-    pid = process_create_user(hdr->name[0] ? hdr->name : "exec", entry);
+    pid = process_create_user_stack(hdr->name[0] ? hdr->name : "exec", entry,
+                                    hdr->stack_size);
     if (pid < 0) {
         klog("[exec] process_create_user FAILED\n");
         vga_print("exec: process_create_user failed\n");
@@ -349,6 +350,8 @@ static int exec_spawn_header(const exec_header_t *hdr, uint32_t spawn_flags,
     serial_print_uint((uint32_t)pid);
     klog(" entry=");
     serial_print_hex((uint32_t)(uintptr_t)entry);
+    klog(" ustack=");
+    serial_print_uint(process_clamp_ustack(hdr->stack_size));
     klog("\n");
 
     exec_attach_console(pid, hdr->name[0] ? hdr->name : "exec", spawn_flags);

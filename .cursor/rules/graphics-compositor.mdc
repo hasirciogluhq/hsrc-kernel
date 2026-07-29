@@ -36,5 +36,5 @@ Usermode WM (`userspace/window-manager`) + client (`wm::` / `/tmp/wm` IPC). Kern
 - **C26** App crash/disconnect compositor’ı crash etmemeli; surface retire. — Gerekçe: desktop resilience.
 - **C27** IPC magic/size bounded (`wm::Request`/`Response`). — Gerekçe: DoS.
 - **C28** Stacking policy ile blending aynı process’te olsa bile API sınırından geçmeli. — Gerekçe: test edilebilirlik.
-- **C29** `kilim::Context` WM process’te static/BSS; ustack’e konmamalı. — Gerekçe: ~3MB ≫ 64KiB stack.
+- **C29** `kilim::Context` WM process’te static/BSS; ustack’e konmamalı. — Gerekçe: ~3MB ≫ 1 MiB default stack.
 - **C30** Tek present owner: WM `end_frame`; client `commit_frame` only. — Gerekçe: çift scanout yasak.

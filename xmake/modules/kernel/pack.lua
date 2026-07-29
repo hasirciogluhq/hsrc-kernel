@@ -44,7 +44,7 @@ function pack_exec(target, load_addr, exec_name, needed)
         tostring(img),
         tostring(bss),
         exec_name,
-        "8192",
+        "1048576", -- /* default user stack reserve (1 MiB, Windows-like) */
         string.format("0x%x", imports_off),
     }
     if needed then

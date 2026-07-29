@@ -45,20 +45,25 @@ Yeni özellik eklenmeden önce: syscall sayısı, context switch, memory copy, r
 
 ## Hard lessons (bu tree)
 
-- `kilim::Context` (~3MB batch buffers) **MUST NOT** user stack’te yaşamak → `static` / heap. `PROC_USTACK_SIZE` 64KiB; Context için yetmez.
+- `kilim::Context` (~3MB batch buffers) **MUST NOT** user stack’te yaşamak → `static` / heap. Default ustack **1 MiB** (`PROC_USTACK_DEFAULT` / `exec_header.stack_size`); Context için yine yetmez.
 - QEMU: **tek** primary display. BGA: `-vga std`. Virtio: `-vga virtio` **veya** `-vga none` + `-device virtio-gpu-pci`. `virtio-gpu-pci` + default/std VGA = yanlış pencereye present → siyah ekran.
 - Texture **import** exporter backing’i çalmamalı; share + refcount free.
 
 ## Kural dosyaları
 
-- `gfx-eng-boundary.mdc` — sorumluluk sınırları
-- `gfx-eng-syscall.mdc` — syscall, batching, IPC
-- `gfx-eng-pipeline.mdc` — draw, damage, present, buffer
-- `gfx-eng-compositor.mdc` — compositor / WM
-- `gfx-eng-input.mdc` — input, interrupt, latency
-- `gfx-eng-memory.mdc` — bellek, lock, allocation
-- `gfx-eng-timing.mdc` — frame scheduler, vsync, resize/move
+Not: `eng` eski isimde *engineering* anlamındaydı (English değil). Dosyalar artık `graphics-*.mdc`.
 
-## Biçim
+- `graphics-boundary.mdc` — sorumluluk sınırları
+- `graphics-syscall.mdc` — syscall, batching, IPC
+- `graphics-pipeline.mdc` — draw, damage, present, buffer
+- `graphics-compositor.mdc` — compositor / WM
+- `graphics-input.mdc` — input, interrupt, latency
+- `graphics-memory.mdc` — bellek, lock, allocation
+- `graphics-timing.mdc` — frame scheduler, vsync, resize/move
 
-Her kural: `MUST` / `MUST NOT` + tek cümle teknik gerekçe.
+## Hard lessons (ek)
+
+- Mouse bounds MUST display mode ile `mouse_set_bounds` yapılmak (yoksa 1024×768 duvar).
+- WM idle’da full compose MUST NOT; cursor-only present.
+- Text: glyph’ler exact pixel size’ta AA raster + 1:1 quad (stretch yasak).
+- Shell wallpaper once; her frame recommit lag kaynağı.

@@ -77,7 +77,7 @@ Varsayılan çözünürlük: **1920×1080**.
 `kilim::Context` içinde büyük batch dizileri vardır (~**3 MiB**).
 
 - **MUST:** `static` / BSS / heap
-- **MUST NOT:** process ustack (`PROC_USTACK_SIZE` = 64 KiB)
+- **MUST NOT:** process ustack (default **1 MiB**; Context ~3 MiB)
 
 Aksi halde stack smash / `#GP` (window-manager donması).
 
@@ -107,4 +107,4 @@ Sorumluluklar: create/show/focus/move/resize/damage, z-order, hit-test (focus �
 
 ## İlgili kurallar
 
-`.cursor/rules/gfx-eng-*.mdc`, `kernel-gui-disk.mdc`, `kernel-asm-locking.mdc`.
+`.cursor/rules/graphics-*.mdc`, `kernel-gui-disk.mdc`, `kernel-asm-locking.mdc`.

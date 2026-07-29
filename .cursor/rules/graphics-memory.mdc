@@ -19,7 +19,8 @@ alwaysApply: false
 - **M10** Virtio backing guest-phys bilinçli; cache/DMA. — Gerekçe: coherency.
 - **M11** Fragmentasyon yaratan sık small alloc render path’te MUST NOT. — Gerekçe: jitter.
 - **M12** Lock sırası: `klock_disp` ile sched/proc karıştırma dokümante. — Gerekçe: deadlock.
-- **M13** `kilim::Context` (~3MB) static/BSS/heap; ustack MUST NOT. — Gerekçe: PROC_USTACK_SIZE 64KiB.
+- **M13** `kilim::Context` (~3MB) static/BSS/heap; ustack MUST NOT. — Gerekçe: default ustack 1 MiB (`PROC_USTACK_DEFAULT`); Context ≫ stack.
+- **M13b** User stack size MUST `exec_header.stack_size` ile seçilebilir olmak (0→1 MiB, clamp MIN..MAX); sabit gizli 8K/64K varsayımı yasak. — Gerekçe: Windows-like per-binary reserve.
 - **M14** OOM’da last-good frame korunmaya çalışılmalı. — Gerekçe: resilience.
 - **M15** Userspace pointer kernel’de async saklanmamalı (handle). — Gerekçe: lifetime.
 - **M16** mmap/shared region max limit. — Gerekçe: DoS.

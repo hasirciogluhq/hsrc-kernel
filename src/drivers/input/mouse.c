@@ -4,8 +4,8 @@
 #define MOUSE_EVQ 64
 
 static mouse_state_t state;
-static int32_t bound_w = 1024;
-static int32_t bound_h = 768;
+static int32_t bound_w = 1920;
+static int32_t bound_h = 1080;
 
 static uint8_t pkt[4];
 static int     pkt_i;
@@ -48,13 +48,15 @@ static void clamp_pos(void)
         state.y = bound_h - 1;
 }
 
-/* Mild ballistic acceleration - keep fine motion 1:1; only boost large flicks. */
+/* Mild ballistic acceleration - keep fine motion 1:1; boost flicks. */
 static int32_t accel_delta(int32_t d)
 {
     int32_t a = d < 0 ? -d : d;
     int32_t mul;
 
-    if (a >= 16)
+    if (a >= 12)
+        mul = 3;
+    else if (a >= 6)
         mul = 2;
     else
         mul = 1;

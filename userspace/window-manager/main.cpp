@@ -2,6 +2,7 @@
 #include <user/sdk/reed.hpp>
 #include <user/sdk/kilim.hpp>
 #include <user/sdk/fs.hpp>
+#include <user/sdk/process.hpp>
 #include <user/sdk/syscall.hpp>
 #include <user/disp.h>
 #include <user/input.h>
@@ -39,10 +40,133 @@ int g_hit_id = -1;
 int g_drag_id = -1;
 int g_drag_off_x = 0;
 int g_drag_off_y = 0;
+int g_resize_id = -1;
+int g_resize_ox = 0;
+int g_resize_oy = 0;
+int g_resize_ow = 0;
+int g_resize_oh = 0;
 uint8_t g_prev_buttons = 0;
 int g_screen_w = 0;
 int g_screen_h = 0;
+int g_dock_hover = -1;
+int g_menu_open = 0; /* 0=none 1=system */
+int g_compose_dirty = 1;
+int g_cursor_x = -1000;
+int g_cursor_y = -1000;
+uint32_t g_cursor_under[24 * 24];
+int g_cursor_saved = 0;
 reed::Device *g_dev = nullptr;
+
+static void focus_window(int id);
+static void mark_damage(Slot *s, int32_t x, int32_t y, int32_t w, int32_t h);
+static int handle_destroy(int id);
+
+/* Fluent-ish dark palette; macOS layout (menubar top, dock bottom). */
+struct DockItem {
+    const char *label;
+    const char *path;
+    const char *cls;
+    uint8_t r, g, b;
+};
+
+static const DockItem g_dock_items[] = {
+    {"Files", "files", "files", 0, 120, 212},
+    {"Terminal", "terminal", "terminal", 16, 124, 16},
+    {"Settings", "os-settings", "os.settings", 0, 153, 188},
+    {"Monitor", "activity-monitor", "activity-monitor", 136, 23, 152},
+    {"Mines", "minesweeper", "minesweeper", 232, 17, 35},
+    {"ImGui", "imgui-demo", "imgui-demo", 255, 140, 0},
+};
+static constexpr int kDockCount =
+    (int)(sizeof(g_dock_items) / sizeof(g_dock_items[0]));
+
+static void dock_geom(int *out_x, int *out_y, int *out_w, int *out_h)
+{
+    int dock_w = wm::kDockPad * 2 + kDockCount * wm::kDockIcon +
+                 (kDockCount - 1) * wm::kDockGap;
+    *out_w = dock_w;
+    *out_h = wm::kDockH;
+    *out_x = (g_screen_w - dock_w) / 2;
+    *out_y = g_screen_h - wm::kDockH - 18;
+}
+
+static int dock_hit(int mx, int my)
+{
+    int dx, dy, dw, dh;
+    dock_geom(&dx, &dy, &dw, &dh);
+    if (mx < dx || my < dy || mx >= dx + dw || my >= dy + dh)
+        return -1;
+    for (int i = 0; i < kDockCount; i++) {
+        int ix = dx + wm::kDockPad + i * (wm::kDockIcon + wm::kDockGap);
+        int iy = dy + (wm::kDockH - wm::kDockIcon) / 2;
+        if (mx >= ix && mx < ix + wm::kDockIcon && my >= iy &&
+            my < iy + wm::kDockIcon)
+            return i;
+    }
+    return -1;
+}
+
+static Slot *find_class(const char *cls)
+{
+    if (!cls || !cls[0])
+        return nullptr;
+    for (int i = 0; i < kMaxWin; i++) {
+        if (g_slots[i].used &&
+            strcmp(g_slots[i].opts.class_name, cls) == 0)
+            return &g_slots[i];
+    }
+    return nullptr;
+}
+
+static void launch_or_focus(const DockItem &it)
+{
+    Slot *s = find_class(it.cls);
+    if (s) {
+        if (s->opts.minimized) {
+            s->opts.minimized = false;
+            s->opts.visible = true;
+        }
+        focus_window(s->id);
+        mark_damage(s, 0, 0, 0, 0);
+        return;
+    }
+    (void)hsrc::sdk::process::spawn_ex(
+        it.path, hsrc::sdk::process::ConsoleHidden, nullptr);
+}
+
+/* Traffic-light index: 0=close 1=min 2=max; -1=none */
+static int chrome_btn_at(const Slot *s, int lx, int ly)
+{
+    if (!s || !s->opts.framed || s->opts.no_title)
+        return -1;
+    if (ly < 0 || ly >= wm::kChromeTitleH || lx < 0)
+        return -1;
+    for (int i = 0; i < 3; i++) {
+        int cx = wm::kChromeBtn0X + i * (wm::kChromeBtn + wm::kChromeBtnGap) +
+                 wm::kChromeBtn / 2;
+        int cy = wm::kChromeBtnY + wm::kChromeBtn / 2;
+        int dx = lx - cx;
+        int dy = ly - cy;
+        if (dx * dx + dy * dy <= (wm::kChromeBtn / 2 + 2) * (wm::kChromeBtn / 2 + 2)) {
+            if (i == 0 && !s->opts.closable)
+                return -1;
+            if (i == 1 && !s->opts.can_minimize)
+                return -1;
+            if (i == 2 && !s->opts.can_maximize)
+                return -1;
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int in_resize_grip(const Slot *s, int lx, int ly)
+{
+    if (!s || !s->opts.resizable || !s->opts.framed)
+        return 0;
+    return (lx >= s->opts.w - wm::kResizeGrip &&
+            ly >= s->opts.h - wm::kResizeGrip);
+}
 
 static void str_cat(char *dst, const char *src)
 {
@@ -259,6 +383,7 @@ static int handle_create(wm::Request &req, wm::Response &rsp)
     s->damaged = 1;
     rsp.window_id = s->id;
     rsp.opts = s->opts;
+    g_compose_dirty = 1;
     return 0;
 }
 
@@ -271,8 +396,11 @@ static int handle_destroy(int id)
         g_focus_id = -1;
     if (g_drag_id == id)
         g_drag_id = -1;
+    if (g_resize_id == id)
+        g_resize_id = -1;
     clear_surface(s);
     s->used = 0;
+    g_compose_dirty = 1;
     return 0;
 }
 
@@ -297,6 +425,7 @@ static int handle_op(wm::Request &req, wm::Response &rsp)
         raise_window(s);
         mark_damage(s, 0, 0, 0, 0);
         rsp.opts = s->opts;
+        g_compose_dirty = 1;
         return 0;
     case wm::Op::Get:
         s = slot_by_id(req.window_id);
@@ -310,9 +439,11 @@ static int handle_op(wm::Request &req, wm::Response &rsp)
             return -1;
         s->opts.visible = req.show != 0;
         mark_damage(s, 0, 0, 0, 0);
+        g_compose_dirty = 1;
         return 0;
     case wm::Op::Focus:
         focus_window(req.window_id);
+        g_compose_dirty = 1;
         return slot_by_id(req.window_id) ? 0 : -1;
     case wm::Op::Move:
         s = slot_by_id(req.window_id);
@@ -321,6 +452,7 @@ static int handle_op(wm::Request &req, wm::Response &rsp)
         s->opts.x = req.x;
         s->opts.y = req.y;
         mark_damage(s, 0, 0, 0, 0);
+        g_compose_dirty = 1;
         return 0;
     case wm::Op::Resize:
         s = slot_by_id(req.window_id);
@@ -330,12 +462,14 @@ static int handle_op(wm::Request &req, wm::Response &rsp)
         s->opts.h = req.h;
         clamp_geom(s->opts);
         mark_damage(s, 0, 0, 0, 0);
+        g_compose_dirty = 1;
         return 0;
     case wm::Op::Damage:
         s = slot_by_id(req.window_id);
         if (!s)
             return -1;
         mark_damage(s, req.x, req.y, req.w, req.h);
+        g_compose_dirty = 1;
         return 0;
     case wm::Op::Find: {
         rsp.window_id = -1;
@@ -365,7 +499,9 @@ static int handle_op(wm::Request &req, wm::Response &rsp)
         s = slot_by_id(req.window_id);
         if (!s)
             return -1;
-        return import_surface(s, req.surface_token);
+        if (import_surface(s, req.surface_token) == 0)
+            g_compose_dirty = 1;
+        return s->imported_handle ? 0 : -1;
     default:
         return -1;
     }
@@ -438,30 +574,109 @@ static void handle_input(void)
     if (hsrc::sdk::syscall1(SYS_INPUT_STATE, (long)&st) < 0)
         return;
 
-    g_hit_id = hit_test(st.mouse_x, st.mouse_y);
+    int prev_hover = g_dock_hover;
+    g_dock_hover = dock_hit(st.mouse_x, st.mouse_y);
+    if (g_dock_hover != prev_hover)
+        g_compose_dirty = 1;
+    g_hit_id = (g_dock_hover >= 0) ? -1 : hit_test(st.mouse_x, st.mouse_y);
 
     uint8_t btn = st.buttons;
     uint8_t pressed = (uint8_t)(btn & ~g_prev_buttons);
     uint8_t released = (uint8_t)(g_prev_buttons & ~btn);
 
     if (released & INPUT_BTN_LEFT) {
-        if (g_drag_id >= 0)
-            g_drag_id = -1;
+        if (g_drag_id >= 0 || g_resize_id >= 0)
+            g_compose_dirty = 1;
+        g_drag_id = -1;
+        g_resize_id = -1;
     }
 
     if (pressed & INPUT_BTN_LEFT) {
+        g_compose_dirty = 1;
+        if (st.mouse_y < wm::kMenubarH && st.mouse_x < 90) {
+            g_menu_open = g_menu_open ? 0 : 1;
+            g_prev_buttons = btn;
+            return;
+        }
+        if (g_menu_open) {
+            int my = st.mouse_y;
+            if (my >= wm::kMenubarH && my < wm::kMenubarH + 28 * 4 &&
+                st.mouse_x < 220) {
+                int row = (my - wm::kMenubarH) / 28;
+                if (row >= 0 && row < kDockCount && row < 4)
+                    launch_or_focus(g_dock_items[row]);
+            }
+            g_menu_open = 0;
+            g_prev_buttons = btn;
+            return;
+        }
+
+        if (g_dock_hover >= 0) {
+            launch_or_focus(g_dock_items[g_dock_hover]);
+            g_prev_buttons = btn;
+            return;
+        }
+
         int id = g_hit_id;
         Slot *s = slot_by_id(id);
         if (s && !s->opts.background && s->opts.accept_focus) {
             focus_window(id);
             int lx = st.mouse_x - s->opts.x;
             int ly = st.mouse_y - s->opts.y;
-            int can_drag = s->opts.framed && !s->opts.no_drag && !s->opts.no_title;
-            if (can_drag && ly >= 0 && ly < wm::kChromeTitleH &&
-                lx >= wm::kChromeBtnZone && lx < s->opts.w) {
-                g_drag_id = id;
-                g_drag_off_x = lx;
-                g_drag_off_y = ly;
+            int btn_i = chrome_btn_at(s, lx, ly);
+            if (btn_i == 0) {
+                (void)handle_destroy(id);
+            } else if (btn_i == 1) {
+                s->opts.minimized = true;
+                mark_damage(s, 0, 0, 0, 0);
+            } else if (btn_i == 2) {
+                if (s->opts.maximized) {
+                    s->opts.maximized = false;
+                } else {
+                    s->opts.maximized = true;
+                    s->opts.x = 8;
+                    s->opts.y = wm::kMenubarH + 4;
+                    s->opts.w = g_screen_w - 16;
+                    s->opts.h = g_screen_h - wm::kMenubarH - wm::kDockH - 40;
+                    clamp_geom(s->opts);
+                }
+                mark_damage(s, 0, 0, 0, 0);
+            } else if (in_resize_grip(s, lx, ly)) {
+                g_resize_id = id;
+                g_resize_ox = st.mouse_x;
+                g_resize_oy = st.mouse_y;
+                g_resize_ow = s->opts.w;
+                g_resize_oh = s->opts.h;
+            } else {
+                int can_drag =
+                    s->opts.framed && !s->opts.no_drag && !s->opts.no_title;
+                if (can_drag && ly >= 0 && ly < wm::kChromeTitleH &&
+                    lx >= wm::kChromeBtnZone && lx < s->opts.w) {
+                    g_drag_id = id;
+                    g_drag_off_x = lx;
+                    g_drag_off_y = ly;
+                }
+            }
+        } else {
+            g_menu_open = 0;
+        }
+    }
+
+    if (g_resize_id >= 0 && (btn & INPUT_BTN_LEFT)) {
+        Slot *s = slot_by_id(g_resize_id);
+        if (s) {
+            int32_t nw = g_resize_ow + (st.mouse_x - g_resize_ox);
+            int32_t nh = g_resize_oh + (st.mouse_y - g_resize_oy);
+            if (nw < 160)
+                nw = 160;
+            if (nh < 100)
+                nh = 100;
+            if (nw != s->opts.w || nh != s->opts.h) {
+                s->opts.w = nw;
+                s->opts.h = nh;
+                clamp_geom(s->opts);
+                mark_damage(s, 0, 0, 0, 0);
+                g_compose_dirty = 1;
             }
         }
     }
@@ -471,12 +686,14 @@ static void handle_input(void)
         if (s) {
             int32_t nx = st.mouse_x - g_drag_off_x;
             int32_t ny = st.mouse_y - g_drag_off_y;
-            if (ny < 0)
-                ny = 0;
+            if (ny < wm::kMenubarH)
+                ny = wm::kMenubarH;
             if (nx != s->opts.x || ny != s->opts.y) {
                 s->opts.x = nx;
                 s->opts.y = ny;
+                s->opts.maximized = false;
                 mark_damage(s, 0, 0, 0, 0);
+                g_compose_dirty = 1;
             }
         }
     }
@@ -558,49 +775,6 @@ static void blit_window(Slot *s, uint32_t *dst, uint32_t dst_stride)
     }
 }
 
-static void fb_fill(uint32_t *fb, uint32_t stride4, int x, int y, int w, int h,
-                    uint32_t color)
-{
-    if (!fb || w <= 0 || h <= 0)
-        return;
-    if (x < 0) {
-        w += x;
-        x = 0;
-    }
-    if (y < 0) {
-        h += y;
-        y = 0;
-    }
-    if (x + w > g_screen_w)
-        w = g_screen_w - x;
-    if (y + h > g_screen_h)
-        h = g_screen_h - y;
-    if (w <= 0 || h <= 0)
-        return;
-    for (int row = 0; row < h; row++) {
-        uint32_t *d = fb + (uint32_t)(y + row) * stride4 + (uint32_t)x;
-        for (int col = 0; col < w; col++)
-            d[col] = color;
-    }
-}
-
-static void fb_disc(uint32_t *fb, uint32_t stride4, int cx, int cy, int r,
-                    uint32_t color)
-{
-    int rr = r * r;
-    for (int dy = -r; dy <= r; dy++) {
-        for (int dx = -r; dx <= r; dx++) {
-            if (dx * dx + dy * dy > rr)
-                continue;
-            int x = cx + dx;
-            int y = cy + dy;
-            if (x < 0 || y < 0 || x >= g_screen_w || y >= g_screen_h)
-                continue;
-            fb[(uint32_t)y * stride4 + (uint32_t)x] = color;
-        }
-    }
-}
-
 static void fb_put(uint32_t *fb, uint32_t stride4, int x, int y, uint32_t color)
 {
     if (x < 0 || y < 0 || x >= g_screen_w || y >= g_screen_h)
@@ -644,31 +818,109 @@ static void draw_cursor_arrow(uint32_t *fb, uint32_t stride4, int x, int y)
     }
 }
 
-static void draw_chrome_fb(uint32_t *fb, uint32_t stride4, Slot *s)
+static void draw_window_chrome(kilim::Context &k, Slot *s)
 {
-    if (!s->opts.framed || s->opts.no_title)
+    if (!s || !s->opts.framed || s->opts.no_title)
         return;
     int x = s->opts.x;
     int y = s->opts.y;
     int w = s->opts.w;
-    fb_fill(fb, stride4, x, y, w, wm::kChromeTitleH, 0xff2d2d30u);
-    fb_fill(fb, stride4, x, y + wm::kChromeTitleH - 1, w, 1, 0xff3c3c40u);
+    int h = s->opts.h;
+    int active = (s->id == g_focus_id);
+
+    /* Soft drop shadow — do not cover client pixels. */
+    k.fill_round_rect(x + 4, y + 6, w, h, wm::kWinRadius,
+                      kilim::rgba(0, 0, 0, 40));
+
+    /* Titlebar only (client surface already blitted underneath). */
+    uint32_t title = active ? kilim::rgba(48, 52, 62, 245)
+                            : kilim::rgba(40, 43, 52, 230);
+    k.fill_round_rect(x, y, w, wm::kChromeTitleH + 8, wm::kWinRadius, title);
+    k.fill_rect(x, y + wm::kChromeTitleH, w, 8, title);
+    k.fill_rect(x, y + wm::kChromeTitleH - 1, w, 1,
+                kilim::rgba(0, 120, 212, active ? 220 : 0)); /* Fluent accent */
+
+    /* Thin frame border around whole window */
+    k.stroke_rect(x, y, w, h, 1,
+                  active ? kilim::rgba(90, 100, 120, 200)
+                         : kilim::rgba(60, 66, 78, 160));
+
+    /* macOS traffic lights (left) */
+    int cy = y + wm::kChromeBtnY + wm::kChromeBtn / 2;
     if (s->opts.closable)
-        fb_disc(fb, stride4, x + wm::kChromeBtn0X + wm::kChromeBtn / 2,
-                y + wm::kChromeBtnY + wm::kChromeBtn / 2, wm::kChromeBtn / 2,
-                0xffff5f57u);
+        k.circle(x + wm::kChromeBtn0X + wm::kChromeBtn / 2, cy,
+                 wm::kChromeBtn / 2, kilim::rgba(255, 95, 87, 255), 1);
     if (s->opts.can_minimize)
-        fb_disc(fb, stride4,
-                x + wm::kChromeBtn0X + (wm::kChromeBtn + wm::kChromeBtnGap) +
-                    wm::kChromeBtn / 2,
-                y + wm::kChromeBtnY + wm::kChromeBtn / 2, wm::kChromeBtn / 2,
-                0xffffbd2eu);
+        k.circle(x + wm::kChromeBtn0X + (wm::kChromeBtn + wm::kChromeBtnGap) +
+                     wm::kChromeBtn / 2,
+                 cy, wm::kChromeBtn / 2, kilim::rgba(255, 189, 46, 255), 1);
     if (s->opts.can_maximize)
-        fb_disc(fb, stride4,
-                x + wm::kChromeBtn0X + 2 * (wm::kChromeBtn + wm::kChromeBtnGap) +
-                    wm::kChromeBtn / 2,
-                y + wm::kChromeBtnY + wm::kChromeBtn / 2, wm::kChromeBtn / 2,
-                0xff28c840u);
+        k.circle(x + wm::kChromeBtn0X +
+                     2 * (wm::kChromeBtn + wm::kChromeBtnGap) +
+                     wm::kChromeBtn / 2,
+                 cy, wm::kChromeBtn / 2, kilim::rgba(40, 200, 64, 255), 1);
+
+    if (s->opts.resizable) {
+        int gx = x + w - 11;
+        int gy = y + h - 11;
+        k.line(gx, gy + 8, gx + 8, gy, kilim::rgba(140, 150, 165, 200));
+        k.line(gx + 3, gy + 8, gx + 8, gy + 3, kilim::rgba(140, 150, 165, 160));
+    }
+}
+
+static void draw_system_chrome(kilim::Context &k, int mx, int my)
+{
+    int dx, dy, dw, dh;
+    dock_geom(&dx, &dy, &dw, &dh);
+    (void)mx;
+    (void)my;
+
+    /* Menubar — acrylic-ish translucent strip */
+    k.fill_rect(0, 0, g_screen_w, wm::kMenubarH,
+                kilim::rgba(28, 30, 36, 230));
+    k.fill_rect(0, wm::kMenubarH - 1, g_screen_w, 1,
+                kilim::rgba(70, 78, 92, 160));
+
+    /* Dock — rounded floating bar */
+    k.fill_round_rect(dx + 2, dy + 4, dw, dh, wm::kDockRadius,
+                      kilim::rgba(0, 0, 0, 50));
+    k.fill_round_rect(dx, dy, dw, dh, wm::kDockRadius,
+                      kilim::rgba(38, 42, 52, 235));
+    k.stroke_rect(dx + 1, dy + 1, dw - 2, dh - 2, 1,
+                  kilim::rgba(90, 100, 120, 90));
+
+    for (int i = 0; i < kDockCount; i++) {
+        int ix = dx + wm::kDockPad + i * (wm::kDockIcon + wm::kDockGap);
+        int iy = dy + (wm::kDockH - wm::kDockIcon) / 2;
+        int hover = (i == g_dock_hover);
+        int r = hover ? 14 : 12;
+        if (hover)
+            iy -= 4;
+        const DockItem &it = g_dock_items[i];
+        k.fill_round_rect(ix - 2, iy - 2, wm::kDockIcon + 4, wm::kDockIcon + 4,
+                          r + 2, kilim::rgba(255, 255, 255, hover ? 40 : 18));
+        k.fill_round_rect(ix, iy, wm::kDockIcon, wm::kDockIcon, r,
+                          kilim::rgba(it.r, it.g, it.b, 255));
+        /* Inner highlight */
+        k.fill_round_rect(ix + 4, iy + 4, wm::kDockIcon - 8, wm::kDockIcon / 3,
+                          6, kilim::rgba(255, 255, 255, 55));
+        /* Running indicator (dot) if window class exists */
+        if (find_class(it.cls)) {
+            k.circle(ix + wm::kDockIcon / 2, dy + dh - 8, 3,
+                     kilim::rgba(230, 235, 245, 255), 1);
+        }
+    }
+
+    if (g_menu_open) {
+        k.fill_round_rect(8, wm::kMenubarH + 4, 200, 28 * 4 + 12, 10,
+                          kilim::rgba(36, 40, 48, 245));
+        k.stroke_rect(8, wm::kMenubarH + 4, 200, 28 * 4 + 12, 1,
+                      kilim::rgba(90, 100, 120, 120));
+        for (int i = 0; i < 4 && i < kDockCount; i++) {
+            k.text(g_dock_items[i].label, 24, wm::kMenubarH + 12 + i * 28, 13,
+                   kilim::rgba(230, 235, 245, 255));
+        }
+    }
 }
 
 static void compose_frame(kilim::Context &k)
@@ -692,7 +944,6 @@ static void compose_frame(kilim::Context &k)
     if (!g_dev)
         return;
 
-    /* begin_frame clears RT immediately (Reed clear is eager). */
     if (k.begin_frame() < 0)
         return;
 
@@ -705,75 +956,133 @@ static void compose_frame(kilim::Context &k)
         return;
     }
 
-    /* Backdrop already cleared by begin_frame; paint windows + chrome. */
-    for (int i = 0; i < n; i++) {
+    /* Client surfaces first (under chrome). */
+    for (int i = 0; i < n; i++)
         blit_window(&g_slots[order[i]], fb, stride);
-        draw_chrome_fb(fb, stride4, &g_slots[order[i]]);
-    }
-
-    /* System menubar + dock (always on top of client surfaces). */
-    {
-        const int menubar_h = 32;
-        const int dock_h = 72;
-        const int dock_pad = 24;
-        const int icon_n = 6;
-        const int icon = 48;
-        const int gap = 14;
-        int dock_w = dock_pad * 2 + icon_n * icon + (icon_n - 1) * gap;
-        int dock_x = (g_screen_w - dock_w) / 2;
-        int dock_y = g_screen_h - dock_h - 20;
-
-        fb_fill(fb, stride4, 0, 0, g_screen_w, menubar_h, 0xff12141cu);
-        fb_fill(fb, stride4, 0, menubar_h - 1, g_screen_w, 1, 0xff2a2f3au);
-
-        fb_fill(fb, stride4, dock_x, dock_y, dock_w, dock_h, 0xff1c2230u);
-        for (int i = 0; i < icon_n; i++) {
-            int ix = dock_x + dock_pad + i * (icon + gap);
-            int iy = dock_y + (dock_h - icon) / 2;
-            uint32_t col = 0xff4a6fa5u;
-            if (i == 0)
-                col = 0xff5b8defu;
-            else if (i == 1)
-                col = 0xff6bcb77u;
-            else if (i == 2)
-                col = 0xfff0c14au;
-            else if (i == 3)
-                col = 0xffe06c75u;
-            else if (i == 4)
-                col = 0xffc792eau;
-            fb_fill(fb, stride4, ix, iy, icon, icon, col);
-        }
-    }
 
     input_state_t st;
     memset(&st, 0, sizeof(st));
+    int mx = 0, my = 0;
     if (hsrc::sdk::syscall1(SYS_INPUT_STATE, (long)&st) == 0) {
-        k.set_pointer(st.mouse_x, st.mouse_y, st.buttons);
-        draw_cursor_arrow(fb, stride4, st.mouse_x, st.mouse_y);
+        mx = st.mouse_x;
+        my = st.mouse_y;
+        k.set_pointer(mx, my, st.buttons);
     }
     rt.color().unmap();
 
+    /* Window frames / traffic lights / shadows via Kilim */
     for (int i = 0; i < n; i++) {
         Slot *s = &g_slots[order[i]];
-        if (!s->opts.framed || s->opts.no_title || !s->opts.title[0])
+        if (s->opts.background)
             continue;
-        int tx = s->opts.x + wm::kChromeBtnZone + 4;
-        int ty = s->opts.y + (wm::kChromeTitleH - 12) / 2;
-        k.text(s->opts.title, tx, ty, 12, kilim::rgba(240, 240, 240));
+        draw_window_chrome(k, s);
+        if (s->opts.framed && !s->opts.no_title && s->opts.title[0]) {
+            int tx = s->opts.x + wm::kChromeBtnZone + 6;
+            int ty = s->opts.y + (wm::kChromeTitleH - 12) / 2;
+            uint32_t tc = (s->id == g_focus_id)
+                              ? kilim::rgba(245, 246, 250, 255)
+                              : kilim::rgba(180, 186, 198, 255);
+            k.text(s->opts.title, tx, ty, 13, tc);
+        }
     }
 
-    /* Menubar labels (after window titles so they stay readable). */
-    k.text("hsrcOS", 14, 8, 14, kilim::rgba(240, 244, 250));
-    k.text("Finder", 100, 9, 13, kilim::rgba(200, 210, 225));
-    k.text("File", 170, 9, 13, kilim::rgba(200, 210, 225));
-    k.text("Edit", 220, 9, 13, kilim::rgba(200, 210, 225));
-    k.text("View", 270, 9, 13, kilim::rgba(200, 210, 225));
-    k.text("Go", 330, 9, 13, kilim::rgba(200, 210, 225));
+    draw_system_chrome(k, mx, my);
+
+    k.text("hsrcOS", 14, 7, 14, kilim::rgba(245, 246, 250, 255));
+    k.text("File", 100, 8, 13, kilim::rgba(200, 206, 218, 255));
+    k.text("Edit", 150, 8, 13, kilim::rgba(200, 206, 218, 255));
+    k.text("View", 200, 8, 13, kilim::rgba(200, 206, 218, 255));
+    k.text("Go", 255, 8, 13, kilim::rgba(200, 206, 218, 255));
+    k.text("Window", 295, 8, 13, kilim::rgba(200, 206, 218, 255));
+    k.text("Help", 370, 8, 13, kilim::rgba(200, 206, 218, 255));
+
+    for (int i = 0; i < kDockCount; i++) {
+        int dx, dy, dw, dh;
+        dock_geom(&dx, &dy, &dw, &dh);
+        int ix = dx + wm::kDockPad + i * (wm::kDockIcon + wm::kDockGap);
+        if (i == g_dock_hover) {
+            k.text(g_dock_items[i].label, ix - 4, dy - 18, 12,
+                   kilim::rgba(240, 244, 250, 255));
+        }
+    }
+
+    /* Cursor on top — remap briefly */
+    fb = (uint32_t *)rt.color().map();
+    if (fb) {
+        /* Save underlay then draw (for cursor-only updates). */
+        g_cursor_x = mx;
+        g_cursor_y = my;
+        g_cursor_saved = 1;
+        for (int row = 0; row < 24; row++) {
+            for (int col = 0; col < 24; col++) {
+                int px = mx + col;
+                int py = my + row;
+                uint32_t c = 0;
+                if (px >= 0 && py >= 0 && px < g_screen_w && py < g_screen_h)
+                    c = fb[(uint32_t)py * stride4 + (uint32_t)px];
+                g_cursor_under[row * 24 + col] = c;
+            }
+        }
+        draw_cursor_arrow(fb, stride4, mx, my);
+        rt.color().unmap();
+    }
 
     (void)k.end_frame();
 
     for (int i = 0; i < kMaxWin; i++)
         g_slots[i].damaged = 0;
+    g_compose_dirty = 0;
+}
+
+/* Mouse-only present: restore old cursor pixels, draw at new pos, damage present. */
+static void compose_cursor_only(kilim::Context &k, int mx, int my)
+{
+    reed::RenderTarget &rt = k.target();
+    uint32_t *fb = (uint32_t *)rt.color().map();
+    uint32_t stride4 = rt.color().stride() / 4u;
+    if (!fb)
+        return;
+
+    int ox = g_cursor_x;
+    int oy = g_cursor_y;
+    if (g_cursor_saved) {
+        for (int row = 0; row < 24; row++) {
+            for (int col = 0; col < 24; col++) {
+                int px = ox + col;
+                int py = oy + row;
+                if (px < 0 || py < 0 || px >= g_screen_w || py >= g_screen_h)
+                    continue;
+                fb[(uint32_t)py * stride4 + (uint32_t)px] =
+                    g_cursor_under[row * 24 + col];
+            }
+        }
+    }
+
+    g_cursor_x = mx;
+    g_cursor_y = my;
+    g_cursor_saved = 1;
+    for (int row = 0; row < 24; row++) {
+        for (int col = 0; col < 24; col++) {
+            int px = mx + col;
+            int py = my + row;
+            uint32_t c = 0;
+            if (px >= 0 && py >= 0 && px < g_screen_w && py < g_screen_h)
+                c = fb[(uint32_t)py * stride4 + (uint32_t)px];
+            g_cursor_under[row * 24 + col] = c;
+        }
+    }
+    draw_cursor_arrow(fb, stride4, mx, my);
+    rt.color().unmap();
+
+    int x0 = ox < mx ? ox : mx;
+    int y0 = oy < my ? oy : my;
+    int x1 = (ox > mx ? ox : mx) + 24;
+    int y1 = (oy > my ? oy : my) + 24;
+    if (x0 < 0)
+        x0 = 0;
+    if (y0 < 0)
+        y0 = 0;
+    (void)k.present_damage(x0, y0, x1 - x0, y1 - y0);
 }
 
 static int setup_dirs(void)
@@ -800,7 +1109,7 @@ static int setup_dirs(void)
 
 extern "C" void exec_main(void)
 {
-    /* Context holds ~3MB batch vertex buffers — MUST NOT live on the 64K ustack. */
+    /* Context holds ~3MB batch vertex buffers — MUST NOT live on the user ustack. */
     static reed::Device device;
     static kilim::Context kctx;
 
@@ -830,7 +1139,19 @@ extern "C" void exec_main(void)
     for (;;) {
         poll_requests();
         handle_input();
-        compose_frame(kctx);
-        hsrc::sdk::yield(1);
+
+        input_state_t st;
+        memset(&st, 0, sizeof(st));
+        (void)hsrc::sdk::syscall1(SYS_INPUT_STATE, (long)&st);
+
+        int need_full = g_compose_dirty || g_drag_id >= 0 || g_resize_id >= 0 ||
+                        g_menu_open;
+        if (need_full) {
+            compose_frame(kctx);
+        } else if (st.mouse_x != g_cursor_x || st.mouse_y != g_cursor_y) {
+            compose_cursor_only(kctx, st.mouse_x, st.mouse_y);
+        }
+        /* No busy yield when idle — still pump often for input. */
+        hsrc::sdk::yield(need_full ? 0 : 0);
     }
 }

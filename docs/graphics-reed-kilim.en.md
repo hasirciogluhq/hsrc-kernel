@@ -77,7 +77,7 @@ Key opcodes: `DISP_OP_BUFFER_*`, `TEXTURE_*`, `RT_*`, `EXPORT` / `IMPORT`, `SCAN
 `kilim::Context` holds large batch arrays (~**3 MiB**).
 
 - **MUST:** `static` / BSS / heap
-- **MUST NOT:** process ustack (`PROC_USTACK_SIZE` = 64 KiB)
+- **MUST NOT:** process ustack (default **1 MiB**; Context ~3 MiB)
 
 Otherwise stack smash / `#GP` (frozen window-manager).
 
@@ -107,4 +107,4 @@ Owns: create/show/focus/move/resize/damage, z-order, hit-test (focus ≠ hover),
 
 ## Related rules
 
-`.cursor/rules/gfx-eng-*.mdc`, `kernel-gui-disk.mdc`, `kernel-asm-locking.mdc`.
+`.cursor/rules/graphics-*.mdc`, `kernel-gui-disk.mdc`, `kernel-asm-locking.mdc`.

@@ -224,8 +224,9 @@ int Font::line_height(int size) const
 Context::Context()
     : dev_(nullptr), nbatches_(0), alive_(false), frame_open_(false), ptr_x_(0), ptr_y_(0),
       ptr_buttons_(0), wheel_(0), scissor_x_(0), scissor_y_(0), scissor_w_(0), scissor_h_(0),
-      scroll_y_ptr_(0)
+      scroll_y_ptr_(0), dyn_aw_(0), dyn_ah_(0), shelf_x_(0), shelf_y_(0), shelf_h_(0)
 {
+    memset(glyphs_, 0, sizeof(glyphs_));
 }
 
 int Context::init(reed::Device *dev)
@@ -258,6 +259,7 @@ void Context::shutdown()
     target_.destroy();
     blur_tmp_.destroy();
     font_.atlas_.destroy();
+    dyn_atlas_.destroy();
     alive_ = false;
     dev_ = nullptr;
 }
@@ -289,29 +291,228 @@ reed::Uniforms Context::ortho_u(uint32_t color)
 
 void Context::ensure_font_atlas()
 {
-    if (font_.atlas_.valid())
+    if (dyn_atlas_.valid())
         return;
-    /* Pack 95 glyphs into a strip atlas: 95 * 16 x 18 */
-    uint32_t aw = 95u * (uint32_t)KILIM_FONT_W;
-    uint32_t ah = (uint32_t)KILIM_FONT_H;
-    font_.atlas_ = dev_->create_texture(reed::TexFormat::A8, aw, ah, 1);
-    if (!font_.atlas_.valid())
+    /* Dynamic AA atlas: glyphs rasterized at exact pixel size (no stretch). */
+    dyn_aw_ = 1024;
+    dyn_ah_ = 512;
+    dyn_atlas_ = dev_->create_texture(reed::TexFormat::A8, dyn_aw_, dyn_ah_, 1);
+    if (!dyn_atlas_.valid())
         return;
-    uint8_t *px = (uint8_t *)font_.atlas_.map();
-    if (!px)
-        return;
-    memset(px, 0, aw * ah);
-    for (int g = 0; g < 95; g++) {
-        font_.glyph_x_[g] = (uint16_t)(g * KILIM_FONT_W);
-        font_.glyph_adv_[g] = kilim_font[g].advance;
-        for (int y = 0; y < KILIM_FONT_H; y++)
-            for (int x = 0; x < KILIM_FONT_W; x++)
-                px[y * aw + (uint32_t)font_.glyph_x_[g] + (uint32_t)x] =
-                    kilim_font[g].alpha[y][x];
+    uint8_t *px = (uint8_t *)dyn_atlas_.map();
+    if (px) {
+        memset(px, 0, dyn_aw_ * dyn_ah_);
+        dyn_atlas_.unmap();
     }
-    font_.atlas_w_ = aw;
-    font_.atlas_h_ = ah;
-    font_.atlas_.unmap();
+    shelf_x_ = 1;
+    shelf_y_ = 1;
+    shelf_h_ = 0;
+    memset(glyphs_, 0, sizeof(glyphs_));
+    /* Keep master strip for sampling source (1:1 reference). */
+    if (!font_.atlas_.valid()) {
+        uint32_t aw = 95u * (uint32_t)KILIM_FONT_W;
+        uint32_t ah = (uint32_t)KILIM_FONT_H;
+        font_.atlas_ = dev_->create_texture(reed::TexFormat::A8, aw, ah, 1);
+        if (font_.atlas_.valid()) {
+            uint8_t *m = (uint8_t *)font_.atlas_.map();
+            if (m) {
+                memset(m, 0, aw * ah);
+                for (int g = 0; g < 95; g++) {
+                    font_.glyph_x_[g] = (uint16_t)(g * KILIM_FONT_W);
+                    font_.glyph_adv_[g] = kilim_font[g].advance;
+                    for (int y = 0; y < KILIM_FONT_H; y++)
+                        for (int x = 0; x < KILIM_FONT_W; x++)
+                            m[y * aw + (uint32_t)font_.glyph_x_[g] + (uint32_t)x] =
+                                kilim_font[g].alpha[y][x];
+                }
+                font_.atlas_w_ = aw;
+                font_.atlas_h_ = ah;
+                font_.atlas_.unmap();
+            }
+        }
+    }
+}
+
+static float sample_master(int gi, float fx, float fy)
+{
+    if (gi < 0 || gi >= 95)
+        return 0.0f;
+    if (fx < 0.0f || fy < 0.0f || fx >= (float)KILIM_FONT_W || fy >= (float)KILIM_FONT_H)
+        return 0.0f;
+    int x0 = (int)fx;
+    int y0 = (int)fy;
+    int x1 = x0 + 1;
+    int y1 = y0 + 1;
+    float tx = fx - (float)x0;
+    float ty = fy - (float)y0;
+    auto samp = [](int gi2, int x, int y) -> float {
+        if (x < 0 || y < 0 || x >= KILIM_FONT_W || y >= KILIM_FONT_H)
+            return 0.0f;
+        return (float)kilim_font[gi2].alpha[y][x];
+    };
+    float a = samp(gi, x0, y0);
+    float b = samp(gi, x1, y0);
+    float c = samp(gi, x0, y1);
+    float d = samp(gi, x1, y1);
+    float top = a + (b - a) * tx;
+    float bot = c + (d - c) * tx;
+    return top + (bot - top) * ty;
+}
+
+int Context::cache_glyph(int code, int size, GlyphCache **out)
+{
+    if (!out || size < 6)
+        size = 6;
+    if (size > 72)
+        size = 72;
+    ensure_font_atlas();
+    if (!dyn_atlas_.valid())
+        return -1;
+
+    for (int i = 0; i < 192; i++) {
+        if (glyphs_[i].used && glyphs_[i].code == (uint16_t)code &&
+            glyphs_[i].size == (uint16_t)size) {
+            *out = &glyphs_[i];
+            return 0;
+        }
+    }
+
+    int gi = code - 32;
+    if (gi < 0 || gi >= 95)
+        gi = '?' - 32;
+
+    /* Pixel-perfect integer height; width from master aspect. */
+    int dst_h = size;
+    int dst_w = (int)(((float)KILIM_FONT_W * (float)size) / (float)KILIM_FONT_H + 0.5f);
+    if (dst_w < 1)
+        dst_w = 1;
+    int adv = (int)(((float)kilim_font[gi].advance * (float)size) / (float)KILIM_FONT_H + 0.5f);
+    if (adv < 1)
+        adv = 1;
+
+    /* Shelf pack */
+    if (shelf_x_ + dst_w + 1 > (int)dyn_aw_) {
+        shelf_x_ = 1;
+        shelf_y_ += shelf_h_ + 1;
+        shelf_h_ = 0;
+    }
+    if (shelf_y_ + dst_h + 1 > (int)dyn_ah_) {
+        /* Atlas full — reset shelf (overwrite old glyphs). */
+        shelf_x_ = 1;
+        shelf_y_ = 1;
+        shelf_h_ = 0;
+        memset(glyphs_, 0, sizeof(glyphs_));
+        uint8_t *clr = (uint8_t *)dyn_atlas_.map();
+        if (clr) {
+            memset(clr, 0, dyn_aw_ * dyn_ah_);
+            dyn_atlas_.unmap();
+        }
+    }
+
+    int slot = -1;
+    for (int i = 0; i < 192; i++) {
+        if (!glyphs_[i].used) {
+            slot = i;
+            break;
+        }
+    }
+    if (slot < 0)
+        slot = 0;
+
+    GlyphCache *g = &glyphs_[slot];
+    g->used = 1;
+    g->code = (uint16_t)code;
+    g->size = (uint16_t)size;
+    g->x = (uint16_t)shelf_x_;
+    g->y = (uint16_t)shelf_y_;
+    g->w = (uint16_t)dst_w;
+    g->h = (uint16_t)dst_h;
+    g->adv = (uint16_t)adv;
+
+    uint8_t *px = (uint8_t *)dyn_atlas_.map();
+    if (px) {
+        /* 4×4 supersampled area filter from master → crisp AA at any size. */
+        for (int y = 0; y < dst_h; y++) {
+            for (int x = 0; x < dst_w; x++) {
+                float sum = 0.0f;
+                for (int sy = 0; sy < 4; sy++) {
+                    for (int sx = 0; sx < 4; sx++) {
+                        float u = ((float)x + ((float)sx + 0.5f) / 4.0f) *
+                                  ((float)KILIM_FONT_W / (float)dst_w);
+                        float v = ((float)y + ((float)sy + 0.5f) / 4.0f) *
+                                  ((float)KILIM_FONT_H / (float)dst_h);
+                        sum += sample_master(gi, u, v);
+                    }
+                }
+                float a = sum / 16.0f;
+                if (a < 0.0f)
+                    a = 0.0f;
+                if (a > 255.0f)
+                    a = 255.0f;
+                /* Slight contrast curve for sharper stems */
+                a = a * a / 255.0f;
+                px[(g->y + (uint32_t)y) * dyn_aw_ + g->x + (uint32_t)x] =
+                    (uint8_t)(a + 0.5f);
+            }
+        }
+        dyn_atlas_.unmap();
+    }
+
+    shelf_x_ += dst_w + 1;
+    if (dst_h > shelf_h_)
+        shelf_h_ = dst_h;
+    *out = g;
+    return 0;
+}
+
+Batch &Context::text(const char *str, int x, int y, int size, uint32_t color)
+{
+    ensure_font_atlas();
+    text_batch_.pipe_key_ = 1;
+    text_batch_.tex_handle_ = dyn_atlas_.handle();
+    if (!str || !dyn_atlas_.valid())
+        return text_batch_;
+    if (size < 6)
+        size = 6;
+
+    float cx = (float)x;
+    float cy = (float)y;
+    float aw = (float)dyn_aw_;
+    float ah = (float)dyn_ah_;
+    for (const char *p = str; *p; p++) {
+        char c = *p;
+        if (c == '\n') {
+            cx = (float)x;
+            cy += (float)size + 2.0f;
+            continue;
+        }
+        if (c < 32 || c > 126)
+            c = '?';
+        GlyphCache *g = nullptr;
+        if (cache_glyph((int)c, size, &g) < 0 || !g)
+            continue;
+        float u0 = (float)g->x / aw;
+        float u1 = (float)(g->x + g->w) / aw;
+        float v0 = (float)g->y / ah;
+        float v1 = (float)(g->y + g->h) / ah;
+        /* 1:1 pixel quads — no GPU stretch (pixel-perfect). */
+        emit_quad(&text_batch_, cx, cy, cx + (float)g->w, cy + (float)g->h, u0, v0, u1,
+                  v1, color);
+        cx += (float)g->adv;
+    }
+    return text_batch_;
+}
+
+int Context::present_damage(int x, int y, int w, int h)
+{
+    if (!alive_ || !dev_)
+        return -1;
+    reed::Rect r;
+    r.x = x;
+    r.y = y;
+    r.w = w;
+    r.h = h;
+    return cmd_.present(target_, &r);
 }
 
 Batch *Context::get_batch(uint32_t pipe_key, uint32_t tex_handle)
@@ -365,7 +566,7 @@ void Context::flush_batch(Batch *b)
         cmd_.bind_pipeline(pipe_tex_);
         reed::Sampler s;
         s.set(reed::WrapMode::Clamp, reed::FilterMode::Nearest);
-        reed::Texture2D tex = font_.atlas_;
+        reed::Texture2D tex = dyn_atlas_.valid() ? dyn_atlas_ : font_.atlas_;
         cmd_.bind_texture(0, tex, s);
     } else if (b->pipe_key_ == 2) {
         cmd_.bind_pipeline(pipe_lit_);
@@ -413,7 +614,7 @@ int Context::begin_frame()
     nbatches_ = 0;
     text_batch_.vcount_ = 0;
     text_batch_.pipe_key_ = 1;
-    text_batch_.tex_handle_ = font_.atlas_.handle();
+    text_batch_.tex_handle_ = dyn_atlas_.valid() ? dyn_atlas_.handle() : font_.atlas_.handle();
     frame_open_ = true;
     return 0;
 }
@@ -551,39 +752,6 @@ void Context::polygon(const int *xy, int npoints, uint32_t color, int filled)
         v[2] = {x2, y2, 0, 0, 0, 1, 0, 0, color};
         b->vcount_ += 3;
     }
-}
-
-Batch &Context::text(const char *str, int x, int y, int size, uint32_t color)
-{
-    text_batch_.pipe_key_ = 1;
-    text_batch_.tex_handle_ = font_.atlas_.handle();
-    if (!str || !font_.atlas_.valid())
-        return text_batch_;
-    float scale = size > 0 ? (float)size / (float)KILIM_FONT_H : 1.0f;
-    float cx = (float)x;
-    float cy = (float)y;
-    float aw = (float)font_.atlas_w_;
-    float ah = (float)font_.atlas_h_;
-    for (const char *p = str; *p; p++) {
-        char c = *p;
-        if (c == '\n') {
-            cx = (float)x;
-            cy += (float)KILIM_FONT_H * scale;
-            continue;
-        }
-        if (c < 32 || c > 126)
-            c = '?';
-        int gi = (int)c - 32;
-        float u0 = (float)font_.glyph_x_[gi] / aw;
-        float u1 = (float)(font_.glyph_x_[gi] + KILIM_FONT_W) / aw;
-        float v0 = 0.0f;
-        float v1 = (float)KILIM_FONT_H / ah;
-        float gw = (float)KILIM_FONT_W * scale;
-        float gh = (float)KILIM_FONT_H * scale;
-        emit_quad(&text_batch_, cx, cy, cx + gw, cy + gh, u0, v0, u1, v1, color);
-        cx += (float)font_.glyph_adv_[gi] * scale;
-    }
-    return text_batch_;
 }
 
 int Context::acrylic(int x, int y, int w, int h, int radius, uint32_t tint, uint8_t alpha)

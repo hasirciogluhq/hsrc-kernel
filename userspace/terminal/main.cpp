@@ -4,9 +4,7 @@
 #include <user/sdk/syscall.hpp>
 #include <kernel/syscall.h>
 
-/*
- * Terminal — temporary wm+kilim smoke stub (legacy gfx UI removed).
- */
+/* Terminal — dark console panel with prompt. */
 
 namespace {
 
@@ -23,17 +21,16 @@ extern "C" void exec_main(void)
     static reed::Device dev;
     static kilim::Context k;
 
-    if (dev.init() < 0)
-        hang();
-
-    if (k.init(&dev) < 0)
+    if (dev.init() < 0 || k.init(&dev) < 0)
         hang();
 
     wm::WindowOptions opts;
-    opts.x = 100;
-    opts.y = 100;
-    opts.w = 640;
-    opts.h = 400;
+    opts.x = 120;
+    opts.y = 110;
+    opts.w = 720;
+    opts.h = 440;
+    opts.min_w = 480;
+    opts.min_h = 280;
     opts.set_title("Terminal");
     opts.set_class_name("terminal");
 
@@ -51,13 +48,36 @@ extern "C" void exec_main(void)
             hsrc::sdk::yield(1);
             continue;
         }
-        k.fill_rect(20, 20, 240, 48, kilim::rgba(40, 40, 50, 255));
-        k.text("Terminal (wm+kilim stub)", 28, 32, 16, kilim::rgba(255, 255, 255, 255));
-        (void)k.commit_frame();
 
-        if (!mapped)
+        int w = opts.w;
+        int h = opts.h;
+        int top = wm::kChromeTitleH;
+        k.fill_rect(0, 0, w, h, kilim::rgba(18, 20, 24, 255));
+        k.fill_rect(0, top, w, h - top, kilim::rgba(12, 14, 18, 255));
+        k.fill_round_rect(10, top + 10, w - 20, h - top - 20, 8,
+                          kilim::rgba(16, 18, 22, 255));
+
+        int y = top + 28;
+        k.text("hsrcOS Terminal", 24, y, 13, kilim::rgba(0, 153, 188, 255));
+        y += 28;
+        k.text("user@hsrcos:~$ uname -a", 24, y, 14, kilim::rgba(80, 250, 123, 255));
+        y += 22;
+        k.text("hsrcOS i686 mykernel development", 24, y, 14,
+               kilim::rgba(220, 225, 235, 255));
+        y += 28;
+        k.text("user@hsrcos:~$ ls /system/bin", 24, y, 14,
+               kilim::rgba(80, 250, 123, 255));
+        y += 22;
+        k.text("window-manager  os-shell  terminal  files  os-settings", 24, y, 13,
+               kilim::rgba(220, 225, 235, 255));
+        y += 28;
+        k.text("user@hsrcos:~$ _", 24, y, 14, kilim::rgba(80, 250, 123, 255));
+
+        (void)k.commit_frame();
+        if (!mapped) {
             mapped = win.map_surface(dev, k.target());
-        (void)win.damage();
-        hsrc::sdk::yield(1);
+            (void)win.damage();
+        }
+        hsrc::sdk::yield(2);
     }
 }

@@ -70,7 +70,6 @@ static process_t *process_alloc_struct(void)
 {
     process_t *p;
     uint32_t *kbase;
-    uint32_t *ubase;
     uint32_t flags;
 
     flags = process_table_lock_irqsave();
@@ -86,18 +85,66 @@ static process_t *process_alloc_struct(void)
     memset(p, 0, sizeof(*p));
 
     kbase = (uint32_t *)kmalloc_aligned(PROC_KSTACK_SIZE, 16);
-    ubase = (uint32_t *)kmalloc_aligned(PROC_USTACK_SIZE, 16);
-    if (!kbase || !ubase)
+    if (!kbase) {
+        kfree(p);
         return NULL;
+    }
     p->kstack_base = kbase;
-    p->ustack_base = ubase;
+    p->ustack_base = NULL;
+    p->ustack_size = 0;
     return p;
+}
+
+/*
+ * Grow/replace user stack to at least `want` bytes (clamped).
+ * Freelist may already hold a larger stack — keep it (no shrink).
+ * Contract: call before publishing READY / before enter_usermode.
+ */
+static int process_ensure_ustack(process_t *p, uint32_t want)
+{
+    uint32_t need;
+    uint32_t *nb;
+
+    if (!p)
+        return -1;
+    need = process_clamp_ustack(want);
+    if (p->ustack_base && p->ustack_size >= need) {
+        p->ustack_top = (uint32_t)((uint8_t *)p->ustack_base + p->ustack_size);
+        return 0;
+    }
+    nb = (uint32_t *)kmalloc_aligned(need, 16);
+    if (!nb)
+        return -1;
+    if (p->ustack_base)
+        kfree(p->ustack_base);
+    p->ustack_base = nb;
+    p->ustack_size = need;
+    p->ustack_top = (uint32_t)((uint8_t *)nb + need);
+    return 0;
+}
+
+uint32_t process_clamp_ustack(uint32_t stack_bytes)
+{
+    uint32_t n = stack_bytes;
+
+    if (n == 0)
+        n = PROC_USTACK_DEFAULT;
+    if (n < PROC_USTACK_MIN)
+        n = PROC_USTACK_MIN;
+    if (n > PROC_USTACK_MAX)
+        n = PROC_USTACK_MAX;
+    /* 4 KiB align up */
+    n = (n + 4095u) & ~4095u;
+    if (n > PROC_USTACK_MAX)
+        n = PROC_USTACK_MAX;
+    return n;
 }
 
 static void process_clear_slot(process_t *p)
 {
     uint32_t *kbase;
     uint32_t *ubase;
+    uint32_t usize;
     int slot;
     uint32_t flags;
 
@@ -106,6 +153,7 @@ static void process_clear_slot(process_t *p)
 
     kbase = p->kstack_base;
     ubase = p->ustack_base;
+    usize = p->ustack_size;
     slot = p->slot;
 
     flags = process_table_lock_irqsave();
@@ -115,6 +163,7 @@ static void process_clear_slot(process_t *p)
     memset(p, 0, sizeof(*p));
     p->kstack_base = kbase;
     p->ustack_base = ubase;
+    p->ustack_size = usize;
     for (int fd = 0; fd < VFS_MAX_FD; fd++)
         p->fds[fd] = -1;
 
@@ -129,7 +178,7 @@ static uint32_t process_stack_bytes(const process_t *p)
         return 0;
     uint32_t total = PROC_KSTACK_SIZE;
     if (p->is_user)
-        total += PROC_USTACK_SIZE;
+        total += p->ustack_size ? p->ustack_size : PROC_USTACK_DEFAULT;
     return total;
 }
 
@@ -399,11 +448,16 @@ static int process_find_slot(void)
     return -1;
 }
 
-static process_t *alloc_process(const char *name)
+/*
+ * need_ustack: allocate/ensure user stack before READY publish.
+ * ustack_req: 0 → PROC_USTACK_DEFAULT (Windows-like 1 MiB).
+ */
+static process_t *alloc_process(const char *name, int need_ustack, uint32_t ustack_req)
 {
     process_t *p;
     uint32_t *kbase;
     uint32_t *ubase;
+    uint32_t usize;
     int idx;
     pid_t pid;
     uint32_t flags;
@@ -415,11 +469,20 @@ static process_t *alloc_process(const char *name)
     if (!p)
         return NULL;
 
+    if (need_ustack && process_ensure_ustack(p, ustack_req) < 0) {
+        flags = process_table_lock_irqsave();
+        process_push_freelist(p);
+        process_table_unlock_irqrestore(flags);
+        return NULL;
+    }
+
     kbase = p->kstack_base;
     ubase = p->ustack_base;
+    usize = p->ustack_size;
     memset(p, 0, sizeof(*p));
     p->kstack_base = kbase;
     p->ustack_base = ubase;
+    p->ustack_size = usize;
 
     {
         process_t *cur = process_current();
@@ -439,7 +502,9 @@ static process_t *alloc_process(const char *name)
         p->last_run_tick = 0;
         strncpy(p->name, name, PROC_NAME_MAX - 1);
         p->kstack_top = (uint32_t)((uint8_t *)kbase + PROC_KSTACK_SIZE);
-        p->ustack_top = (uint32_t)((uint8_t *)ubase + PROC_USTACK_SIZE);
+        p->ustack_top = ubase
+            ? (uint32_t)((uint8_t *)ubase + usize)
+            : 0;
         p->start_ticks = scheduler_tick_count();
         for (int f = 0; f < VFS_MAX_FD; f++)
             p->fds[f] = -1;
@@ -755,7 +820,7 @@ static process_t *thread_get(pid_t tid)
 
 pid_t process_create(const char *name, void (*entry)(void))
 {
-    process_t *p = alloc_process(name);
+    process_t *p = alloc_process(name, 0, 0);
     if (!p)
         return -1;
     p->is_user = 0;
@@ -766,7 +831,13 @@ pid_t process_create(const char *name, void (*entry)(void))
 
 pid_t process_create_user(const char *name, void (*entry)(void))
 {
-    process_t *p = alloc_process(name);
+    return process_create_user_stack(name, entry, 0);
+}
+
+pid_t process_create_user_stack(const char *name, void (*entry)(void),
+                                uint32_t stack_bytes)
+{
+    process_t *p = alloc_process(name, 1, stack_bytes);
     if (!p)
         return -1;
     p->is_user = 1;
@@ -834,7 +905,8 @@ pid_t process_thread_create(void (*entry)(void *), void *arg)
     if (process_count_threads(lead) >= cap)
         return (pid_t)-EAGAIN;
 
-    t = alloc_process(lead->name);
+    t = alloc_process(lead->name, 1,
+                      lead->ustack_size ? lead->ustack_size : PROC_USTACK_DEFAULT);
     if (!t)
         return (pid_t)-ENOMEM;
 
@@ -851,7 +923,7 @@ pid_t process_thread_create(void (*entry)(void *), void *arg)
     t->join_tid = 0;
     /*
      * Inherit leader affinity (BSP for GUI). Floating workers on APs while
-     * the leader does GX still races the unlocked surface/compose path.
+     * the leader presents still races unlocked surface compose.
      */
     t->cpu_affinity = lead->cpu_affinity;
     t->home_cpu = lead->home_cpu;

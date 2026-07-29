@@ -125,6 +125,8 @@ public:
     int end_frame(); /* flush batches + present to scanout */
     /* flush + submit only — for WM map_surface / composite (no present). */
     int commit_frame();
+    /* Present current target with optional damage (no clear). */
+    int present_damage(int x, int y, int w, int h);
     void flush();    /* emit accumulated batches into cmd (no submit) */
 
     /* 2D — batched */
@@ -180,12 +182,22 @@ private:
     int scissor_x_, scissor_y_, scissor_w_, scissor_h_;
     int scroll_y_ptr_;
 
+    /* Dynamic AA glyph atlas — rasterize master glyphs at exact pixel size. */
+    reed::Texture2D dyn_atlas_;
+    uint32_t dyn_aw_, dyn_ah_;
+    int shelf_x_, shelf_y_, shelf_h_;
+    struct GlyphCache {
+        uint16_t code, size, x, y, w, h, adv;
+        uint8_t used;
+    } glyphs_[192];
+
     Batch *get_batch(uint32_t pipe_key, uint32_t tex_handle);
     void emit_quad(Batch *b, float x0, float y0, float x1, float y1,
                    float u0, float v0, float u1, float v1, uint32_t color);
     void flush_batch(Batch *b);
     reed::Uniforms ortho_u(uint32_t color);
     void ensure_font_atlas();
+    int cache_glyph(int code, int size, GlyphCache **out);
 };
 
 /* One-shot smoke helper */
