@@ -1,5 +1,5 @@
-#ifndef HSRC_KERNEL_SERVICE_H
-#define HSRC_KERNEL_SERVICE_H
+#ifndef KERNEL_SERVICE_H
+#define KERNEL_SERVICE_H
 
 #include <kernel/types.h>
 #include <kernel/vfs.h>

@@ -1,5 +1,5 @@
-#ifndef HSRC_ARCH_GDT_H
-#define HSRC_ARCH_GDT_H
+#ifndef ARCH_GDT_H
+#define ARCH_GDT_H
 
 #include <kernel/types.h>
 

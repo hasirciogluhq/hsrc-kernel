@@ -1,5 +1,5 @@
-#ifndef HSRC_KERNEL_UACCESS_H
-#define HSRC_KERNEL_UACCESS_H
+#ifndef KERNEL_UACCESS_H
+#define KERNEL_UACCESS_H
 
 #include <kernel/types.h>
 

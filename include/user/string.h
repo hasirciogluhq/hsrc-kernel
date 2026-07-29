@@ -1,5 +1,5 @@
-#ifndef HSRC_USER_STRING_H
-#define HSRC_USER_STRING_H
+#ifndef USER_STRING_H
+#define USER_STRING_H
 
 #include <kernel/types.h>
 

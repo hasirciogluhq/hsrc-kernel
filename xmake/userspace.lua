@@ -1,4 +1,4 @@
--- Userspace SDK + apps (.mke)
+-- Userspace SDK + apps (.exe)
 local ROOT = os.projectdir()
 local INC = path.join(ROOT, "include")
 local BUILD = path.join(ROOT, "build")
@@ -6,13 +6,13 @@ local BUILD = path.join(ROOT, "build")
 target("sdk-core")
     set_kind("static")
     set_default(false)
-    mykernel_cross_target()
+    kernel_cross_target()
     add_files(path.join(ROOT, "userspace/sdk/core/*.cpp"),
               path.join(ROOT, "userspace/sdk/core/string.c"))
     add_includedirs(INC, path.join(ROOT, "userspace/sdk/core"), {public = true})
     add_defines("USERMODE")
-    add_cxxflags(mykernel_cxxflags(), {force = true})
-    add_cflags(mykernel_cflags(), {force = true})
+    add_cxxflags(kernel_cxxflags(), {force = true})
+    add_cflags(kernel_cflags(), {force = true})
     add_cflags("-DUSERMODE", {force = true})
     set_targetdir(path.join(BUILD, "userspace/lib"))
 
@@ -24,8 +24,8 @@ local function define_app(name, load_addr, files, incs, flags)
     target("app-" .. name)
         set_kind("binary")
         set_default(false)
-        mykernel_cross_target()
-        add_deps("sdk-core", "pack_mke")
+        kernel_cross_target()
+        add_deps("sdk-core", "pack_exe")
         add_files(abs_files)
         add_includedirs(INC, path.join(ROOT, "userspace/sdk/core"))
         if incs then
@@ -34,7 +34,7 @@ local function define_app(name, load_addr, files, incs, flags)
             end
         end
         add_defines("USERMODE")
-        add_cxxflags(flags or mykernel_cxxflags(), {force = true})
+        add_cxxflags(flags or kernel_cxxflags(), {force = true})
         set_targetdir(path.join(BUILD, "userspace", name))
         set_filename(name .. ".elf")
         on_link(function (target)
@@ -54,8 +54,8 @@ local function define_app(name, load_addr, files, incs, flags)
             os.execv("i686-elf-ld", args)
         end)
         after_build(function (target)
-            import("hsrc.pack")
-            pack.pack_mke(target, load_addr, name)
+            import("kernel.pack")
+            pack.pack_exe(target, load_addr, name)
         end)
 end
 
@@ -79,7 +79,7 @@ define_app("imgui-demo", 0x03200000, {
     "userspace/imgui-demo",
     "userspace/imgui-demo/freestanding",
     "userspace/imgui-demo/third_party/imgui",
-}, mykernel_imgui_cxxflags())
+}, kernel_imgui_cxxflags())
 
 target("userspace")
     set_kind("phony")

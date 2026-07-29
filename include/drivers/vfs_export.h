@@ -1,5 +1,5 @@
-#ifndef HSRC_DRIVERS_VFS_EXPORT_H
-#define HSRC_DRIVERS_VFS_EXPORT_H
+#ifndef DRIVERS_VFS_EXPORT_H
+#define DRIVERS_VFS_EXPORT_H
 
 #include <drivers/vfs_fs.h>
 

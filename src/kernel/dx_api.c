@@ -1,13 +1,13 @@
-#include <kernel/mkdx_api.h>
+#include <kernel/dx_api.h>
 
-static const mkdx_api_t *g_mkdx;
+static const dx_api_t *g_dx;
 
-void mkdx_api_register(const mkdx_api_t *api)
+void dx_api_register(const dx_api_t *api)
 {
-    g_mkdx = api;
+    g_dx = api;
 }
 
-const mkdx_api_t *mkdx_api_get(void)
+const dx_api_t *dx_api_get(void)
 {
-    return g_mkdx;
+    return g_dx;
 }

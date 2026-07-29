@@ -1,6 +1,6 @@
 #include <kernel/service.h>
 #include <kernel/errno.h>
-#include <kernel/mke.h>
+#include <kernel/exe.h>
 #include <kernel/process.h>
 #include <kernel/string.h>
 #include <kernel/uaccess.h>
@@ -118,7 +118,7 @@ static int service_spawn_entry(service_entry_t *svc)
     if (!service_path_exists(svc->info.path))
         return -ENOENT;
 
-    pid = mke_spawn_path(svc->info.path);
+    pid = exe_spawn_path(svc->info.path);
     if (pid < 0)
         return pid;
 

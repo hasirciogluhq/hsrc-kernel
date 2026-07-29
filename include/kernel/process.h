@@ -1,5 +1,5 @@
-#ifndef HSRC_PROCESS_H
-#define HSRC_PROCESS_H
+#ifndef KERNEL_PROCESS_H
+#define KERNEL_PROCESS_H
 
 #include <kernel/types.h>
 #include <kernel/vfs.h>

@@ -1,5 +1,5 @@
-#ifndef HSRC_ARCH_IO_H
-#define HSRC_ARCH_IO_H
+#ifndef ARCH_IO_H
+#define ARCH_IO_H
 
 #include <kernel/types.h>
 

@@ -1,5 +1,5 @@
-#ifndef HSRC_SMP_H
-#define HSRC_SMP_H
+#ifndef KERNEL_SMP_H
+#define KERNEL_SMP_H
 
 #include <kernel/types.h>
 

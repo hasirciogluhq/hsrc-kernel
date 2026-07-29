@@ -1,5 +1,5 @@
-#ifndef HSRC_KERNEL_DX_API_H
-#define HSRC_KERNEL_DX_API_H
+#ifndef DX_API_H
+#define DX_API_H
 
 #include <kernel/types.h>
 

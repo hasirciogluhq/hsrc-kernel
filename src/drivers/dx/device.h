@@ -1,5 +1,5 @@
-#ifndef HSRC_DX_DEVICE_H
-#define HSRC_DX_DEVICE_H
+#ifndef DX_DEVICE_H
+#define DX_DEVICE_H
 
 #include "surface.h"
 #include <drivers/display.h>

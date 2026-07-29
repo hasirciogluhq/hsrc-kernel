@@ -1,5 +1,5 @@
-#ifndef HSRC_DRIVERS_PS2_H
-#define HSRC_DRIVERS_PS2_H
+#ifndef DRIVERS_PS2_H
+#define DRIVERS_PS2_H
 
 #include <kernel/types.h>
 

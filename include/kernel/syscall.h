@@ -1,5 +1,5 @@
-#ifndef HSRC_SYSCALL_H
-#define HSRC_SYSCALL_H
+#ifndef KERNEL_SYSCALL_H
+#define KERNEL_SYSCALL_H
 
 #include <kernel/types.h>
 

@@ -1,5 +1,5 @@
-#ifndef HSRC_BOOTMEM_H
-#define HSRC_BOOTMEM_H
+#ifndef KERNEL_BOOTMEM_H
+#define KERNEL_BOOTMEM_H
 
 #include <kernel/types.h>
 #include <multiboot.h>

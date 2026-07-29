@@ -5,7 +5,7 @@
 #include <kernel/smp.h>
 #include <kernel/string.h>
 #include <kernel/sync.h>
-#include <kernel/mkdx_api.h>
+#include <kernel/dx_api.h>
 #include <arch/x86/gdt.h>
 #include <arch/x86/irq.h>
 #include <arch/x86/cpu.h>
@@ -102,10 +102,10 @@ static void idle_halt(void)
          * waiters - apps may be PROC_BLOCKED in wait_events (C21/I08/I11).
          */
         if (cpu_id() == 0) {
-            const mkdx_api_t *api;
+            const dx_api_t *api;
 
             drivers_poll();
-            api = mkdx_api_get();
+            api = dx_api_get();
             if (api && api->pump_input)
                 api->pump_input();
         }

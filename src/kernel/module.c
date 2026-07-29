@@ -402,11 +402,11 @@ int modules_load_initrd(const void *data, size_t size)
             return -1;
         blob = (const uint8_t *)data + f->offset;
 
-        /* .mke apps are spawned later by mke_spawn_from_* */
+        /* .exe apps are spawned later by exe_spawn_from_* */
         if (f->size >= 4) {
             magic = blob[0] | ((uint32_t)blob[1] << 8) |
                     ((uint32_t)blob[2] << 16) | ((uint32_t)blob[3] << 24);
-            if (magic == 0x31454B4Du) /* MKE1 */
+            if (magic == 0x31455845u) /* EXE1 */
                 continue;
         }
 
@@ -414,7 +414,7 @@ int modules_load_initrd(const void *data, size_t size)
         vga_print(f->name);
         vga_print("\n");
         if (modules_load_blob(f->name, blob, f->size) < 0) {
-            /* Soft-fail one kmod so BGA/MKDX can still boot without virtio. */
+            /* Soft-fail one kmod so BGA/DX can still boot without virtio. */
             vga_print("kmod load skipped: ");
             vga_print(f->name);
             vga_print("\n");

@@ -1,5 +1,5 @@
-#ifndef HSRC_DX_CONTEXT_H
-#define HSRC_DX_CONTEXT_H
+#ifndef DX_CONTEXT_H
+#define DX_CONTEXT_H
 
 #include "surface.h"
 

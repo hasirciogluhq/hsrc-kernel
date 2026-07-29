@@ -1,13 +1,13 @@
--- Shared helper: ELF → .mke
-function pack_mke(target, load_addr, mke_name)
+-- Shared helper: ELF → .exe
+function pack_exe(target, load_addr, exe_name)
     local ROOT = os.projectdir()
     local BUILD = path.join(ROOT, "build")
     local outdir = target:targetdir()
     os.mkdir(outdir)
     local elf = target:targetfile()
-    local bin = path.join(outdir, mke_name .. ".bin")
-    local mke = path.join(outdir, mke_name .. ".mke")
-    local pack = path.join(BUILD, "tools", "pack_mke")
+    local bin = path.join(outdir, exe_name .. ".bin")
+    local exe = path.join(outdir, exe_name .. ".exe")
+    local pack = path.join(BUILD, "tools", "pack_exe")
     local objcopy = "i686-elf-objcopy"
     local nm = "i686-elf-nm"
 
@@ -17,11 +17,11 @@ function pack_mke(target, load_addr, mke_name)
     local entry_sym, edata_sym, end_sym
     for line in nm_out:gmatch("[^\r\n]+") do
         local addr, name = line:match("^(%x+)%s+%w%s+(.+)$")
-        if name == "mke_main" or name == "hxe_main" then entry_sym = addr end
-        if name == "_mke_edata" or name == "_hxe_edata" then edata_sym = addr end
-        if name == "_mke_end" or name == "_hxe_end" then end_sym = addr end
+        if name == "exe_main" then entry_sym = addr end
+        if name == "_exe_edata" then edata_sym = addr end
+        if name == "_exe_end" then end_sym = addr end
     end
-    assert(entry_sym and edata_sym and end_sym, "missing mke symbols in " .. elf)
+    assert(entry_sym and edata_sym and end_sym, "missing exe symbols in " .. elf)
 
     local load = tonumber(load_addr)
     local entry = tonumber(entry_sym, 16)
@@ -32,12 +32,12 @@ function pack_mke(target, load_addr, mke_name)
     local bss = endv - edata
 
     os.execv(pack, {
-        mke, bin,
+        exe, bin,
         string.format("0x%x", load),
         string.format("0x%x", entry_off),
         tostring(img),
         tostring(bss),
-        mke_name,
+        exe_name,
     })
-    print("packed " .. mke)
+    print("packed " .. exe)
 end

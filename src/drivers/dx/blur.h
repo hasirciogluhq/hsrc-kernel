@@ -1,5 +1,5 @@
-#ifndef HSRC_GFX_BLUR_H
-#define HSRC_GFX_BLUR_H
+#ifndef GFX_BLUR_H
+#define GFX_BLUR_H
 
 #include "surface.h"
 

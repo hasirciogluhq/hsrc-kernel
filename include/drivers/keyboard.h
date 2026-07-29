@@ -1,5 +1,5 @@
-#ifndef HSRC_DRIVERS_KEYBOARD_H
-#define HSRC_DRIVERS_KEYBOARD_H
+#ifndef DRIVERS_KEYBOARD_H
+#define DRIVERS_KEYBOARD_H
 
 #include <kernel/types.h>
 

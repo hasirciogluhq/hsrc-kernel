@@ -1,5 +1,5 @@
-#ifndef HSRC_VGA_H
-#define HSRC_VGA_H
+#ifndef DRIVERS_VGA_H
+#define DRIVERS_VGA_H
 
 #include <kernel/types.h>
 

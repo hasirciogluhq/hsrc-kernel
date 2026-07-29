@@ -6,7 +6,7 @@ local BUILD = path.join(ROOT, "build")
 target("kernel")
     set_kind("binary")
     set_default(true)
-    mykernel_cross_target()
+    kernel_cross_target()
     add_deps("initrd", "disk")
     add_rules("nasm")
     add_files(path.join(ROOT, "src/arch/x86/*.asm|smp_trampoline.asm|smp_tramp_blob.asm"))
@@ -20,7 +20,7 @@ target("kernel")
         path.join(ROOT, "src/drivers/dx"),
         path.join(ROOT, "src/drivers/display/bga"),
         path.join(ROOT, "src/drivers/display/virtio_gpu"))
-    add_cflags(mykernel_cflags(), {force = true})
+    add_cflags(kernel_cflags(), {force = true})
     set_targetdir(BUILD)
     set_filename("kernel.bin")
 
@@ -52,6 +52,6 @@ target("kernel")
 
     -- `xmake run` must not exec kernel.bin on the host — launch QEMU instead.
     on_run(function (target)
-        import("hsrc.qemu")
+        import("kernel.qemu")
         qemu.run_qemu()
     end)

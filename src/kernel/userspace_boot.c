@@ -1,11 +1,11 @@
 #include <kernel/userspace_boot.h>
 #include <kernel/kshell.h>
-#include <kernel/mke.h>
+#include <kernel/exe.h>
 #include <kernel/vfs.h>
 #include <kernel/initrd.h>
 #include <kernel/initrd_store.h>
 #include <kernel/string.h>
-#include <kernel/mkdx_api.h>
+#include <kernel/dx_api.h>
 #include <drivers/serial.h>
 #include <drivers/vga.h>
 #include <drivers/display.h>
@@ -72,7 +72,7 @@ static int install_init_from_initrd(void)
 
 int gui_stack_ready(void)
 {
-    return (display_active() && mkdx_api_get()) ? 1 : 0;
+    return (display_active() && dx_api_get()) ? 1 : 0;
 }
 
 void userspace_boot(void)
@@ -96,7 +96,7 @@ void userspace_boot(void)
         return;
     }
 
-    pid = mke_spawn_path(resolved);
+    pid = exe_spawn_path(resolved);
     if (pid < 0) {
         klog("[boot] userspace_boot FAILED — kshell\n");
         vga_print("init spawn failed — console mode\n");

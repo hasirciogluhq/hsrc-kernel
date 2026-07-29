@@ -1,8 +1,8 @@
-#ifndef HSRC_DX_H
-#define HSRC_DX_H
+#ifndef DX_H
+#define DX_H
 
 /*
- * DX - Direct eXperience graphics for hsrc-kernel (loadable driver API)
+ * DX - Direct eXperience graphics (loadable driver API)
  * Compositor / WM / accel live in dx.kmod.
  * UI is drawn by userspace via <user/gx.h>.
  */

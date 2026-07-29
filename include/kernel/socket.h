@@ -1,5 +1,5 @@
-#ifndef HSRC_KERNEL_SOCKET_H
-#define HSRC_KERNEL_SOCKET_H
+#ifndef KERNEL_SOCKET_H
+#define KERNEL_SOCKET_H
 
 #include <kernel/types.h>
 
@@ -23,8 +23,8 @@ typedef struct netif netif_t;
 
 #define INADDR_ANY 0u
 
-#ifndef HSRC_SOCKADDR_IN_DEFINED
-#define HSRC_SOCKADDR_IN_DEFINED
+#ifndef KERNEL_SOCKADDR_IN_DEFINED
+#define KERNEL_SOCKADDR_IN_DEFINED
 typedef struct sockaddr_in {
     uint16_t sin_family; /* AF_INET */
     uint16_t sin_port;   /* network byte order */

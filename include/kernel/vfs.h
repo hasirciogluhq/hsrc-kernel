@@ -1,5 +1,5 @@
-#ifndef HSRC_VFS_H
-#define HSRC_VFS_H
+#ifndef KERNEL_VFS_H
+#define KERNEL_VFS_H
 
 #include <kernel/types.h>
 #include <kernel/vfs_api.h>
@@ -26,8 +26,8 @@
 #define MNT_FORCE 1
 
 /* Must match drivers/vfs_fs.h vfs_dirent_t layout. */
-#ifndef HSRC_VFS_DIRENT_DEFINED
-#define HSRC_VFS_DIRENT_DEFINED
+#ifndef VFS_DIRENT_DEFINED
+#define VFS_DIRENT_DEFINED
 typedef struct vfs_dirent {
     uint32_t ino;
     uint32_t type; /* S_IF* from drivers/vfs_fs.h */

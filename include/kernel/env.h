@@ -1,5 +1,5 @@
-#ifndef HSRC_ENV_H
-#define HSRC_ENV_H
+#ifndef KERNEL_ENV_H
+#define KERNEL_ENV_H
 
 #include <kernel/types.h>
 

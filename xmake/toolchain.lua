@@ -1,5 +1,5 @@
 -- Cross freestanding flags for i686-elf
-function mykernel_cflags()
+function kernel_cflags()
     return {
         "-std=c11",
         "-ffreestanding",
@@ -16,7 +16,7 @@ function mykernel_cflags()
     }
 end
 
-function mykernel_cxxflags()
+function kernel_cxxflags()
     return {
         "-std=c++17",
         "-ffreestanding",
@@ -36,7 +36,7 @@ function mykernel_cxxflags()
     }
 end
 
-function mykernel_imgui_cxxflags()
+function kernel_imgui_cxxflags()
     return {
         "-std=c++23",
         "-ffreestanding",
@@ -77,7 +77,7 @@ rule("nasm")
         table.insert(objs, objectfile)
     end)
 
-function mykernel_cross_target()
+function kernel_cross_target()
     set_plat("cross")
     set_arch("i386")
     set_toolset("cc", "i686-elf-gcc")
@@ -86,7 +86,7 @@ function mykernel_cross_target()
     set_toolset("ar", "i686-elf-ar")
 end
 
-function mykernel_host_target()
+function kernel_host_target()
     set_plat(os.host())
     set_arch(os.arch())
     set_toolset("cc", "cc")

@@ -1,5 +1,5 @@
-#ifndef HSRC_ERRNO_H
-#define HSRC_ERRNO_H
+#ifndef KERNEL_ERRNO_H
+#define KERNEL_ERRNO_H
 
 /* Negative returns: return -ENOENT; */
 #define EPERM        1

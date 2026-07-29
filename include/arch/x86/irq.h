@@ -1,5 +1,5 @@
-#ifndef HSRC_ARCH_IRQ_H
-#define HSRC_ARCH_IRQ_H
+#ifndef ARCH_IRQ_H
+#define ARCH_IRQ_H
 
 #include <kernel/types.h>
 

@@ -1,5 +1,5 @@
-#ifndef HSRC_DX_RENDER3D_H
-#define HSRC_DX_RENDER3D_H
+#ifndef DX_RENDER3D_H
+#define DX_RENDER3D_H
 
 #include <kernel/types.h>
 

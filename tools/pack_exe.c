@@ -1,14 +1,14 @@
-/* Host tool: wrap a flat i386 image into a .mke (hsrc-kernel Executable). */
+/* Host tool: wrap a flat i386 image into a generic .exe container. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 
-#define MKE_MAGIC    0x31454B4Du
-#define MKE_VERSION  1
-#define MKE_NAME_MAX 32
+#define EXE_MAGIC    0x31455845u
+#define EXE_VERSION  1
+#define EXE_NAME_MAX 32
 
-typedef struct mke_header {
+typedef struct exe_header {
     uint32_t magic;
     uint32_t version;
     uint32_t header_size;
@@ -17,8 +17,8 @@ typedef struct mke_header {
     uint32_t image_size;
     uint32_t bss_size;
     uint32_t stack_size;
-    char     name[MKE_NAME_MAX];
-} __attribute__((packed)) mke_header_t;
+    char     name[EXE_NAME_MAX];
+} __attribute__((packed)) exe_header_t;
 
 static int parse_u32(const char *s, uint32_t *out)
 {
@@ -36,7 +36,7 @@ static int parse_u32(const char *s, uint32_t *out)
 
 int main(int argc, char **argv)
 {
-    mke_header_t hdr;
+    exe_header_t hdr;
     FILE *in, *out;
     uint8_t *img;
     long file_sz;
@@ -44,7 +44,7 @@ int main(int argc, char **argv)
 
     if (argc < 8) {
         fprintf(stderr,
-                "usage: %s <out.mke> <image.bin> <load_addr> <entry_off> "
+                "usage: %s <out.exe> <image.bin> <load_addr> <entry_off> "
                 "<image_size> <bss_size> <name> [stack_size]\n",
                 argv[0]);
         return 1;
@@ -101,15 +101,15 @@ int main(int argc, char **argv)
     fclose(in);
 
     memset(&hdr, 0, sizeof(hdr));
-    hdr.magic = MKE_MAGIC;
-    hdr.version = MKE_VERSION;
+    hdr.magic = EXE_MAGIC;
+    hdr.version = EXE_VERSION;
     hdr.header_size = (uint32_t)sizeof(hdr);
     hdr.load_addr = load_addr;
     hdr.entry_off = entry_off;
     hdr.image_size = image_size;
     hdr.bss_size = bss_size;
     hdr.stack_size = stack_size;
-    strncpy(hdr.name, argv[7], MKE_NAME_MAX - 1);
+    strncpy(hdr.name, argv[7], EXE_NAME_MAX - 1);
 
     if (hdr.entry_off >= hdr.image_size + hdr.bss_size) {
         fprintf(stderr, "entry_off out of range\n");

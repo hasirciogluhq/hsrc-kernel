@@ -1,9 +1,9 @@
 #include <kernel/kshell.h>
 #include <kernel/vfs.h>
-#include <kernel/mke.h>
+#include <kernel/exe.h>
 #include <kernel/process.h>
 #include <kernel/string.h>
-#include <kernel/mkdx_api.h>
+#include <kernel/dx_api.h>
 #include <drivers/console.h>
 #include <drivers/vga.h>
 #include <drivers/serial.h>
@@ -19,7 +19,7 @@ static void kshell_print(const char *s)
 
 static void kshell_prompt(void)
 {
-    kshell_print("mykernel> ");
+    kshell_print("kernel> ");
 }
 
 static int kshell_readline(char *buf, size_t max)
@@ -56,7 +56,7 @@ static int kshell_readline(char *buf, size_t max)
 static void cmd_help(void)
 {
     kshell_print("commands: help, clear, ls [path], cat <path>, run <path|name>, ps, gui?\n");
-    kshell_print("kernel is standalone; GUI needs display+mkdx+/system/bin/window-manager\n");
+    kshell_print("kernel is standalone; GUI needs display+dx+/system/bin/window-manager\n");
 }
 
 static void cmd_clear(void)
@@ -126,7 +126,7 @@ static void cmd_run(const char *name)
         kshell_print("run: not found\n");
         return;
     }
-    pid = mke_spawn_path(resolved);
+    pid = exe_spawn_path(resolved);
     if (pid < 0) {
         kshell_print("run: spawn failed\n");
         return;
@@ -178,10 +178,10 @@ static void cmd_ps(void)
 
 static void cmd_gui_status(void)
 {
-    if (display_active() && mkdx_api_get())
-        kshell_print("gui: display+mkdx ready\n");
+    if (display_active() && dx_api_get())
+        kshell_print("gui: display+dx ready\n");
     else if (display_active())
-        kshell_print("gui: display yes, mkdx no\n");
+        kshell_print("gui: display yes, dx no\n");
     else
         kshell_print("gui: no display (console mode)\n");
 }
@@ -190,7 +190,7 @@ void kshell_run(void)
 {
     char line[KSHELL_LINE_MAX];
 
-    kshell_print("\n=== mykernel console ===\n");
+    kshell_print("\n=== kernel console ===\n");
     kshell_print("No GUI — kernel shell active.\n");
     cmd_help();
 

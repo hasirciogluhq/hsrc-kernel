@@ -1,5 +1,5 @@
-#ifndef HSRC_DRIVERS_PCI_H
-#define HSRC_DRIVERS_PCI_H
+#ifndef DRIVERS_PCI_H
+#define DRIVERS_PCI_H
 
 #include <kernel/types.h>
 

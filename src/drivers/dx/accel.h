@@ -1,5 +1,5 @@
-#ifndef HSRC_GFX_ACCEL_H
-#define HSRC_GFX_ACCEL_H
+#ifndef GFX_ACCEL_H
+#define GFX_ACCEL_H
 
 #include "surface.h"
 

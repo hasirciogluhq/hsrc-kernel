@@ -1,5 +1,5 @@
-#ifndef HSRC_MULTIBOOT_H
-#define HSRC_MULTIBOOT_H
+#ifndef MULTIBOOT_H
+#define MULTIBOOT_H
 
 #include <kernel/types.h>
 

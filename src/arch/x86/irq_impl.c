@@ -1,7 +1,7 @@
 #include <arch/x86/irq.h>
 #include <arch/x86/idt.h>
 #include <kernel/scheduler.h>
-#include <kernel/mkdx_api.h>
+#include <kernel/dx_api.h>
 #include <drivers/driver.h>
 #include <arch/x86/io.h>
 
@@ -103,7 +103,7 @@ uint64_t irq_idle_ticks(void)
 void irq_dispatch(uint32_t irq)
 {
     if (irq == IRQ_TIMER) {
-        const mkdx_api_t *api;
+        const dx_api_t *api;
 
         g_timer_ticks++;
         scheduler_wake_sleepers(g_timer_ticks);
@@ -114,7 +114,7 @@ void irq_dispatch(uint32_t irq)
          * Keep cursor/WM alive when apps are PROC_BLOCKED (Event / input wait).
          * Timer also drives preemption via scheduler_on_timer - no yield needed.
          */
-        api = mkdx_api_get();
+        api = dx_api_get();
         if (api && api->pump_input)
             api->pump_input();
         /* EOI before preempt - schedule() may context-switch away. */

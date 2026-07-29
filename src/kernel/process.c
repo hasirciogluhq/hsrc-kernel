@@ -9,7 +9,7 @@
 #include <kernel/socket.h>
 #include <kernel/syscall.h>
 #include <kernel/vfs.h>
-#include <kernel/mkdx_api.h>
+#include <kernel/dx_api.h>
 #include <kernel/smp.h>
 #include <drivers/serial.h>
 #include <arch/x86/gdt.h>
@@ -161,14 +161,14 @@ static uint64_t process_uptime_ticks(const process_t *p, uint64_t now_ticks)
 
 static void process_free_console(pid_t pid)
 {
-    const mkdx_api_t *api = mkdx_api_get();
+    const dx_api_t *api = dx_api_get();
     if (api && api->console_free)
         api->console_free((int)pid);
 }
 
 static void process_free_windows(pid_t pid)
 {
-    const mkdx_api_t *api = mkdx_api_get();
+    const dx_api_t *api = dx_api_get();
     if (api && api->wm_destroy_by_pid)
         api->wm_destroy_by_pid((int)pid);
 }
@@ -616,7 +616,7 @@ pid_t process_create_user(const char *name, void (*entry)(void))
     p->is_user = 1;
     p->user_entry = entry;
     /*
-     * Pin user/GUI processes to BSP. MKDX compose/present, PS/2 poll, and
+     * Pin user/GUI processes to BSP. DX compose/present, PS/2 poll, and
      * display_ops are not SMP-safe: running a GX syscall on an AP while the
      * BSP timer idle path calls drivers_poll()/pump_input() races and
      * corrupts kernel state (seen as #UD with a garbage EIP like 0x207

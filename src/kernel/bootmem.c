@@ -1,5 +1,5 @@
 #include <kernel/bootmem.h>
-#include <kernel/mke.h>
+#include <kernel/exe.h>
 #include <drivers/serial.h>
 
 /*
@@ -8,17 +8,17 @@
  * Layout constraints:
  *   - Kernel image from 1MiB .. _kernel_end
  *   - Multiboot modules (initrd) wherever the loader placed them
- *   - .mke apps: [MKE_LOAD_MIN, MKE_LOAD_MAX + 8MiB)
- *   - Kernel heap: largest available span after the .mke window (fallback:
- *     classic 16-32MiB window below .mke when RAM is small)
+ *   - .exe apps: [EXE_LOAD_MIN, EXE_LOAD_MAX + 8MiB)
+ *   - Kernel heap: largest available span after the .exe window (fallback:
+ *     classic 16-32MiB window below .exe when RAM is small)
  */
 
 extern char _kernel_end[];
 
 #define BOOTMEM_HEAP_MIN_BYTES  (1u * 1024u * 1024u)
-#define BOOTMEM_MKE_END         (MKE_LOAD_MAX + 0x00800000u) /* 0x07800000 */
+#define BOOTMEM_EXE_END         (EXE_LOAD_MAX + 0x00800000u) /* 0x07800000 */
 #define BOOTMEM_FALLBACK_PHYS   0x01000000u
-#define BOOTMEM_FALLBACK_END    (MKE_LOAD_MIN - 0x10000u)
+#define BOOTMEM_FALLBACK_END    (EXE_LOAD_MIN - 0x10000u)
 #define BOOTMEM_ADDR_MAX        0xFFFFF000u
 
 static bootmem_layout_t g_bootmem;
@@ -201,11 +201,11 @@ int bootmem_init(const multiboot_info_t *mbi, bootmem_layout_t *out)
         layout.total_ram_bytes = (uint32_t)total64;
 
     reserved_low = bootmem_reserved_low_end(mbi);
-    prefer_start = BOOTMEM_MKE_END;
+    prefer_start = BOOTMEM_EXE_END;
     if (reserved_low > prefer_start)
         prefer_start = reserved_low;
 
-    /* Prefer heap above the fixed .mke load window so apps keep their VA. */
+    /* Prefer heap above the fixed .exe load window so apps keep their VA. */
     if (bootmem_clip_available(mbi, prefer_start, BOOTMEM_ADDR_MAX, &hs, &he) &&
         (he - hs) >= BOOTMEM_HEAP_MIN_BYTES) {
         layout.heap_phys = hs;

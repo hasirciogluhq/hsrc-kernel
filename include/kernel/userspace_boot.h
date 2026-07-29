@@ -1,5 +1,5 @@
-#ifndef HSRC_USERSPACE_BOOT_H
-#define HSRC_USERSPACE_BOOT_H
+#ifndef KERNEL_USERSPACE_BOOT_H
+#define KERNEL_USERSPACE_BOOT_H
 
 /*
  * Hand off to /init when present. Kernel stays usable without GUI:

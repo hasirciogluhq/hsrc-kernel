@@ -198,11 +198,21 @@ static void release_span(uint8_t *start, uint8_t *end)
 static void *bump_region(size_t need)
 {
     uint8_t *next;
+    uintptr_t base;
+    uintptr_t end;
+    size_t room;
 
     need = align_up_sz(need, 16u);
     if (need < HEAP_MIN_BLOCK)
         need = HEAP_MIN_BLOCK;
-    if (wilderness + need < wilderness || wilderness + need > heap_end)
+
+    /* Overflow-safe remaining-space check (pointer+size_t wrap is UB). */
+    base = (uintptr_t)wilderness;
+    end = (uintptr_t)heap_end;
+    if (!wilderness || base > end)
+        return NULL;
+    room = (size_t)(end - base);
+    if (need > room)
         return NULL;
 
     next = wilderness + need;

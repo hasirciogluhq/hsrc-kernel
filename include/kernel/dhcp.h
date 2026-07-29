@@ -1,5 +1,5 @@
-#ifndef HSRC_KERNEL_DHCP_H
-#define HSRC_KERNEL_DHCP_H
+#ifndef KERNEL_DHCP_H
+#define KERNEL_DHCP_H
 
 #include <kernel/netif.h>
 #include <kernel/types.h>

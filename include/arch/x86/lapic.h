@@ -1,5 +1,5 @@
-#ifndef HSRC_ARCH_LAPIC_H
-#define HSRC_ARCH_LAPIC_H
+#ifndef ARCH_LAPIC_H
+#define ARCH_LAPIC_H
 
 #include <kernel/types.h>
 

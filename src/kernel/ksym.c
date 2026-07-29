@@ -2,7 +2,7 @@
 #include <kernel/string.h>
 #include <kernel/heap.h>
 #include <kernel/module.h>
-#include <kernel/mkdx_api.h>
+#include <kernel/dx_api.h>
 #include <kernel/vfs_api.h>
 #include <kernel/block_api.h>
 #include <kernel/netif.h>
@@ -73,8 +73,8 @@ static const ksym_t g_ksyms[] = {
     { "display_active",     (void *)display_active },
     { "display_get_screen_size", (void *)display_get_screen_size },
 
-    { "mkdx_api_register",  (void *)mkdx_api_register },
-    { "mkdx_api_get",       (void *)mkdx_api_get },
+    { "dx_api_register",    (void *)dx_api_register },
+    { "dx_api_get",         (void *)dx_api_get },
     { "input_event_notify", (void *)input_event_notify },
     { "input_event_seq",    (void *)input_event_seq },
 

@@ -1,14 +1,14 @@
-/* Usermode .mke link script. LOAD_ADDR is set via --defsym=LOAD_ADDR=0x... */
-ENTRY(mke_main)
+/* Usermode .exe link script. LOAD_ADDR is set via --defsym=LOAD_ADDR=0x... */
+ENTRY(exe_main)
 
 SECTIONS
 {
     . = LOAD_ADDR;
 
-    _mke_start = .;
+    _exe_start = .;
 
     .text : {
-        *(.text.mke_main)
+        *(.text.exe_main)
         *(.text*)
     }
 
@@ -20,12 +20,12 @@ SECTIONS
         *(.data*)
     }
 
-    _mke_edata = .;
+    _exe_edata = .;
 
     .bss : {
         *(.bss*)
         *(COMMON)
     }
 
-    _mke_end = .;
+    _exe_end = .;
 }

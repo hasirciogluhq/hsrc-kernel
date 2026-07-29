@@ -1,5 +1,5 @@
-#ifndef HSRC_KERNEL_TIME_H
-#define HSRC_KERNEL_TIME_H
+#ifndef KERNEL_TIME_H
+#define KERNEL_TIME_H
 
 #include <kernel/time_abi.h>
 

@@ -14,7 +14,6 @@
 #include <kernel/socket.h>
 #include <kernel/ksym.h>
 #include <kernel/module.h>
-#include <kernel/mkdx_api.h>
 #include <kernel/process.h>
 #include <kernel/env.h>
 #include <kernel/service.h>
@@ -22,7 +21,6 @@
 #include <kernel/sync.h>
 #include <kernel/time.h>
 #include <arch/x86/irq.h>
-#include <kernel/mke.h>
 #include <kernel/userspace_boot.h>
 #include <kernel/kshell.h>
 #include <kernel/boot_splash.h>
@@ -58,7 +56,7 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
 
     /*
      * Heap lives in a Multiboot-discovered available region above the fixed
-     * .mke load window (see bootmem). Avoid a huge .bss heap - loaders may
+     * .exe load window (see bootmem). Avoid a huge .bss heap - loaders may
      * place the initrd inside the kernel BSS span and then zero it.
      */
     if (bootmem_init(mbi, &mem) < 0 || mem.heap_size == 0) {
@@ -140,9 +138,9 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
             (void)vfs_close(fd);
     }
 
-    /* Kernel is standalone: no display/mkdx → console (kshell), not halt. */
+    /* Kernel is standalone: no display/dx → console (kshell), not halt. */
     if (gui_stack_ready()) {
-        klog("[boot] GUI stack ready (display+mkdx)\n");
+        klog("[boot] GUI stack ready (display+dx)\n");
         boot_splash_show();
     } else {
         klog("[boot] GUI stack unavailable — console mode\n");
