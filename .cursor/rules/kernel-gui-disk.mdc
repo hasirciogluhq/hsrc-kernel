@@ -8,32 +8,48 @@ alwaysApply: true
 ## Kernel is standalone
 
 - The kernel must boot and remain usable **without** a GUI stack.
-- Do **not** halt if `display_active()` or DX is missing.
-- **GUI mode**: display driver + DX loaded → splash → hand off to `/init`.
-- **Console mode**: no GUI stack (or no `/init`) → `kshell` (VGA/keyboard console).
+- Do **not** halt if `display_active()` or `disp_api` is missing.
+- **GUI mode**: display provider + `display.kmod` (`disp_api`) → splash → hand off to `/init`.
+- **Console mode**: no GUI stack (or no `/init`) → `kshell` (VGA text/keyboard console).
 - Kernel never spawns session apps (WM, shell, terminal). Only `/init` (or kshell).
+- `gui_stack_ready()` = `display_active() && disp_api_get()` (no DX/mkdx).
 
 ## Packages (think separate products)
 
 | Package | Location on disk | Contents |
 |---------|------------------|----------|
-| Kernel + kmods | `kernel.bin` + initrd | core OS, drivers, optional PID1 blob `init` |
+| Kernel + kmods | `kernel.bin` + initrd | core OS, drivers (`display_bga`, `display_virtio`, `display`, …), optional PID1 blob `init` |
 | System / GUI | `/system/bin`, `/system/share`, `/system/etc` | window-manager, os-shell, terminal, files, settings, icons |
 | User apps | `/applications` | minesweeper, imgui-demo, third-party `.exec` |
 | Dynlibs | `/system/lib` | `*.dynlib` |
 
-- No window-manager / no DX → **no GUI**; console works.
+- No window-manager / no display+disp → **no GUI**; console works.
 - PATH default: `/system/bin:/applications`.
 - Executables use `.exec`; bare names resolve via PATH.
+
+## Display providers (QEMU)
+
+- **One** primary display only:
+  - BGA: `-vga std` → `display_bga`
+  - Virtio: `-vga virtio` **or** `-vga none` + `-device virtio-gpu-pci` → `display_virtio`
+- Dual / wrong: `-vga std` (or QEMU default VGA) **plus** `virtio-gpu-pci` → present to virtio, window shows std → black screen.
+
+## Drivers layout
+
+```text
+src/drivers/
+  core/ bus/pci/ console/ input/
+  display/{display.c,gpu.c,display_mod.c,providers/{bga,virtio_gpu}}
+  block/ fs/ vfs/ part/ net/
+include/drivers/{driver.h,bus/,console/,input/,display/,vfs/}
+```
 
 ## Disk image (dev) — Linux-like FHS
 
 - Single FAT `disk.img` (vda) is mounted as **`/`** (real root).
 - Virtual FS on top: `/dev` (devtmpfs), `/proc` (procfs), `/sys` (sysfs), `/tmp` (tmpfs).
 - No `/.osdisk`, no bind mounts for `/system` or `/applications`.
-- After build, install artifacts with:
-  - `scripts/dev-disk-install.sh` (or `xmake build disk` / `disk-install`)
-  - then `xmake run`
+- After build: `xmake` / disk-install, then `xmake run`.
 
 ## Identity
 
@@ -42,6 +58,10 @@ alwaysApply: true
 
 ## Init
 
-- Conventional PID1 path is **`/init`** (on the root disk; initrd can still seed it).
+- Conventional PID1 path is **`/init`**.
 - Default `/init` starts system session units from PATH (`window-manager`, `os-shell`).
 - User apps are never started by kernel or as hard-coded PID1 defaults.
+
+## Locking note
+
+- `klock_disp` serializes `disp_api` + `drivers_poll` (asm spinlock). Not a graphics “DX” lock.

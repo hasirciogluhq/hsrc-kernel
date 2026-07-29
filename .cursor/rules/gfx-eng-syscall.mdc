@@ -1,35 +1,32 @@
 ---
 description: Syscall, batching, and IPC rules for graphics performance
-globs: src/kernel/syscall.c,src/drivers/mkdx/**,src/user/sdk/**,include/user/sdk/**,include/kernel/syscall.h,include/kernel/mkdx_api.h
+globs: src/kernel/syscall.c,src/kernel/disp_api.c,userspace/sdk/**,include/user/disp.h,include/kernel/syscall.h,include/user/sdk/**
 alwaysApply: false
 ---
 
 # Syscall, Batching, IPC
 
-- **S01** Draw primitive başına ayrı syscall MUST NOT yapılmak. — Gerekçe: syscall + context switch maliyeti draw’dan pahalıdır.
-- **S02** Arka arkaya küçük grafik syscall’ları yerine batch/commit MUST kullanılmak. — Gerekçe: amortize edilmiş transition maliyeti.
-- **S03** Her grafik API çağrısı MUST NOT zorunlu olarak syscall üretmek. — Gerekçe: SDK userspace’te biriktirmeli.
-- **S04** Kernel MUST yalnızca COMMIT/PRESENT aşamasında haberdar edilmek (metadata update hariç). — Gerekçe: hot path sadeleşir.
-- **S05** Bir syscall MUST mümkün olan en kısa sürede tamamlanmak. — Gerekçe: preemption ve latency.
-- **S06** Bir syscall içinde uzun süren render/compose MUST NOT yapılmak. — Gerekçe: tüm sistemi bloke eder.
-- **S07** Context switch sayısını azaltmak MUST performans için öncelikli hedef olmak. — Gerekçe: TLB/cache kaybı pahalıdır.
-- **S08** Aynı frame için birden fazla present syscall MUST NOT yapılmak (zorunlu repair hariç). — Gerekçe: çift present = çift bandwidth.
-- **S09** Input event okuma ile present commit MUST ayrı kanallar/kuyruklar üzerinden yönetilmek. — Gerekçe: back-pressure birbirini boğmamalı.
-- **S10** Polling MUST yalnızca event mekanizması yetersizse ve sınırlı backoff ile kullanılmak. — Gerekçe: CPU spin FPS’i yer.
-- **S11** Kernel event tabanlı çalışmalı; busy-wait userspace döngüsü MUST NOT varsayılan yol olmak. — Gerekçe: enerji ve scheduling.
-- **S12** IPC mesaj boyutu MUST sabit üst sınıra sahip olmak; unbounded payload yasak. — Gerekçe: DoS ve kopya maliyeti.
-- **S13** Large buffer transfer MUST handle/shared-memory ile yapılmak; byte-copy syscall MUST NOT. — Gerekçe: copy elision.
-- **S14** Syscall argüman doğrulama MUST erken fail etmek; kısmi side-effect bırakmamak. — Gerekçe: tutarlılık.
-- **S15** Batch buffer formatı MUST length-prefixed ve bounds-checked olmak. — Gerekçe: memory safety.
-- **S16** Userspace MUST NOT her mouse move için kernel present çağırmak. — Gerekçe: input rate ≠ frame rate.
-- **S17** Redundant no-op commit’ler SDK tarafından MUST coalesce edilmek. — Gerekçe: boş kernel girişlerini keser.
-- **S18** Blocking syscall süresi içinde scheduler’ı aç bırakan uzun loop MUST NOT yazılmak. — Gerekçe: priority inversion riski.
-- **S19** Hata kodları MUST stabil ve dokümante olmak; sessiz ignore yasak. — Gerekçe: debuggability.
-- **S20** Yeni syscall eklemek yerine mevcut batch opcode genişletmek MUST tercih edilmek. — Gerekçe: ABI şişkinliği önlenir.
-- **S21** Cross-process graphics IPC MUST tek producer ring veya eşdeğeri kullanmak. — Gerekçe: lock contention azalır.
-- **S22** Kernel MUST NOT userspace’ten gelen unbounded command stream’i senkron execute etmek. — Gerekçe: denial-of-service.
-- **S23** Commit atomically uygulanmalı; yarım uygulanmış batch userspace’e görünür MUST NOT. — Gerekçe: tearing of state.
-- **S24** Syscall hot path’te log/printf MUST NOT bulunmak (debug build flag dışında). — Gerekçe: I/O latency.
-- **S25** Aynı frame içinde tekrarlayan/redundant grafik syscall tasarımı MUST NOT kabul edilmek. — Gerekçe: batch/commit modeli zorunlu.
-- **S26** Birden fazla draw işlemi tek commit altında birleştirilmeli; per-draw kernel round-trip MUST NOT. — Gerekçe: minimum syscall/frame.
-- **S27** Syscall sayısını azaltmak, yeni grafik özelliği eklemekten MUST öncelikli tutulmak. — Gerekçe: performans birinci sınıf kısıt.
+- **S01** Draw primitive başına ayrı syscall MUST NOT. — Gerekçe: Kilim batch + tek commit.
+- **S02** Küçük grafik syscall’ları yerine `SYS_DISP_CALL` opcode batch / Kilim flush MUST. — Gerekçe: amortize.
+- **S03** Her Kilim API çağrısı MUST NOT zorunlu syscall üretmek. — Gerekçe: userspace biriktirme.
+- **S04** Kernel MUST resource create/map/export ve scanout’ta haberdar edilmek. — Gerekçe: hot path sade.
+- **S05** Bir syscall MUST mümkün olan en kısa sürede tamamlanmak (`klock_disp` kısa tut). — Gerekçe: latency.
+- **S06** Bir syscall içinde uzun SW raster MUST NOT (Reed userspace). — Gerekçe: sistemi bloke etmez.
+- **S07** Context switch azaltmak MUST öncelikli. — Gerekçe: TLB/cache.
+- **S08** Aynı frame için birden fazla `DISP_OP_SCANOUT` MUST NOT (WM tek present). — Gerekçe: bandwidth.
+- **S09** `SYS_INPUT_STATE` ile present commit ayrı kanallar. — Gerekçe: back-pressure.
+- **S10** Polling sınırlı backoff; busy-wait varsayılan MUST NOT. — Gerekçe: CPU spin.
+- **S11** WM IPC file-based; unbounded payload MUST NOT. — Gerekçe: DoS.
+- **S12** Large buffer MUST handle/export/import; byte-copy syscall MUST NOT. — Gerekçe: copy elision.
+- **S13** Syscall argüman doğrulama erken fail. — Gerekçe: tutarlılık.
+- **S14** `disp_*` arg struct’ları size-checked (`do_disp_call`). — Gerekçe: memory safety.
+- **S15** Userspace MUST NOT her mouse move için scanout çağırmak. — Gerekçe: input ≠ frame rate.
+- **S16** Redundant damage/commit SDK/WM tarafından coalesce. — Gerekçe: boş girişleri keser.
+- **S17** Blocking syscall içinde uzun loop MUST NOT. — Gerekçe: priority inversion.
+- **S18** Hata kodları stabil; sessiz ignore yasak. — Gerekçe: debuggability.
+- **S19** Yeni syscall yerine `DISP_OP_*` opcode genişletmek tercih MUST. — Gerekçe: ABI şişkinliği.
+- **S20** `drivers_poll` + `disp_api` aynı `klock_disp` altında; kritik bölüm kısa MUST. — Gerekçe: lock contention.
+- **S21** Kernel MUST NOT unbounded command stream’i senkron execute etmek. — Gerekçe: DoS.
+- **S22** Commit/scanout atomically; yarım state userspace’e görünür MUST NOT. — Gerekçe: consistency.
+- **S23** Syscall hot path’te log MUST NOT (debug flag dışında). — Gerekçe: I/O latency.
+- **S24** Per-draw kernel round-trip MUST NOT. — Gerekçe: minimum syscall/frame.

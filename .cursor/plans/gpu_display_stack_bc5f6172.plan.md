@@ -1,6 +1,6 @@
 ---
 name: GPU Display Stack
-overview: "End-to-end grafik: GpuProvider, display.kmod, Reed, Kilim (2D+text+3D+batching+widgets), usermode WM. Politika: backward compat YOK. Legacy dx/gfx/ugx/SYS_WM_*/SYS_GX_*/BGA SİLİNDİ. Apps wm+kilim stub. Her oturumda bu plan güncellenir."
+overview: "End-to-end grafik: GpuProvider, display.kmod, Reed, Kilim, usermode WM. Backward compat YOK. Legacy dx/gfx silindi. Pipeline DONE; hybrid shell v1 chrome DONE; full app UX parity NEXT. Her oturumda bu plan güncellenir."
 todos:
   - id: gpu-framework
     content: "DONE — gpu_provider_ops + DRIVER_CLASS_GPU + display→gpu bridge"
@@ -15,32 +15,35 @@ todos:
     content: "DONE — batching, Font/Text atlas, 2D, Acrylic blur, Mesh/Material/Transform/Camera/Scene/.kmesh, widgets, commit_frame"
     status: completed
   - id: wm-usermode
-    content: "DONE — usermode WM compositor + /tmp/wm file IPC + sdk-wm client (focus≠hover, z-order, drag, damage)"
+    content: "DONE — usermode WM compositor + /tmp/wm file IPC + sdk-wm (focus≠hover, z-order, drag, damage, chrome, cursor)"
     status: completed
   - id: break-legacy
-    content: "DONE — dx/*, mkdx/*, BGA, gfx.hpp, gx.h, gfx.cpp, ugx_font, SYS_WM_*/SYS_GX_*, dx_api silindi; gui_stack_ready=display+disp_api"
+    content: "DONE — dx/*, mkdx/*, BGA eski yol, gfx.hpp, gx.h, SYS_WM_*/SYS_GX_*, dx_api silindi; gui_stack_ready=display+disp_api"
     status: completed
   - id: migrate-apps
-    content: "DONE (stub) — os-shell/settings/terminal/files/activity-monitor/minesweeper/imgui-demo → wm+kilim smoke stubs; full UX rebuild ayrı iş"
+    content: "DONE (stub) — os-shell/settings/terminal/files/activity-monitor/minesweeper/imgui-demo → wm+kilim smoke stubs"
     status: completed
   - id: input-feed
-    content: "DONE — SYS_INPUT_STATE dx'siz (mouse/keyboard drivers); hit/focus usermode WM"
+    content: "DONE — SYS_INPUT_STATE dx'siz; hit/focus usermode WM; present path'te ps2_poll yok"
     status: completed
   - id: hybrid-shell
-    content: "PARTIAL — os-shell wm+kilim stub; macOS dock/menubar UX henüz geri yazılmadı (eski gfx UI silindi)"
-    status: in_progress
+    content: "DONE (v1) — WM menubar+dock chrome her frame; os-shell wallpaper background surface; tam macOS UX = restore-app-ux"
+    status: completed
   - id: gpu-virtio
-    content: "PARTIAL — display_virtio + GpuProvider bridge; rename gpu_virtio optional"
-    status: pending
+    content: "DONE — display_virtio GpuProvider; QEMU -vga virtio veya -vga none + virtio-gpu-pci; std+virtio yasak"
+    status: completed
   - id: gpu-vga-fb
-    content: "DONE — display_bga under providers/bga; drivers tree restructured; klock_disp; QEMU -vga std + virtio-gpu-pci"
+    content: "DONE — display_bga providers/bga; drivers tree; klock_disp; 1920x1080 default"
     status: completed
   - id: docs-reed-kilim
-    content: docs/graphics-reed-kilim.tr.md + .en.md
-    status: pending
+    content: "DONE — docs/graphics-reed-kilim.tr.md + .en.md"
+    status: completed
   - id: restore-app-ux
-    content: "NEXT — shell dock/menubar, settings hub, terminal, files, activity-monitor, minesweeper, imgui kilim backend — feature parity with deleted gfx UI"
+    content: "NEXT — interactive dock/menu, settings hub, terminal, files, activity-monitor, minesweeper, imgui kilim backend — feature parity"
     status: pending
+  - id: harden-lessons
+    content: "DONE — static kilim::Context; PROC_USTACK 64KiB; import share+refcount; tek GPU QEMU; splash #1A1F2E"
+    status: completed
 isProject: false
 ---
 
@@ -50,8 +53,9 @@ isProject: false
 
 - **Backward compat yok.** Shim yok. Eski ABI silindi.
 - Her oturumda bu dosyanın `todos` + “İlerleme” güncellenir.
+- Mevcut çalışan stack’i bozmadan ilerlenir (static Context, import-share, tek primary QEMU, WM tek present).
 
-## İlerleme (2026-07-29 — drivers restructure)
+## İlerleme (2026-07-29 — plan audit + rules/docs sync)
 
 | Adım | Durum |
 |------|-------|
@@ -62,12 +66,13 @@ isProject: false
 | Usermode WM + sdk-wm | **DONE** |
 | Input dx'siz | **DONE** |
 | break-legacy (dx/gfx/SYS_WM_GX/mkdx) | **DONE** |
-| Apps → wm+kilim stubs | **DONE** (UX stub; parity NEXT) |
-| `display_bga` provider + tree (`core/bus/console/input/display/providers`) | **DONE** |
-| `klock_disp` (ex-gfx) + nested `include/drivers/*` | **DONE** |
-| kshell çift `kernel>` (console+klog) | **DONE** |
+| Apps → wm+kilim stubs | **DONE** (UX stub) |
+| `display_bga` + drivers tree + `klock_disp` | **DONE** |
+| `display_virtio` + QEMU sözleşmesi | **DONE** |
+| Hybrid shell v1 (WM menubar/dock + shell wallpaper) | **DONE** |
+| Hard lessons (Context/ustack, import share, tek GPU) | **DONE** |
+| Docs Reed/Kilim | **DONE** |
 | Full shell/app UX restore | **NEXT** |
-| Docs | pending |
 
 ## Drivers layout
 
@@ -76,11 +81,12 @@ src/drivers/
   core/ bus/pci/ console/ input/
   display/{display.c,gpu.c,display_mod.c,providers/{bga,virtio_gpu}}
   block/ fs/ vfs/ part/ net/
+include/drivers/{driver.h,bus/,console/,input/,display/,vfs/}
 ```
 
 ## Silinen legacy (kabul)
 
-- `src/drivers/dx/*`, `src/drivers/mkdx/*` (eski compositor)
+- `src/drivers/dx/*`, `src/drivers/mkdx/*`
 - `dx_api.*`, `gfx.hpp`, `gx.h`, `gfx.cpp`, `ugx_font.inc`, `bake_ugx_font`
 - Tüm `SYS_WM_*` / `SYS_GX_*`
 - `gui_stack_ready` = `display_active() && disp_api_get()`
@@ -93,19 +99,32 @@ src/drivers/
 ```text
 Apps (stub) → wm::Window + kilim::Context + reed::Device
                 ↓ file IPC /tmp/wm/
-         window-manager (compositor, present)
+         window-manager (compose + chrome + present)
                 ↓ SYS_DISP_CALL
          display.kmod → GpuProvider ← display_bga / display_virtio
 ```
 
-## Sonraki iş (restore-app-ux)
+### Frame sözleşmesi
 
-Eski masaüstü UX (dock, menubar, settings hub, terminal emulator, files, …) Kilim+WM üzerinde yeniden yazılacak — bilinçli stub’lar şu an sadece yeşil build + yeni pipeline smoke.
+- İstemci: `begin_frame` → draw → `commit_frame` (present yok)
+- WM: compose → `end_frame` (tek scanout)
+- `kilim::Context` **static/BSS/heap** (~3MiB); ustack yasak (64KiB)
 
-## Reed / Kilim / WM checklist
+### QEMU
 
-(Plan API yüzeyleri geçerli; Kilim+WM v1 implement.)
+- BGA: `-vga std`
+- Virtio: `-vga virtio` **veya** `-vga none` + `-device virtio-gpu-pci`
+- Yasak: std/default VGA + `virtio-gpu-pci` → siyah ekran
+
+## Cursor rules (güncel)
+
+Tüm `gfx-eng-*.mdc` + `kernel-gui-disk.mdc` yeni stack’e göre yazıldı (DX/mkdx globs kaldırıldı; Context/import/QEMU dersleri eklendi).
 
 ## Docs
 
-`docs/graphics-reed-kilim.{tr,en}.md` — henüz yok.
+- [docs/graphics-reed-kilim.tr.md](../../docs/graphics-reed-kilim.tr.md)
+- [docs/graphics-reed-kilim.en.md](../../docs/graphics-reed-kilim.en.md)
+
+## Sonraki iş (restore-app-ux)
+
+Eski masaüstü UX parity: interactive dock/menubar, settings hub, terminal emulator, files, activity-monitor, minesweeper, imgui Kilim backend. Pipeline’ı bozmadan, stub’ların üzerine yazılacak.
