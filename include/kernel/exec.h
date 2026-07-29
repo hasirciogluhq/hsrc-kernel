@@ -9,11 +9,11 @@
 #define EXEC_VERSION  3
 #define EXEC_NAME_MAX 32
 
-/* Preferred on-disk suffix for ELF apps; .exec still accepted. */
-#define EXEC_EXT_ELF      ".elf"
-#define EXEC_EXT_ELF_LEN  4
+/* Preferred on-disk suffix; plain ELF bytes inside. .elf still accepted. */
 #define EXEC_EXT          ".exec"
 #define EXEC_EXT_LEN      5
+#define EXEC_EXT_ELF      ".elf"
+#define EXEC_EXT_ELF_LEN  4
 
 #define EXEC_NEEDED_MAX 4
 
@@ -44,7 +44,7 @@ int exec_spawn_path_flags(const char *path, uint32_t spawn_flags,
 
 /*
  * Resolve a command to an on-disk binary path.
- * Tries as-is, then .elf, then .exec. Bare names search $PATH.
+ * Tries as-is, then .exec, then .elf. Bare names search $PATH.
  */
 int exec_resolve(const char *in, char *out, size_t outsz);
 

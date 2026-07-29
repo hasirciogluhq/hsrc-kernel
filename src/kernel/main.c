@@ -28,6 +28,7 @@
 #include <kernel/userspace_boot.h>
 #include <kernel/kshell.h>
 #include <kernel/boot_splash.h>
+#include <kernel/disp_api.h>
 #include <kernel/smp.h>
 #include <kernel/klock.h>
 #include <arch/x86/gdt.h>
@@ -163,7 +164,11 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
         boot_splash_show();
     } else {
         klog("[boot] GUI stack unavailable — console mode\n");
+        if (display_active() && !disp_api_get())
+            klog("[boot] hint: display ok but disp_api missing (display.kmod?)\n");
         vga_print("console mode (no GUI stack)\n");
+        display_console_hold(0xFF1B2432u);
+        klog("[boot] type in this serial terminal (or QEMU window keyboard)\n");
     }
 
     service_register_builtin_defaults();

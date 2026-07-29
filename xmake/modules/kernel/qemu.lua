@@ -1,12 +1,12 @@
 -- Launch QEMU with kernel + initrd + disk
 --
 -- Display (pick ONE primary — dual GPU = black window):
---   BGA path:    "-vga", "std"                         → display_bga (scanout only; no HW_SUBMIT)
---   Virtio 2D:   "-vga", "none" + virtio-gpu-pci       → display_virtio (present; VirGL iff host offers)
---   Virtio+GL:   "-vga", "none" + virtio-gpu-gl-pci    → display_virtio + VirGL (Linux QEMU + virglrenderer)
+--   std:    "-vga std"                              → BGA + visible VGA text (kshell)
+--   virtio: "-vga none" + virtio-gpu-pci            → 2D scanout only (no VirGL → no GUI)
+--   gl:     "-vga none" + virtio-gpu-gl-pci         → VirGL → GUI (B24)
 --
--- NEVER combine "-vga", "std" with virtio-gpu-* (dual head → black window).
--- Homebrew macOS QEMU often lacks virtio-gpu-gl-pci; we auto-pick.
+-- Default: gl if QEMU offers *-gl-pci, else std (usable console on stock macOS QEMU).
+-- Override: MYKERNEL_DISPLAY=std|virtio|gl
 
 function qemu_virtio_gpu_device()
     local help = try { function () return os.iorunv("qemu-system-i386", {"-device", "help"}) end } or ""
@@ -20,28 +20,22 @@ function qemu_args()
     local ROOT = os.projectdir()
     local BUILD = path.join(ROOT, "build")
     local gpu = qemu_virtio_gpu_device()
+    local has_gl = gpu:find("%-gl%-") ~= nil
+    local mode = os.getenv("MYKERNEL_DISPLAY") or ""
+
     local args = {
         "-kernel", path.join(BUILD, "kernel.bin"),
         "-initrd", path.join(BUILD, "drivers", "initrd.img"),
         "-m", "1G",
         "-smp", "4,sockets=1,cores=4,threads=1",
+        "-serial", "stdio",
         "-vga", "none",
         "-device", gpu,
-        "-serial", "stdio",
         "-drive", "if=none,id=vd0,file=" .. path.join(ROOT, "disk.img") .. ",format=raw,cache=writethrough",
         "-device", "virtio-blk-pci,drive=vd0,disable-legacy=on",
         "-netdev", "user,id=n0",
         "-device", "virtio-net-pci,netdev=n0,disable-legacy=on",
     }
-    -- VirGL needs a GL-capable display backend when the host offers *-gl-pci.
-    if gpu:find("%-gl%-") then
-        table.insert(args, "-display")
-        if os.host() == "macosx" then
-            table.insert(args, "cocoa,gl=on")
-        else
-            table.insert(args, "sdl,gl=on")
-        end
-    end
     return args
 end
 

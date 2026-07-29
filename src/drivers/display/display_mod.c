@@ -2,6 +2,7 @@
 #include <drivers/display/display.h>
 #include <drivers/display/gpu.h>
 #include <drivers/display/gpu_cmd.h>
+#include <drivers/display/gpu_cmd_fb.h>
 #include <drivers/console/serial.h>
 #include <kernel/disp_api.h>
 #include <kernel/heap.h>
@@ -16,9 +17,8 @@
 /*
  * display.kmod — Reed resource orchestrator + command translator.
  *
- * Reed (OpenGL-style) records DISP_CMD_* with handles.
- * Here: resolve handles → gpu_cmd_* (ready buffer views) → GpuProvider.
- * Virtio converts gpu_cmd_* → virtio-gpu ring ops. No CPU raster here.
+ * Reed DISP_CMD_* → gpu_cmd_* views → VirGL submit, or guest-RT fill
+ * (gpu_cmd_fb) when no VirGL. PRESENT/scanout always on the provider.
  *
  * Lock: callers enter via disp_api (klock_disp). Tables are single-threaded
  * under that lock; no extra spinlock needed for table mutations.
@@ -1165,7 +1165,11 @@ static long op_submit(disp_submit *a, uint32_t pid)
     if (gpu_size == 0)
         return 0;
 
-    rc = gpu->gpu_submit(gpu, g_gpu_cmd_scratch, gpu_size);
+    /* VirGL when available; otherwise fill guest RTs then provider presents. */
+    if (gpu->caps & GPU_CAP_HW_SUBMIT)
+        rc = gpu->gpu_submit(gpu, g_gpu_cmd_scratch, gpu_size);
+    else
+        rc = gpu_cmd_fb_exec(g_gpu_cmd_scratch, gpu_size);
     if (rc < 0)
         return rc;
     if (a->fence) {

@@ -74,10 +74,9 @@ static int install_init_from_initrd(void)
 int gui_stack_ready(void)
 {
     gpu_provider_ops_t *gpu = gpu_provider_active();
-    if (!display_active() || !disp_api_get() || !gpu)
-        return 0;
-    /* B24: GUI requires real HW 3D submit (VirGL), not scanout-only / soft. */
-    return (gpu->caps & GPU_CAP_HW_SUBMIT) ? 1 : 0;
+    /* display + disp_api + a provider that can scanout/submit. Unsupported
+     * cmds (e.g. 3D without VirGL) fail at submit time — no boot gate. */
+    return (display_active() && disp_api_get() && gpu) ? 1 : 0;
 }
 
 void userspace_boot(void)

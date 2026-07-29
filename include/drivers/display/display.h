@@ -48,5 +48,7 @@ display_ops_t *display_active(void);
 int            display_get_screen_size(uint32_t *w, uint32_t *h, uint32_t *bpp);
 /* Boot-time serial dump: screen, active driver, registered, PCI GPUs. */
 void           display_boot_log(void);
+/* Console-mode hold frame so virtio window is not an empty black void. */
+void           display_console_hold(uint32_t argb);
 
 #endif

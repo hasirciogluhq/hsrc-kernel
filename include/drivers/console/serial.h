@@ -9,6 +9,7 @@ void serial_write(const char *s, size_t n);
 void serial_print(const char *s);
 void serial_print_uint(uint32_t n);
 void serial_print_hex(uint32_t n);
+int  serial_getc(void); /* non-blocking; -1 if empty */
 
 /* Debug log → QEMU (-serial stdio). Always safe to call. */
 void klog(const char *s);

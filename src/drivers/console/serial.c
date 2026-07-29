@@ -50,6 +50,21 @@ void serial_putc(char c)
     spin_unlock_irqrestore(&g_serial_lock, flags);
 }
 
+/* Non-blocking COM1 RX. Used by kshell when -serial stdio. */
+int serial_getc(void)
+{
+    uint32_t flags;
+    int c = -1;
+
+    if (!g_serial_ready)
+        return -1;
+    flags = spin_lock_irqsave(&g_serial_lock);
+    if (inb(COM1 + 5) & 0x01)
+        c = (int)inb(COM1);
+    spin_unlock_irqrestore(&g_serial_lock, flags);
+    return c;
+}
+
 void serial_write(const char *s, size_t n)
 {
     uint32_t flags;

@@ -29,6 +29,7 @@
 uint64_t __udivdi3(uint64_t n, uint64_t d);
 uint64_t __umoddi3(uint64_t n, uint64_t d);
 uint64_t __udivmoddi4(uint64_t n, uint64_t d, uint64_t *rem);
+int64_t  __divdi3(int64_t n, int64_t d);
 
 static const ksym_t g_ksyms[] = {
     { "kmalloc",            (void *)kmalloc },
@@ -47,6 +48,7 @@ static const ksym_t g_ksyms[] = {
     { "__udivdi3",          (void *)__udivdi3 },
     { "__umoddi3",          (void *)__umoddi3 },
     { "__udivmoddi4",       (void *)__udivmoddi4 },
+    { "__divdi3",           (void *)__divdi3 },
     { "strlen",             (void *)strlen },
     { "strcmp",             (void *)strcmp },
     { "strncmp",            (void *)strncmp },
@@ -122,11 +124,13 @@ static const ksym_t g_ksyms[] = {
     { "initrd_store_get",   (void *)initrd_store_get },
     { "initrd_store_set",   (void *)initrd_store_set },
     { "process_current",    (void *)process_current },
+    { "process_leader",     (void *)process_leader },
     { "process_by_tid",     (void *)process_by_tid },
     { "process_suspend",    (void *)process_suspend },
     { "process_block",      (void *)process_suspend },
     { "process_wake",       (void *)process_wake },
     { "schedule",           (void *)schedule },
+    { "vmm_map_buf_user",   (void *)vmm_map_buf_user },
     { "proc_register_open_hook",   (void *)proc_register_open_hook },
     { "proc_unregister_open_hook", (void *)proc_unregister_open_hook },
     { "drv_heap_alloc",            (void *)drv_heap_alloc },

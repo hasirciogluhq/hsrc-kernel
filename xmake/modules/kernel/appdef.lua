@@ -3,7 +3,7 @@
 --[[
 All usermode apps link at the same canonical VA (USER_IMAGE_BASE / 0x00400000).
 The kernel ELF loader maps PT_LOAD into a private address space at that VA.
-Output is a plain ELF32 ET_EXEC (.elf); legacy .exec packing is optional/unused.
+Output is a plain ELF32 ET_EXEC named *.exec on disk.
 --]]
 
 kGuiLibs = {"sdk-wm", "sdk-kilim", "sdk-reed"}
@@ -41,7 +41,7 @@ function define_app(name, files, incs, flags, needed, extra_libs)
         add_defines("USERMODE")
         add_cxxflags(flags or kernel_cxxflags(), {force = true})
         set_targetdir(path.join(BUILD, "userspace", name))
-        set_filename(name .. ".elf")
+        set_filename(name .. ".exec")
         on_link(function (target)
             local out = target:targetfile()
             os.mkdir(path.directory(out))

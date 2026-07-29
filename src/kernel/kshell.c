@@ -56,7 +56,8 @@ static int kshell_readline(char *buf, size_t max)
 static void cmd_help(void)
 {
     kshell_print("commands: help, clear, ls [path], cat <path>, run <path|name>, ps, gui?\n");
-    kshell_print("kernel is standalone; GUI needs display+disp_api then /init → window-manager\n");
+    kshell_print("input: type in this serial terminal (or QEMU window keyboard)\n");
+    kshell_print("GUI needs display+disp_api; else console mode\n");
 }
 
 static void cmd_clear(void)

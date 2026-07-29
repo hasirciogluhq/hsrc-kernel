@@ -54,7 +54,10 @@ kernel_define_kmod("nvme", {"src/drivers/block/nvme/*.c"})
 kernel_define_kmod("virtio_net", {"src/drivers/net/virtio_net/*.c"})
 kernel_define_kmod("display_bga", {"src/drivers/display/providers/bga/*.c"})
 kernel_define_kmod("display_virtio", {"src/drivers/display/providers/virtio/*.c"})
-kernel_define_kmod("display", {"src/drivers/display/display_mod.c"})
+kernel_define_kmod("display", {
+    "src/drivers/display/display_mod.c",
+    "src/drivers/display/gpu_cmd_fb.c",
+})
 kernel_define_kmod("proc_audit", {"src/drivers/proc_audit/proc_audit.c"})
 
 local KMOD_ORDER = {

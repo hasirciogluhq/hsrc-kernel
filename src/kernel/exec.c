@@ -135,18 +135,18 @@ static int exec_try_path(const char *path, char *out, size_t outsz)
         return 0;
 
     plen = strlen(path);
-    if (!name_ends_with(path, EXEC_EXT_ELF, EXEC_EXT_ELF_LEN) &&
-        !name_ends_with(path, EXEC_EXT, EXEC_EXT_LEN)) {
-        if (plen + EXEC_EXT_ELF_LEN < sizeof(with_ext)) {
+    if (!name_ends_with(path, EXEC_EXT, EXEC_EXT_LEN) &&
+        !name_ends_with(path, EXEC_EXT_ELF, EXEC_EXT_ELF_LEN)) {
+        if (plen + EXEC_EXT_LEN < sizeof(with_ext)) {
             strcpy(with_ext, path);
-            strcpy(with_ext + plen, EXEC_EXT_ELF);
+            strcpy(with_ext + plen, EXEC_EXT);
             rc = exec_try_one(with_ext, out, outsz);
             if (rc == 0)
                 return 0;
         }
-        if (plen + EXEC_EXT_LEN < sizeof(with_ext)) {
+        if (plen + EXEC_EXT_ELF_LEN < sizeof(with_ext)) {
             strcpy(with_ext, path);
-            strcpy(with_ext + plen, EXEC_EXT);
+            strcpy(with_ext + plen, EXEC_EXT_ELF);
             rc = exec_try_one(with_ext, out, outsz);
             if (rc == 0)
                 return 0;

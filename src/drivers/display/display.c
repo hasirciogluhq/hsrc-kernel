@@ -178,6 +178,25 @@ static int video_pci_gpu_cb(const pci_device_t *dev, void *ctx)
     return 0;
 }
 
+void display_console_hold(uint32_t argb)
+{
+    display_ops_t *ops;
+    display_mode_t mode;
+    uint32_t *fb;
+    uint32_t npx, i;
+
+    ops = display_active();
+    if (!ops || !ops->get_mode || !ops->present)
+        return;
+    if (ops->get_mode(&mode) < 0 || !mode.addr || mode.width == 0 || mode.height == 0)
+        return;
+    fb = (uint32_t *)(void *)mode.addr;
+    npx = mode.width * mode.height;
+    for (i = 0; i < npx; i++)
+        fb[i] = argb;
+    (void)ops->present(fb, mode.width);
+}
+
 void display_boot_log(void)
 {
     display_ops_t *ops;

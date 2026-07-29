@@ -45,3 +45,27 @@ uint64_t __umoddi3(uint64_t n, uint64_t d)
     __udivmoddi4(n, d, &r);
     return r;
 }
+
+/* Signed 64-bit / — required by freestanding kmods (e.g. display gpu_cmd_fb). */
+int64_t __divdi3(int64_t n, int64_t d)
+{
+    int neg = 0;
+    uint64_t un, ud, uq;
+
+    if (d == 0)
+        return 0;
+    if (n < 0) {
+        un = (uint64_t)(-(n + 1)) + 1u; /* avoid INT64_MIN negate UB */
+        neg = !neg;
+    } else {
+        un = (uint64_t)n;
+    }
+    if (d < 0) {
+        ud = (uint64_t)(-(d + 1)) + 1u;
+        neg = !neg;
+    } else {
+        ud = (uint64_t)d;
+    }
+    uq = __udivmoddi4(un, ud, NULL);
+    return neg ? -(int64_t)uq : (int64_t)uq;
+}

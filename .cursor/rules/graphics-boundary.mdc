@@ -44,7 +44,7 @@ Kernel, WM, SDK ve GPU sürücüsü arasındaki sorumluluk sınırları. Piksel 
 - **B18** DO: SDK kernel'e resource ve scanout commit iletir. DON'T: "Nasıl çizileceğini" imperative olarak kernel'e yazdırmak. Why: Deklaratif commit modeli.
 - **B19** DO: Tema/renk/skin kararı userspace WM ve app'te alınır. DON'T: Kernel'de tema kararı vermek. Why: Politika userspace'in işidir.
 - **B20** DO: Her yeni grafik özelliği hangi katmanda yaşayacağını (Kilim / WM / display.kmod / provider) açıkça seçer. DON'T: Katmanlar arasında "sıkışmış" özellik bırakmak. Why: Sınır ihlali engellenir.
-- **B21** DO: `gui_stack_ready()` = `display_active() && disp_api_get()`. DON'T: DX/mkdx tabanlı hazırlık kontrolü. Why: Boot contract.
+- **B21** DO: `gui_stack_ready()` = `display_active() && disp_api_get() && gpu_provider_active()`. DON'T: DX/mkdx veya VirGL zorunluluğu. Why: Boot contract; desteklenmeyen cmd submit'te hata döner.
 - **B22** DO: System chrome (menubar/dock) v1 WM'de çizilir; app content shell surface'te kalır. DON'T: App'in system chrome'u ezmesi. Why: Chrome her frame görünür kalır.
-- **B23** DO: Tüm piksel üretimi ve compose gerçek GPU cmd yoluna (`gpu_submit` → device) gider. DON'T: CPU rendering / software composition / SW raster / soft-GPU (provider veya userspace). Why: Tek GPU pipeline; CPU fallback yok.
-- **B24** DO: Provider gerçek GPU accelerated path sunar; yoksa GUI stack başlatılmaz. DON'T: BGA-only / CPU-fill LFB "renderer" kabul etmek veya soft fallback yazmak. Why: B23 ile tutarlı boot contract.
+- **B23** DO: Piksel üretimi GpuProvider `gpu_submit` yoluna gider (VirGL varsa 3D, yoksa driver'ın desteklediği cmd'ler). DON'T: Ayrı soft-GPU / CPU raster katmanı yazmak. Why: Tek yol; destek yoksa hata.
+- **B24** DO: Provider scanout/submit sunar; 3D (VirGL) opsiyonel — yoksa 3D cmd submit `-1`. DON'T: GUI boot'u `GPU_CAP_HW_SUBMIT`'e kilitlemek veya soft fallback yazmak. Why: Basit contract.

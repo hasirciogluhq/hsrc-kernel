@@ -1,6 +1,7 @@
 #include <drivers/console/console.h>
 #include <drivers/input/keyboard.h>
 #include <drivers/console/vga.h>
+#include <drivers/console/serial.h>
 #include <kernel/scheduler.h>
 
 void console_init(void)
@@ -33,8 +34,13 @@ int console_getc(void)
 {
     for (;;) {
         int c = keyboard_getchar();
-        if (c >= 0)
+        if (c < 0)
+            c = serial_getc();
+        if (c >= 0) {
+            if (c == '\r')
+                return '\n';
             return c;
+        }
         schedule();
     }
 }
