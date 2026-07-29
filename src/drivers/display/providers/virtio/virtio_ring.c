@@ -184,7 +184,7 @@ static int negotiate_features(virtio_ring_t *vr)
         vga_print("virtio: no VERSION_1\n");
         return -1;
     }
-    /* Accept VIRGL when the host offers it (virtio-gpu-gl). */
+    /* Always request VIRGL for ring SUBMIT_3D (host must offer it). */
     g_gpu_features_lo = feats_lo & want_lo;
     mmio_w32(vr->common + 8, 0);
     mmio_w32(vr->common + 12, g_gpu_features_lo);
@@ -195,10 +195,6 @@ static int negotiate_features(virtio_ring_t *vr)
         vga_print("virtio: FEATURES_OK rejected\n");
         return -1;
     }
-    if (g_gpu_features_lo & (1u << VIRTIO_GPU_F_VIRGL))
-        vga_print("virtio: VIRGL feature ok\n");
-    else
-        vga_print("virtio: VIRGL not offered (need virtio-gpu-gl)\n");
     return 0;
 }
 

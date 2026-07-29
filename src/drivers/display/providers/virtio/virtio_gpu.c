@@ -9,9 +9,9 @@
 #include <kernel/string.h>
 
 /*
- * display_virtio — thin GpuProvider.
- * Simple bring-up + present/submit wiring. Transport in virtio_ring.c,
- * device commands in virtio_cmd.c, 3D in virtio_virgl.c. No CPU raster.
+ * display_virtio — GpuProvider over virtio-gpu controlq ring.
+ * Draw/blit → VirGL SUBMIT_3D on the ring. Present → 2D TRANSFER/FLUSH.
+ * No CPU raster path.
  */
 
 #define VIRTIO_GPU_DEFAULT_W 1920
@@ -25,7 +25,6 @@ static uint32_t        *g_fb;
 static uint32_t         g_fb_bytes;
 static int              g_ready;
 static int              g_device_present;
-static int              g_virgl_ok;
 static pci_device_t     g_pci;
 
 static int virtio_get_mode(display_mode_t *out)
@@ -64,7 +63,6 @@ static int virtio_present_rects(const uint32_t *src, uint32_t src_stride_px,
     if (src_stride_px != g_mode.width)
         return -1;
 
-    /* One present of bbox — device TRANSFER/FLUSH only. */
     for (i = 0; i < n; i++) {
         uint32_t x = rects[i].x, y = rects[i].y, w = rects[i].w, h = rects[i].h;
         if (w == 0 || h == 0)
@@ -136,11 +134,9 @@ static int bringup(void)
     if (virtio_cmd_setup_scanout(&g_scan, g_fb, g_fb_bytes, width, height) < 0)
         return -1;
 
-    g_virgl_ok = 0;
-    if (virtio_virgl_init(&g_ring, &g_scan) == 0)
-        g_virgl_ok = 1;
-    else
-        vga_print("virtio: VirGL init skipped/failed (2D present only)\n");
+    /* VirGL is for draw submit only. Scanout/present must work without it. */
+    if (virtio_virgl_init(&g_ring, &g_scan) < 0)
+        vga_print("virtio: VirGL init failed (2D scanout only)\n");
 
     memset(&g_mode, 0, sizeof(g_mode));
     g_mode.addr = (uint8_t *)g_fb;
@@ -150,7 +146,8 @@ static int bringup(void)
     g_mode.bytes_per_pixel = 4;
     g_mode.pitch = width * 4;
     g_ready = 1;
-    vga_print(g_virgl_ok ? "virtio: scanout+VirGL ready\n" : "virtio: scanout ready (2D)\n");
+    vga_print(virtio_virgl_ready() ? "virtio: scanout+VirGL ready\n"
+                                   : "virtio: scanout ready (2D)\n");
     return 0;
 }
 
@@ -190,7 +187,7 @@ static int virtio_drv_init(driver_t *drv, void *ctx)
         g_ready = 0;
         return 0;
     }
-    if (g_virgl_ok)
+    if (virtio_virgl_ready())
         g_ops.gpu_caps |= GPU_CAP_HW_SUBMIT;
     return display_register(&g_ops, DISPLAY_PRIO_VIRTIO);
 }

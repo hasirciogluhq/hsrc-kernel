@@ -10,8 +10,8 @@ alwaysApply: true
 - The kernel must boot and remain usable **without** a GUI stack.
 - Do **not** halt if `display_active()` or `disp_api` is missing.
 - **GUI mode**: display provider + `display.kmod` (`disp_api`) → splash → hand off to `/init`.
-- **Console mode**: no GUI stack (or no `/init`) → `kshell` (VGA text/keyboard console).
-- Kernel never spawns session apps (WM, shell, terminal). Only `/init` (or kshell).
+- **Console mode**: no GUI stack (or no `/init`) → boot continues; idle only (no kernel shell).
+- Kernel never spawns session apps (WM, shell, terminal). Only `/init`.
 - `gui_stack_ready()` = `display_active() && disp_api_get()` (no DX/mkdx).
 
 ## Packages (think separate products)

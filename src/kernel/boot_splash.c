@@ -311,6 +311,7 @@ void boot_splash_show(void)
     int clear_r;
     uint64_t t0;
     uint64_t last_draw_ms;
+    int own_fb = 0;
 
     if (!ops || !ops->get_mode || !ops->present)
         return;
@@ -320,10 +321,17 @@ void boot_splash_show(void)
         return;
 
     pixels = mode.width * mode.height;
-    fb = (uint32_t *)kmalloc((size_t)pixels * sizeof(uint32_t));
-    if (!fb) {
-        klog("[boot] splash: no mem\n");
-        return;
+    /* Prefer provider scanout backing (virtio g_fb) — same buffer splash already
+     * presents via ATTACH+TRANSFER. No second framebuffer. */
+    if (mode.addr)
+        fb = (uint32_t *)(void *)mode.addr;
+    else {
+        fb = (uint32_t *)kmalloc((size_t)pixels * sizeof(uint32_t));
+        if (!fb) {
+            klog("[boot] splash: no mem\n");
+            return;
+        }
+        own_fb = 1;
     }
 
     for (i = 0; i < pixels; i++)
@@ -378,6 +386,7 @@ void boot_splash_show(void)
         (void)ops->present(fb, mode.width);
     }
 
-    kfree(fb);
+    if (own_fb)
+        kfree(fb);
     klog("[boot] splash done\n");
 }

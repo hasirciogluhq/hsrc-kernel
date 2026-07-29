@@ -50,7 +50,7 @@ void serial_putc(char c)
     spin_unlock_irqrestore(&g_serial_lock, flags);
 }
 
-/* Non-blocking COM1 RX. Used by kshell when -serial stdio. */
+/* Non-blocking COM1 RX. */
 int serial_getc(void)
 {
     uint32_t flags;

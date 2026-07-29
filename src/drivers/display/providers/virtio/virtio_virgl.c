@@ -1204,10 +1204,6 @@ int virtio_virgl_init(virtio_ring_t *ring, virtio_scanout_t *so)
 {
     if (!ring || !so)
         return -1;
-    if (!virtio_ring_has_virgl()) {
-        vga_print("virgl: feature not negotiated\n");
-        return -1;
-    }
 
     memset(&g_vg, 0, sizeof(g_vg));
     g_vg.ring = ring;
@@ -1226,7 +1222,7 @@ int virtio_virgl_init(virtio_ring_t *ring, virtio_scanout_t *so)
     }
 
     g_vg.ready = 1;
-    vga_print("virgl: ready (SUBMIT_3D)\n");
+    vga_print("virgl: ring SUBMIT_3D ready\n");
     return 0;
 }
 

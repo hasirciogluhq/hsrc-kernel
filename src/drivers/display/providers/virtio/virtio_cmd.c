@@ -5,8 +5,9 @@
 #include <drivers/console/vga.h>
 
 /*
- * Virtio-gpu control protocol over the ring. CPU raster/blit/clear = yasak.
- * CLEAR/DRAW/BLIT → virtio_virgl_exec when VirGL negotiated.
+ * Virtio-gpu control protocol over the ring.
+ * PRESENT: ATTACH_BACKING + TRANSFER_TO_HOST_2D + FLUSH (splash path).
+ * Non-PRESENT batches → VirGL when negotiated.
  */
 
 #define VIRTIO_GPU_CMD_GET_DISPLAY_INFO        0x0100
@@ -216,6 +217,8 @@ int virtio_cmd_setup_scanout(virtio_scanout_t *so, void *fb, uint32_t bytes,
 
     if (!so || !so->ring || !fb)
         return -1;
+    if (bytes < width * height * 4u)
+        return -1;
 
     so->resource_id = 1;
     so->width = width;
@@ -262,8 +265,12 @@ int virtio_cmd_present(virtio_scanout_t *so, void *data, uint32_t width,
         return -1;
     if (width != so->width || height != so->height)
         return -1;
+    /* Guest pitch must match scanout; virtio 2D has no pitch convert. */
     if (stride_bytes != so->width * 4u)
-        return -1; /* no CPU pitch fixup */
+        return -1;
+    /* Backing must be page-aligned for virtio-gpu DMA (same as splash/g_fb). */
+    if (((uintptr_t)data & 4095u) != 0)
+        return -1;
 
     bytes = width * height * 4u;
     if (data != so->attach_ptr) {
@@ -336,8 +343,7 @@ int virtio_cmd_submit_gpu(virtio_scanout_t *so, const void *gpu_cmds, uint32_t s
         }
         if (batch_size == 0)
             return -1;
-        if (!virtio_virgl_ready())
-            return -1;
+        /* Draw/blit always go on the VirGL ring — no CPU path, no feature gate. */
         if (virtio_virgl_exec(batch, batch_size) < 0)
             return -1;
     }

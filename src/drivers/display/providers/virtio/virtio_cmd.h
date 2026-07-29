@@ -5,8 +5,8 @@
 #include <kernel/types.h>
 
 /*
- * gpu_cmd_* (display.kmod) → virtio-gpu controlq packets via ring.
- * Never touches pixels — only device commands + response status.
+ * gpu_cmd_* → virtio-gpu controlq. PRESENT = ATTACH_BACKING + TRANSFER + FLUSH
+ * (same path as boot splash). No staging copy into a second framebuffer.
  */
 
 typedef struct virtio_scanout {
@@ -25,7 +25,7 @@ int virtio_cmd_present(virtio_scanout_t *so, void *data, uint32_t width,
                        uint32_t height, uint32_t stride_bytes,
                        uint32_t x, uint32_t y, uint32_t w, uint32_t h);
 
-/* Walk resolved gpu_cmd stream; only PRESENT → ring. No CPU raster. */
+/* PRESENT → virtio 2D attach/transfer; other cmds → VirGL when ready. */
 int virtio_cmd_submit_gpu(virtio_scanout_t *so, const void *gpu_cmds, uint32_t size);
 
 #endif

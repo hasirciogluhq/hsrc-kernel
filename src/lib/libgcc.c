@@ -46,7 +46,7 @@ uint64_t __umoddi3(uint64_t n, uint64_t d)
     return r;
 }
 
-/* Signed 64-bit / — required by freestanding kmods (e.g. display gpu_cmd_fb). */
+/* Signed 64-bit / — freestanding kmods may emit this. */
 int64_t __divdi3(int64_t n, int64_t d)
 {
     int neg = 0;

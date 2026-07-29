@@ -1,5 +1,4 @@
 #include <kernel/userspace_boot.h>
-#include <kernel/kshell.h>
 #include <kernel/exec.h>
 #include <kernel/vfs.h>
 #include <kernel/initrd.h>
@@ -74,8 +73,6 @@ static int install_init_from_initrd(void)
 int gui_stack_ready(void)
 {
     gpu_provider_ops_t *gpu = gpu_provider_active();
-    /* display + disp_api + a provider that can scanout/submit. Unsupported
-     * cmds (e.g. 3D without VirGL) fail at submit time — no boot gate. */
     return (display_active() && disp_api_get() && gpu) ? 1 : 0;
 }
 
@@ -94,17 +91,15 @@ void userspace_boot(void)
 
     rc = exec_resolve(USERSPACE_INIT_PATH, resolved, sizeof(resolved));
     if (rc < 0) {
-        klog("[boot] /init not found — falling back to kshell\n");
-        vga_print("no /init — console mode\n");
-        kshell_start();
+        klog("[boot] /init not found\n");
+        vga_print("no /init\n");
         return;
     }
 
     pid = exec_spawn_path(resolved);
     if (pid < 0) {
-        klog("[boot] userspace_boot FAILED — kshell\n");
-        vga_print("init spawn failed — console mode\n");
-        kshell_start();
+        klog("[boot] userspace_boot FAILED\n");
+        vga_print("init spawn failed\n");
         return;
     }
 
