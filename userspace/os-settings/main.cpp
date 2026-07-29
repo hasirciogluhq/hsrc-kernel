@@ -51,7 +51,7 @@ constexpr int kContentTop = ui_panel_body_top(2);
 constexpr int kContentBot = kWinH - 12;
 constexpr int kViewH = kContentBot - kContentTop;
 
-constexpr const char *kIniPath = "/etc/os-settings.ini";
+constexpr const char *kIniPath = "/etc/settings.ini";
 constexpr const char *kDeepLinkPath = "/run/settings.deeplink";
 constexpr size_t kDeepLinkBytes = 128;
 constexpr size_t kIniBytes = 4096;
@@ -749,7 +749,7 @@ void paint()
         begin_page(s, "General", "Shell preferences and tips.");
         y = kContentTop - g_scroll_y;
         if (visible(y))
-            draw_info_row(s, y, "Ini path", "/etc/os-settings.ini");
+            draw_info_row(s, y, "Ini path", "/etc/settings.ini");
         y += kRowH + kRowGap;
         if (visible(y))
             draw_info_row(s, y, "Dock layout", "pinned | live unpinned");

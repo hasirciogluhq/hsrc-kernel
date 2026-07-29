@@ -13,7 +13,7 @@
  * HSRC OS - desktop shell: menubar + dynamic macOS-style dock.
  *
  * Dock layout:  [ pinned apps ]  |  [ running unpinned apps ]
- * Pin state comes from /etc/os-settings.ini (dock.pin.*).
+ * Pin state comes from /etc/settings.ini (dock.pin.*).
  * Click: launch / focus / unminimize / minimize (Apple-like toggle).
  */
 
@@ -306,7 +306,7 @@ void load_dock_prefs()
     g_mag_range = kDefaultMagRange;
     g_mag_lerp = kDefaultMagLerp;
 
-    int fd = (int)hsrc::sdk::open("/etc/os-settings.ini", O_RDONLY);
+    int fd = (int)hsrc::sdk::open("/etc/settings.ini", O_RDONLY);
     if (fd < 0)
         return;
     char buf[kIniBytes];
@@ -447,7 +447,7 @@ int mag_to_px(int mag_fp)
  * Continuous macOS-style mag: each icon's target size from |cursor_x - center|.
  * Outside the tray (g_mag_cursor_x < 0) every target collapses to 0.
  * Falloff: smoothstep t^2 * (3-2t) on (1 - dist/range).
- * Size/range/speed come from /etc/os-settings.ini (Desktop & Dock).
+ * Size/range/speed come from /etc/settings.ini (Desktop & Dock).
  */
 void update_mag_targets()
 {
@@ -952,7 +952,7 @@ bool build_ui()
 
     /* Apply timezone / clock format from ini into the shared time page. */
     {
-        int fd = (int)hsrc::sdk::open("/etc/os-settings.ini", O_RDONLY);
+        int fd = (int)hsrc::sdk::open("/etc/settings.ini", O_RDONLY);
         if (fd >= 0) {
             char buf[kIniBytes];
             memset(buf, 0, sizeof(buf));

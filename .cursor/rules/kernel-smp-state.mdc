@@ -1,0 +1,60 @@
+---
+description: SMP-safe shared mutable state — no unsync globals, no BKL/volatile traps
+alwaysApply: true
+---
+
+# Kernel: SMP-Safe State Management
+
+Companion to `kernel-asm-locking.mdc`. Locks are CPU-level (`XCHG`/`LOCK`/`PAUSE`).
+This rule covers **what** must be protected and **how not** to "fix" races.
+
+## Never
+
+- Shared mutable global without spinlock or CPU atomic
+- Treat `volatile` as atomic
+- Sleep / block while holding a spinlock
+- AB-BA lock order; IRQ path without irqsave spin
+- Publish struct with ready-flag before fields are fully written
+- Soft flag spin (`while (busy); busy=1`) — TOCTOU, not a lock
+- Big Kernel Lock wrapping unrelated subsystems
+- Atomicize only the counter of a compound update (reserve slot must be one CAS or one lock covering fill)
+
+## Always
+
+- Document ownership: BSP-init-once / runtime multi-writer / per-CPU only
+- Data-specific lock or real atomic/CAS; keep critical sections tiny
+- Ready flags with release store / acquire load when init handoff matters
+- Per-CPU data in per-CPU slots (no global + linear search under lock if avoidable)
+
+## Fingerprint — Unsynchronized Shared Mutable Global
+
+1. `static` / file-scope mutable (not `const`)
+2. Written from ≥2 call paths
+3. Paths can run on different CPUs or IRQ vs thread
+4. No `spinlock_*` / `atomic_*` / `lock`-prefixed insn around access  
+→ race candidate; fix before shipping.
+
+## Fix decision tree
+
+- BSP boot write-once → then read-only + optional release ready flag
+- Simple counter/pointer, multi-core → `atomic_*` / CAS
+- Compound struct/array update → data-specific spinlock **or** CAS-reserve-then-fill
+- Truly per-CPU → per-CPU slots; that CPU only touches its slot (often no lock)
+
+## This tree — lock order (never reverse)
+
+`g_sched_lock` → `g_proc_lock` → `g_heap_lock`  
+`g_sync_lock` → (release before) `g_proc_lock` preferred; never `g_proc` → `g_sync`/`g_sched`
+
+Scan report: `docs/smp-scan-report.md`
+
+## Forbidden "fixes"
+
+- Giant kernel lock
+- `volatile` alone
+- Hand-rolled busy flag without `xchg`/`cmpxchg`
+- Splitting `load count` / write slot / `store count+1` without one atomic reservation
+
+## Scan / report format
+
+`DOSYA / DEĞİŞKEN / RİSK / NEDEN / ÖNERİLEN DÜZELTME`

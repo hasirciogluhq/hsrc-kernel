@@ -11,22 +11,39 @@
 #include <kernel/vfs.h>
 #include <kernel/dx_api.h>
 #include <kernel/smp.h>
+#include <kernel/klock.h>
 #include <drivers/serial.h>
 #include <arch/x86/gdt.h>
 #include <arch/x86/cpu.h>
 #include <arch/x86/lapic.h>
 
-/* Slot table is pointers only - process_t + stacks come from heap / freelist. */
+/*
+ * Process table ownership (SMP playbook):
+ *   g_procs[] / freelist / graveyard / next_pid — compound updates under g_proc_lock.
+ * Lock order (never reverse — AB-BA forbidden):
+ *   g_sched_lock → g_proc_lock → g_heap_lock
+ *   g_sync_lock  → g_proc_lock
+ * Never take g_sched_lock or g_sync_lock while holding g_proc_lock.
+ */
 static process_t *g_procs[PROC_MAX];
 static process_t *g_proc_freelist;
-/* Exited (ppid==0) procs wait here until schedule() runs on another stack. */
 static process_t *g_exit_graveyard;
 static pid_t      next_pid = 1;
+static spinlock_t g_proc_lock;
 
-/* Identity-mapped snapshot for userspace (see SYS_PROC_MAP). */
 static proc_page_t g_proc_page;
 static int         g_proc_page_dirty = 1;
 static uint64_t    g_proc_page_last_tick;
+
+uint32_t process_table_lock_irqsave(void)
+{
+    return spin_lock_irqsave(&g_proc_lock);
+}
+
+void process_table_unlock_irqrestore(uint32_t flags)
+{
+    spin_unlock_irqrestore(&g_proc_lock, flags);
+}
 
 static void process_push_freelist(process_t *p)
 {
@@ -50,13 +67,18 @@ static process_t *process_pop_freelist(void)
 
 static process_t *process_alloc_struct(void)
 {
-    process_t *p = process_pop_freelist();
+    process_t *p;
     uint32_t *kbase;
     uint32_t *ubase;
+    uint32_t flags;
 
+    flags = process_table_lock_irqsave();
+    p = process_pop_freelist();
+    process_table_unlock_irqrestore(flags);
     if (p)
         return p;
 
+    /* Heap alloc outside proc lock (order: never heap→proc). */
     p = (process_t *)kmalloc(sizeof(*p));
     if (!p)
         return NULL;
@@ -64,10 +86,8 @@ static process_t *process_alloc_struct(void)
 
     kbase = (uint32_t *)kmalloc_aligned(PROC_KSTACK_SIZE, 16);
     ubase = (uint32_t *)kmalloc_aligned(PROC_USTACK_SIZE, 16);
-    if (!kbase || !ubase) {
-        /* Bump heap cannot reclaim partial failure; refuse the slot. */
+    if (!kbase || !ubase)
         return NULL;
-    }
     p->kstack_base = kbase;
     p->ustack_base = ubase;
     return p;
@@ -78,6 +98,7 @@ static void process_clear_slot(process_t *p)
     uint32_t *kbase;
     uint32_t *ubase;
     int slot;
+    uint32_t flags;
 
     if (!p)
         return;
@@ -86,6 +107,7 @@ static void process_clear_slot(process_t *p)
     ubase = p->ustack_base;
     slot = p->slot;
 
+    flags = process_table_lock_irqsave();
     if (slot >= 0 && slot < PROC_MAX && g_procs[slot] == p)
         g_procs[slot] = NULL;
 
@@ -96,6 +118,7 @@ static void process_clear_slot(process_t *p)
         p->fds[fd] = -1;
 
     process_push_freelist(p);
+    process_table_unlock_irqrestore(flags);
     process_snapshot_mark_dirty();
 }
 
@@ -365,20 +388,9 @@ static void process_kill_thread_slot(process_t *t, int code)
         process_clear_slot(t);
 }
 
-/* Parents (os-shell / systemd) may never waitpid - reap zombies so PROC_MAX does not fill. */
-static void process_reap_zombies(void)
-{
-    for (int i = 0; i < PROC_MAX; i++) {
-        process_t *p = g_procs[i];
-        if (!p || p->state != PROC_ZOMBIE)
-            continue;
-        process_release_fds(p);
-        process_clear_slot(p);
-    }
-}
-
 static int process_find_slot(void)
 {
+    /* Caller must hold g_proc_lock. */
     for (int i = 0; i < PROC_MAX; i++) {
         if (!g_procs[i])
             return i;
@@ -392,14 +404,11 @@ static process_t *alloc_process(const char *name)
     uint32_t *kbase;
     uint32_t *ubase;
     int idx;
-
-    idx = process_find_slot();
-    if (idx < 0) {
-        process_reap_zombies();
-        idx = process_find_slot();
-    }
-    if (idx < 0)
-        return NULL;
+    pid_t pid;
+    uint32_t flags;
+    process_t *zombies[PROC_MAX];
+    int nz = 0;
+    int cfd;
 
     p = process_alloc_struct();
     if (!p)
@@ -410,9 +419,7 @@ static process_t *alloc_process(const char *name)
     memset(p, 0, sizeof(*p));
     p->kstack_base = kbase;
     p->ustack_base = ubase;
-    p->slot = idx;
-    p->pid = next_pid++;
-    p->tid = p->pid; /* main thread: tid == pid */
+
     {
         process_t *cur = process_current();
         process_t *lead = process_leader(cur);
@@ -441,7 +448,6 @@ static process_t *alloc_process(const char *name)
             p->euid = lead->euid;
             strncpy(p->cwd, lead->cwd, sizeof(p->cwd) - 1);
         } else {
-            /* Default credentials: root-only kernel (no multi-user). */
             p->uid = 0;
             p->euid = 0;
             strcpy(p->cwd, "/");
@@ -450,14 +456,54 @@ static process_t *alloc_process(const char *name)
         env_inherit(p, lead);
     }
 
-    int cfd = vfs_open("/dev/console", O_RDWR);
+    cfd = vfs_open("/dev/console", O_RDWR);
     if (cfd >= 0) {
         p->fds[STDIN_FILENO] = cfd;
         p->fds[STDOUT_FILENO] = cfd;
         p->fds[STDERR_FILENO] = cfd;
     }
 
+    /* Publish only when fully initialized (playbook: no half-ready struct). */
+    flags = process_table_lock_irqsave();
+    idx = process_find_slot();
+    if (idx < 0) {
+        for (int i = 0; i < PROC_MAX; i++) {
+            process_t *z = g_procs[i];
+            if (!z || z->state != PROC_ZOMBIE)
+                continue;
+            g_procs[i] = NULL;
+            if (nz < PROC_MAX)
+                zombies[nz++] = z;
+        }
+        idx = process_find_slot();
+    }
+    if (idx < 0) {
+        process_push_freelist(p);
+        process_table_unlock_irqrestore(flags);
+        for (int i = 0; i < nz; i++) {
+            process_release_fds(zombies[i]);
+            flags = process_table_lock_irqsave();
+            process_push_freelist(zombies[i]);
+            process_table_unlock_irqrestore(flags);
+        }
+        return NULL;
+    }
+
+    pid = next_pid++;
+    p->slot = idx;
+    p->pid = pid;
+    p->tid = pid;
+    __asm__ volatile("" ::: "memory");
     g_procs[idx] = p;
+    process_table_unlock_irqrestore(flags);
+
+    for (int i = 0; i < nz; i++) {
+        process_release_fds(zombies[i]);
+        flags = process_table_lock_irqsave();
+        process_push_freelist(zombies[i]);
+        process_table_unlock_irqrestore(flags);
+    }
+
     process_snapshot_mark_dirty();
     return p;
 }
@@ -526,6 +572,7 @@ void thread_regs_from_stack(process_t *p)
 
 void process_init(void)
 {
+    spin_init(&g_proc_lock);
     memset(g_procs, 0, sizeof(g_procs));
     g_proc_freelist = NULL;
     g_exit_graveyard = NULL;
@@ -539,6 +586,7 @@ void process_init(void)
 void process_reap_graveyard(void)
 {
     process_t *cur = process_current();
+    uint32_t flags = process_table_lock_irqsave();
     process_t **pp = &g_exit_graveyard;
 
     while (*pp) {
@@ -551,6 +599,7 @@ void process_reap_graveyard(void)
         p->free_next = NULL;
         process_push_freelist(p);
     }
+    process_table_unlock_irqrestore(flags);
 }
 
 proc_page_t *process_page_get(void)
@@ -846,6 +895,7 @@ void process_thread_exit(int code)
     cur->cpu = -1;
     process_wake_joiners(cur->tid);
     if (cur->thread_detached) {
+        uint32_t flags = process_table_lock_irqsave();
         int slot = cur->slot;
         if (slot >= 0 && slot < PROC_MAX && g_procs[slot] == cur)
             g_procs[slot] = NULL;
@@ -853,6 +903,7 @@ void process_thread_exit(int code)
         cur->slot = -1;
         cur->free_next = g_exit_graveyard;
         g_exit_graveyard = cur;
+        process_table_unlock_irqrestore(flags);
     }
     process_snapshot_mark_dirty();
     schedule();
@@ -991,7 +1042,7 @@ void process_exit(int code)
     cur->kill_pending = 0;
 
     if (cur != lead) {
-        /* Exiting from a worker: park this stack in the graveyard. */
+        uint32_t flags = process_table_lock_irqsave();
         int slot = cur->slot;
         if (slot >= 0 && slot < PROC_MAX && g_procs[slot] == cur)
             g_procs[slot] = NULL;
@@ -1000,26 +1051,20 @@ void process_exit(int code)
         cur->cpu = -1;
         cur->free_next = g_exit_graveyard;
         g_exit_graveyard = cur;
+        process_table_unlock_irqrestore(flags);
     }
 
     if (lead->ppid == 0) {
-        /*
-         * Detach from the table but keep struct/stack alive until
-         * process_reap_graveyard() runs on another process's stack.
-         */
+        uint32_t flags = process_table_lock_irqsave();
         int slot = lead->slot;
         if (slot >= 0 && slot < PROC_MAX && g_procs[slot] == lead)
             g_procs[slot] = NULL;
         lead->state = PROC_UNUSED;
         lead->slot = -1;
         lead->cpu = -1;
-        if (lead != cur) {
-            lead->free_next = g_exit_graveyard;
-            g_exit_graveyard = lead;
-        } else {
-            lead->free_next = g_exit_graveyard;
-            g_exit_graveyard = lead;
-        }
+        lead->free_next = g_exit_graveyard;
+        g_exit_graveyard = lead;
+        process_table_unlock_irqrestore(flags);
     } else {
         lead->state = PROC_ZOMBIE;
         lead->cpu = -1;
@@ -1067,10 +1112,7 @@ int process_kill(pid_t pid)
     process_free_console(p->pid);
     p->exit_code = 137;
     if (p->ppid == 0) {
-        /*
-         * Boot-spawned orphans (ppid==0): detach like process_exit so we do
-         * not memset a struct whose stack may still be frozen mid-run.
-         */
+        uint32_t flags = process_table_lock_irqsave();
         int slot = p->slot;
         if (slot >= 0 && slot < PROC_MAX && g_procs[slot] == p)
             g_procs[slot] = NULL;
@@ -1078,6 +1120,7 @@ int process_kill(pid_t pid)
         p->slot = -1;
         p->free_next = g_exit_graveyard;
         g_exit_graveyard = p;
+        process_table_unlock_irqrestore(flags);
     } else {
         p->state = PROC_ZOMBIE;
     }

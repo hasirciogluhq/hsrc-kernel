@@ -18,12 +18,13 @@
  * readdir returns the VFAT long name when present, otherwise the 8.3
  * short name. Lookup matches either form.
  *
- * File create is supported (8.3 short names only). Host tool pack_fat
- * writes LFN+short entries for long application names. Not implemented:
- * mkdir/rmdir/rename/unlink.
+ * File create + mkdir are supported (8.3 short names only). Host tool
+ * pack_fat writes LFN+short entries for long application names. Not
+ * implemented: rmdir/rename/unlink.
  */
 
 #include <kernel/vfs_api.h>
+#include <kernel/vfs.h>
 #include <kernel/block_api.h>
 #include <kernel/errno.h>
 #include <kernel/heap.h>
@@ -852,15 +853,111 @@ static int fat_create(inode_t *dir, dentry_t *dentry, int mode)
     return 0;
 }
 
+/*
+ * Create a subdirectory: allocate one cluster, seed "." / ".." entries,
+ * then write the ATTR_DIRECTORY entry in the parent.
+ */
+static int fat_mkdir(inode_t *dir, dentry_t *dentry, int mode)
+{
+    fat_node_t *dn;
+    fat_lookup_ctx_t lc;
+    fat_free_ctx_t free_slot;
+    uint8_t name83[11];
+    uint8_t *sec;
+    uint32_t new_cl;
+    uint32_t parent_cl;
+    int rc;
+
+    (void)mode;
+    if (!dir || !dentry)
+        return -EINVAL;
+    dn = (fat_node_t *)dir->i_private;
+    if (!dn || !dn->is_dir)
+        return -ENOTDIR;
+    if (name_to_fat83(dentry->d_name, name83) < 0)
+        return -EINVAL;
+
+    memset(&lc, 0, sizeof(lc));
+    lc.want = dentry->d_name;
+    if (fat_scan_dir(dn->fs, dn->first_clust, fat_lookup_cb, &lc) < 0)
+        return -EIO;
+    if (lc.found)
+        return -EEXIST;
+
+    new_cl = fat_alloc_cluster(dn->fs);
+    if (new_cl < 2)
+        return -ENOSPC;
+
+    parent_cl = dn->first_clust; /* 0 for FAT12/16 root */
+
+    sec = (uint8_t *)kmalloc(512);
+    if (!sec)
+        return -ENOMEM;
+    memset(sec, 0, 512);
+
+    /* "." → this directory */
+    memset(sec, ' ', 11);
+    sec[0] = '.';
+    sec[11] = 0x10;
+    *(uint16_t *)(sec + 26) = (uint16_t)(new_cl & 0xFFFF);
+    *(uint16_t *)(sec + 20) = (uint16_t)((new_cl >> 16) & 0xFFFF);
+
+    /* ".." → parent */
+    memset(sec + 32, ' ', 11);
+    sec[32] = '.';
+    sec[33] = '.';
+    sec[32 + 11] = 0x10;
+    *(uint16_t *)(sec + 32 + 26) = (uint16_t)(parent_cl & 0xFFFF);
+    *(uint16_t *)(sec + 32 + 20) = (uint16_t)((parent_cl >> 16) & 0xFFFF);
+
+    if (fat_write_sector(dn->fs, clust_to_lba(dn->fs, new_cl), sec) < 0)
+        return -EIO;
+
+    rc = fat_find_free_slot(dn->fs, dn->first_clust, &free_slot);
+    if (rc < 0)
+        return rc;
+
+    if (fat_read_sector(dn->fs, free_slot.ent_lba, sec) < 0)
+        return -EIO;
+    memset(sec + free_slot.ent_off, 0, 32);
+    memcpy(sec + free_slot.ent_off, name83, 11);
+    sec[free_slot.ent_off + 11] = 0x10; /* directory */
+    *(uint16_t *)(sec + free_slot.ent_off + 26) = (uint16_t)(new_cl & 0xFFFF);
+    *(uint16_t *)(sec + free_slot.ent_off + 20) = (uint16_t)((new_cl >> 16) & 0xFFFF);
+    if (fat_write_sector(dn->fs, free_slot.ent_lba, sec) < 0)
+        return -EIO;
+    return 0;
+}
+
+static int fat_open(inode_t *inode, file_t *file)
+{
+    fat_node_t *n;
+
+    if (!inode || !file)
+        return -EINVAL;
+    n = (fat_node_t *)inode->i_private;
+    if (!n)
+        return -EINVAL;
+    if ((file->f_flags & O_TRUNC) && !n->is_dir) {
+        n->size = 0;
+        inode->i_size = 0;
+        file->f_pos = 0;
+        (void)fat_update_dir_entry(n);
+    }
+    return 0;
+}
+
 static const file_operations_t fat_fops = {
     .read    = fat_f_read,
     .write   = fat_f_write,
     .readdir = fat_f_readdir,
+    .open    = fat_open,
 };
 
 static const inode_operations_t fat_iops = {
     .lookup = fat_lookup,
     .create = fat_create,
+    .mkdir  = fat_mkdir,
 };
 
 /* ---------------- Mount ---------------- */

@@ -8,7 +8,7 @@ bool open();
 bool open_category(const char *id);
 bool open_deeplink(const char *uri);
 
-/* Raw preference from /etc/os-settings.ini (general.appearance). */
+/* Raw preference from /etc/settings.ini (general.appearance). */
 enum class Appearance : int {
     Light = 0,
     Dark = 1,
@@ -51,7 +51,7 @@ Appearance appearance();
 ThemeMode theme_mode();
 const AppTheme &theme();
 
-/* Upsert one key=value in /etc/os-settings.ini (preserves other keys). */
+/* Upsert one key=value in /etc/settings.ini (preserves other keys). */
 bool persist_key(const char *key, const char *value);
 
 /* Persist general.appearance and update in-process cache. */

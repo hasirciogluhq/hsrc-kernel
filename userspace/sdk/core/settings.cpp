@@ -16,7 +16,7 @@ constexpr const char *kRunDir = "/run";
 constexpr const char *kDeepLinkPath = "/run/settings.deeplink";
 constexpr const char *kThemeGenPath = "/run/os-theme.gen";
 constexpr const char *kDefaultDeepLink = "settings://general";
-constexpr const char *kIniPath = "/etc/os-settings.ini";
+constexpr const char *kIniPath = "/etc/settings.ini";
 constexpr const char *kAppearanceKey = "general.appearance";
 constexpr size_t kDeepLinkBytes = 128;
 constexpr size_t kIniBytes = 2048;
@@ -34,7 +34,7 @@ void append_text(char *dst, size_t dst_size, const char *src);
 Appearance g_appearance = Appearance::Light;
 ThemeMode g_theme_mode = ThemeMode::Light;
 bool g_theme_loaded = false;
-/* True once /etc/os-settings.ini exists (or we created the default). */
+/* True once /etc/settings.ini exists (or we created the default). */
 bool g_ini_present = false;
 /* Skip re-open storms while the ini is known-missing. */
 unsigned g_absent_skip = 0;

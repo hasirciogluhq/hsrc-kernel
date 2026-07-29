@@ -171,4 +171,8 @@ void enter_usermode(uint32_t entry, uint32_t user_stack);
 void thread_regs_from_stack(process_t *p);
 void process_ctx_init(process_t *p);
 
+/* Data-specific process table lock (see process.c lock-order comment). */
+uint32_t process_table_lock_irqsave(void);
+void     process_table_unlock_irqrestore(uint32_t flags);
+
 #endif

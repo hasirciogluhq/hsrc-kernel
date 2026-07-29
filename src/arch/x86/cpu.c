@@ -2,13 +2,23 @@
 #include <arch/x86/lapic.h>
 #include <kernel/string.h>
 #include <kernel/process.h>
+#include <kernel/klock.h>
 #include <drivers/serial.h>
 
+/*
+ * Ownership (SMP playbook):
+ *   g_cpu_info / g_cpu_info_ready — BSP cpu_detect() once, then read-only.
+ *   g_bsp_ready — BSP release-store 1 after CPU0 slot valid; readers acquire-load.
+ *   g_cpus[i].current / .idle — written by owning logical CPU (or BSP at bring-up).
+ *   g_cpus[] slot alloc + g_cpu_count — compound update under g_cpu_table_lock only.
+ *     (Do NOT atomicize count alone — that leaves the slot fill racy.)
+ */
 static cpu_t g_cpus[CPU_MAX];
 static int   g_cpu_count;
 static int   g_bsp_ready;
 static cpu_info_t g_cpu_info;
 static int   g_cpu_info_ready;
+static spinlock_t g_cpu_table_lock; /* data-specific — not a giant kernel lock */
 
 static void cpuid_raw(uint32_t leaf, uint32_t sub,
                       uint32_t *ea, uint32_t *eb, uint32_t *ec, uint32_t *ed)
@@ -59,14 +69,12 @@ void cpu_detect(void)
         g_cpu_info.has_htt = (d & (1u << 28)) ? 1 : 0;
     }
 
-    /* Leaf 4: deterministic cache - cores per package (Intel). */
     if (g_cpu_info.max_leaf >= 4) {
         cpuid_raw(4, 0, &a, &b, &c, &d);
         if (a != 0)
             g_cpu_info.cores_per_pkg = ((a >> 26) & 0x3F) + 1;
     }
 
-    /* x2APIC / topology leaf 0xB if present. */
     if (g_cpu_info.max_leaf >= 0xB) {
         uint32_t pkg_cores = 0;
         uint32_t smt = 0;
@@ -78,9 +86,9 @@ void cpu_detect(void)
             if (((b) & 0xFFFF) == 0 && i > 0)
                 break;
             level_type = (c >> 8) & 0xFF;
-            if (level_type == 1) /* SMT */
+            if (level_type == 1)
                 smt = b & 0xFFFF;
-            else if (level_type == 2) /* core */
+            else if (level_type == 2)
                 pkg_cores = b & 0xFFFF;
         }
         if (pkg_cores)
@@ -98,7 +106,6 @@ void cpu_detect(void)
         cpuid_raw(0x80000003u, 0, &w[4], &w[5], &w[6], &w[7]);
         cpuid_raw(0x80000004u, 0, &w[8], &w[9], &w[10], &w[11]);
         g_cpu_info.brand[48] = '\0';
-        /* Trim leading spaces. */
         {
             char *p = g_cpu_info.brand;
             while (*p == ' ')
@@ -113,18 +120,24 @@ void cpu_detect(void)
     if (g_cpu_info.logical_per_pkg == 0)
         g_cpu_info.logical_per_pkg = 1;
 
+    __asm__ volatile("" ::: "memory"); /* publish fields before ready */
     g_cpu_info_ready = 1;
 }
 
 const cpu_info_t *cpu_info(void)
 {
-    return g_cpu_info_ready ? &g_cpu_info : NULL;
+    if (!g_cpu_info_ready)
+        return NULL;
+    __asm__ volatile("" ::: "memory");
+    return &g_cpu_info;
 }
 
 void cpu_debug_dump(void)
 {
     const cpu_info_t *info = &g_cpu_info;
     int i;
+    int n;
+    uint32_t flags;
 
     if (!g_cpu_info_ready)
         cpu_detect();
@@ -148,13 +161,18 @@ void cpu_debug_dump(void)
     klog_uint("[cpu] has_htt=", (uint32_t)info->has_htt);
     klog_uint("[cpu] logical_per_pkg(cpuid)=", info->logical_per_pkg);
     klog_uint("[cpu] cores_per_pkg(cpuid)=", info->cores_per_pkg);
-    klog_uint("[cpu] online_logical=", (uint32_t)g_cpu_count);
+
+    flags = spin_lock_irqsave(&g_cpu_table_lock);
+    n = g_cpu_count;
+    spin_unlock_irqrestore(&g_cpu_table_lock, flags);
+
+    klog_uint("[cpu] online_logical=", (uint32_t)n);
     klog_uint("[cpu] CPU_MAX=", CPU_MAX);
     klog("[cpu] model: OS thread (process_t) ≠ HW logical CPU (cpu_t); "
          "scheduler maps Ready OS threads onto online logical CPUs; "
          "same-app threads soft-pack via home_cpu\n");
 
-    for (i = 0; i < g_cpu_count; i++) {
+    for (i = 0; i < n; i++) {
         cpu_t *c = &g_cpus[i];
         process_t *idle = c->idle;
         process_t *cur = c->current;
@@ -194,18 +212,14 @@ void cpu_fpu_init(void)
 {
     uint32_t cr0, cr4;
 
-    /*
-     * Playbook requires FXSAVE/FXRSTOR on every context switch.
-     * Clear EM/TS, set MP; set CR4.OSFXSR (+ OSXMMEXCPT).
-     */
     __asm__ volatile("mov %%cr0, %0" : "=r"(cr0));
-    cr0 &= ~((1u << 2) | (1u << 3)); /* EM, TS */
-    cr0 |= (1u << 1);                /* MP */
+    cr0 &= ~((1u << 2) | (1u << 3));
+    cr0 |= (1u << 1);
     __asm__ volatile("mov %0, %%cr0" :: "r"(cr0) : "memory");
 
     __asm__ volatile("mov %%cr4, %0" : "=r"(cr4));
-    cr4 |= (1u << 9);  /* OSFXSR */
-    cr4 |= (1u << 10); /* OSXMMEXCPT */
+    cr4 |= (1u << 9);
+    cr4 |= (1u << 10);
     __asm__ volatile("mov %0, %%cr4" :: "r"(cr4) : "memory");
 
     __asm__ volatile("fninit" ::: "memory");
@@ -215,6 +229,7 @@ void cpu_init_bsp(void)
 {
     uint8_t apic;
 
+    spin_init(&g_cpu_table_lock);
     memset(g_cpus, 0, sizeof(g_cpus));
     g_cpu_count = 0;
     g_bsp_ready = 0;
@@ -224,17 +239,24 @@ void cpu_init_bsp(void)
     lapic_init_bsp();
     apic = (uint8_t)lapic_id();
 
-    g_cpus[0].id = 0;
-    g_cpus[0].apic_id = apic;
-    g_cpus[0].online = 1;
-    g_cpus[0].package = 0;
-    g_cpus[0].core = 0;
-    g_cpus[0].smt = 0;
-    g_cpus[0].started = 1;
-    g_cpus[0].current = NULL;
-    g_cpus[0].idle = NULL;
-    g_cpu_count = 1;
-    g_bsp_ready = 1;
+    /* Single-writer boot path — table lock still taken for consistency. */
+    {
+        uint32_t flags = spin_lock_irqsave(&g_cpu_table_lock);
+        g_cpus[0].id = 0;
+        g_cpus[0].apic_id = apic;
+        g_cpus[0].online = 1;
+        g_cpus[0].package = 0;
+        g_cpus[0].core = 0;
+        g_cpus[0].smt = 0;
+        g_cpus[0].started = 1;
+        g_cpus[0].current = NULL;
+        g_cpus[0].idle = NULL;
+        g_cpu_count = 1;
+        spin_unlock_irqrestore(&g_cpu_table_lock, flags);
+    }
+
+    __asm__ volatile("" ::: "memory");
+    g_bsp_ready = 1; /* release: CPU0 slot + count published */
 
     klog("[cpu] BSP online apic=");
     serial_print_uint((uint32_t)apic);
@@ -245,57 +267,92 @@ void cpu_init_bsp(void)
 
 cpu_t *cpu_alloc(uint8_t apic_id)
 {
-    cpu_t *c;
+    cpu_t *c = NULL;
+    uint32_t flags;
+    int idx;
 
-    if (g_cpu_count >= CPU_MAX)
+    flags = spin_lock_irqsave(&g_cpu_table_lock);
+    if (g_cpu_count >= CPU_MAX) {
+        spin_unlock_irqrestore(&g_cpu_table_lock, flags);
         return NULL;
-    c = &g_cpus[g_cpu_count];
+    }
+    /* Compound: reserve index + fill slot under the same lock (not split atomics). */
+    idx = g_cpu_count;
+    c = &g_cpus[idx];
     memset(c, 0, sizeof(*c));
-    c->id = g_cpu_count;
+    c->id = idx;
     c->apic_id = apic_id;
-    /* Flat APIC probe: one package, core == dense id, smt=0 until MADT. */
     c->package = 0;
     c->core = c->id;
     c->smt = 0;
-    g_cpu_count++;
+    __asm__ volatile("" ::: "memory");
+    g_cpu_count = idx + 1; /* publish after slot is fully initialized */
+    spin_unlock_irqrestore(&g_cpu_table_lock, flags);
     return c;
 }
 
 void cpu_rollback_last(void)
 {
-    if (g_cpu_count <= 1)
-        return;
-    g_cpu_count--;
-    memset(&g_cpus[g_cpu_count], 0, sizeof(g_cpus[0]));
+    uint32_t flags;
+
+    flags = spin_lock_irqsave(&g_cpu_table_lock);
+    if (g_cpu_count > 1) {
+        g_cpu_count--;
+        memset(&g_cpus[g_cpu_count], 0, sizeof(g_cpus[0]));
+    }
+    spin_unlock_irqrestore(&g_cpu_table_lock, flags);
 }
 
 cpu_t *cpu_get(int id)
 {
-    if (id < 0 || id >= g_cpu_count)
+    int n;
+    uint32_t flags;
+
+    flags = spin_lock_irqsave(&g_cpu_table_lock);
+    n = g_cpu_count;
+    spin_unlock_irqrestore(&g_cpu_table_lock, flags);
+
+    if (id < 0 || id >= n)
         return NULL;
     return &g_cpus[id];
 }
 
 cpu_t *cpu_by_apic(uint8_t apic_id)
 {
-    for (int i = 0; i < g_cpu_count; i++) {
-        if (g_cpus[i].apic_id == apic_id)
+    int n;
+    int i;
+    uint32_t flags;
+
+    flags = spin_lock_irqsave(&g_cpu_table_lock);
+    n = g_cpu_count;
+    for (i = 0; i < n; i++) {
+        if (g_cpus[i].apic_id == apic_id) {
+            spin_unlock_irqrestore(&g_cpu_table_lock, flags);
             return &g_cpus[i];
+        }
     }
+    spin_unlock_irqrestore(&g_cpu_table_lock, flags);
     return NULL;
 }
 
 int cpu_count(void)
 {
-    return g_cpu_count;
+    int n;
+    uint32_t flags = spin_lock_irqsave(&g_cpu_table_lock);
+    n = g_cpu_count;
+    spin_unlock_irqrestore(&g_cpu_table_lock, flags);
+    return n;
 }
 
 int cpu_id(void)
 {
     cpu_t *c;
 
-    if (!g_bsp_ready)
+    if (!g_bsp_ready) {
+        __asm__ volatile("" ::: "memory");
         return 0;
+    }
+    __asm__ volatile("" ::: "memory");
     c = cpu_by_apic((uint8_t)lapic_id());
     return c ? c->id : 0;
 }
@@ -304,8 +361,11 @@ cpu_t *cpu_current(void)
 {
     cpu_t *c;
 
-    if (!g_bsp_ready)
+    if (!g_bsp_ready) {
+        __asm__ volatile("" ::: "memory");
         return &g_cpus[0];
+    }
+    __asm__ volatile("" ::: "memory");
     c = cpu_by_apic((uint8_t)lapic_id());
     return c ? c : &g_cpus[0];
 }

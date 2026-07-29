@@ -14,14 +14,12 @@
 
 namespace {
 
-using hsrc::sdk::Color;
 using hsrc::sdk::GxDevice;
 using hsrc::sdk::Input;
 using hsrc::sdk::ScreenInfo;
 using hsrc::sdk::Window;
 using hsrc::sdk::WindowOptions;
 using hsrc::sdk::kChromeTitleH;
-using hsrc::sdk::kGxWaitForever;
 using hsrc::sdk::settings::refresh_theme;
 using hsrc::sdk::settings::theme;
 using hsrc::sdk::settings::kThemeWaitTicks;
@@ -49,42 +47,6 @@ bool refresh_window_options()
     return true;
 }
 
-void apply_imgui_theme()
-{
-    const auto &t = theme();
-    ImGuiStyle &style = ImGui::GetStyle();
-    ImVec4 *c = style.Colors;
-
-    auto to_im = [](Color col) -> ImVec4 {
-        return ImVec4((float)hsrc::sdk::color_r(col) / 255.0f,
-                      (float)hsrc::sdk::color_g(col) / 255.0f,
-                      (float)hsrc::sdk::color_b(col) / 255.0f,
-                      (float)hsrc::sdk::color_a(col) / 255.0f);
-    };
-
-    c[ImGuiCol_WindowBg] = to_im(t.panel);
-    c[ImGuiCol_ChildBg] = to_im(t.card);
-    c[ImGuiCol_PopupBg] = to_im(t.card);
-    c[ImGuiCol_Border] = to_im(t.border);
-    c[ImGuiCol_Text] = to_im(t.text);
-    c[ImGuiCol_TextDisabled] = to_im(t.text_dim);
-    c[ImGuiCol_TitleBg] = to_im(t.chrome);
-    c[ImGuiCol_TitleBgActive] = to_im(t.chrome);
-    c[ImGuiCol_FrameBg] = to_im(t.inset);
-    c[ImGuiCol_FrameBgHovered] = to_im(t.hover);
-    c[ImGuiCol_FrameBgActive] = to_im(t.accent_soft);
-    c[ImGuiCol_Button] = to_im(t.button);
-    c[ImGuiCol_ButtonHovered] = to_im(t.hover);
-    c[ImGuiCol_ButtonActive] = to_im(t.accent);
-    c[ImGuiCol_Header] = to_im(t.accent_soft);
-    c[ImGuiCol_HeaderHovered] = to_im(t.hover);
-    c[ImGuiCol_HeaderActive] = to_im(t.accent);
-    c[ImGuiCol_CheckMark] = to_im(t.accent);
-    c[ImGuiCol_SliderGrab] = to_im(t.accent);
-    c[ImGuiCol_SliderGrabActive] = to_im(t.accent);
-    c[ImGuiCol_Separator] = to_im(t.border);
-}
-
 void paint()
 {
     if (!g_win.ok() || !g_imgui_ready)
@@ -95,11 +57,10 @@ void paint()
     const auto &t = theme();
     hsrc::sdk::Surface &s = g_win.surface();
 
-    /* Client body under chrome. */
+    /* Client body under chrome — OS chrome theme only; ImGui keeps default style. */
     s.fill(0, kChromeTitleH, g_win_opts.w, g_win_opts.h - kChromeTitleH, t.bg);
 
     ImGui_ImplUgx_RenderDrawData(ImGui::GetDrawData(), s, kChromeTitleH);
-    /* Present publishes once - no Window::damage here. */
 }
 
 } // namespace
@@ -154,20 +115,7 @@ extern "C" void exec_main(void)
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    apply_imgui_theme();
-
-    ImGuiStyle &style = ImGui::GetStyle();
-    style.AntiAliasedLines = false;
-    style.AntiAliasedFill = false;
-    style.WindowRounding = 6.0f;
-    style.ChildRounding = 4.0f;
-    style.FrameRounding = 4.0f;
-    style.PopupRounding = 4.0f;
-    style.ScrollbarRounding = 4.0f;
-    style.GrabRounding = 3.0f;
-    style.TabRounding = 4.0f;
-    style.WindowBorderSize = 1.0f;
-    style.FrameBorderSize = 0.0f;
+    /* Keep Dear ImGui default style — no OS theme remapping. */
 
     if (!ImGui_ImplUgx_Init())
         hsrc::sdk::exit(1);
@@ -181,7 +129,6 @@ extern "C" void exec_main(void)
         }
 
         if (refresh_theme()) {
-            apply_imgui_theme();
             g_gx.set_chrome_colors(theme().chrome, theme().text, theme().border);
             g_dirty = true;
         }
@@ -193,8 +140,6 @@ extern "C" void exec_main(void)
         Input in = g_gx.wait(wait_to);
         const bool dragging = g_gx.dragging();
 
-        /* Global input seq wakes all apps; skip compose unless this window cares.
-         * During titlebar drag, only dirty content (not every mouse hop). */
         const bool now_relevant =
             in.hit_id == g_win.id() || in.focus_id == g_win.id();
         const bool was_relevant =
@@ -202,38 +147,33 @@ extern "C" void exec_main(void)
         const bool input_relevant =
             !dragging && (now_relevant || was_relevant);
 
-            ImGui_ImplUgx_NewFrame(g_win, in, g_win_opts, g_prev.buttons,
-                                   kChromeTitleH);
-            ImGui::NewFrame();
+        ImGui_ImplUgx_NewFrame(g_win, in, g_win_opts, g_prev.buttons,
+                               kChromeTitleH);
+        ImGui::NewFrame();
 
-            const float pad = 12.0f;
-            ImGui::SetNextWindowPos(ImVec2(pad, pad), ImGuiCond_FirstUseEver);
-            ImGui::SetNextWindowSize(ImVec2((float)g_win_opts.w - pad * 2.0f,
-                                            (float)(g_win_opts.h - kChromeTitleH) -
-                                                pad * 2.0f),
-                                     ImGuiCond_FirstUseEver);
-            ImGui::Begin("Hello hsrc-kernel", nullptr,
-                         ImGuiWindowFlags_NoCollapse);
-            ImGui::TextUnformatted("Dear ImGui on MKDX / ugx");
-            ImGui::Text("hit=%d focus=%d", (int)in.hit_id, (int)in.focus_id);
-            if (ImGui::Button("Click me"))
-                g_clicks++;
-            ImGui::SameLine();
-            ImGui::Text("Clicks: %d", g_clicks);
-            ImGui::Separator();
-            ImGui::TextWrapped(
-                "Client paint; chrome on kernel publish.");
-            static char buf[64] = "type here";
-            (void)ImGui::InputText("Name", buf, sizeof(buf));
-            ImGui::End();
+        const float pad = 12.0f;
+        ImGui::SetNextWindowPos(ImVec2(pad, pad), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2((float)g_win_opts.w - pad * 2.0f,
+                                        (float)(g_win_opts.h - kChromeTitleH) -
+                                            pad * 2.0f),
+                                 ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowCollapsed(true, ImGuiCond_FirstUseEver);
+        ImGui::Begin("Hello hsrc-kernel");
+        ImGui::TextUnformatted("Dear ImGui on MKDX / ugx");
+        ImGui::Text("hit=%d focus=%d", (int)in.hit_id, (int)in.focus_id);
+        if (ImGui::Button("Click me"))
+            g_clicks++;
+        ImGui::SameLine();
+        ImGui::Text("Clicks: %d", g_clicks);
+        ImGui::Separator();
+        ImGui::TextWrapped("Client paint; chrome on kernel publish.");
+        static char buf[64] = "type here";
+        (void)ImGui::InputText("Name", buf, sizeof(buf));
+        ImGui::End();
 
-            ImGui::Render();
-            g_prev = in;
+        ImGui::Render();
+        g_prev = in;
 
-        /*
-         * Present when dirty or (non-drag) meaningful input.
-         * Dirty gate still applies during WM drag (kernel updates front).
-         */
         if (!g_win_opts.minimized && (g_dirty || input_relevant)) {
             (void)g_gx.begin_scene();
             paint();

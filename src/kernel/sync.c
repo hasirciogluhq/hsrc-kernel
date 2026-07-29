@@ -119,23 +119,31 @@ void sync_cleanup_process(pid_t pid)
 void process_suspend(uint64_t wake_tick)
 {
     process_t *p = process_current();
+    uint32_t flags;
+
     if (!p)
         return;
+    flags = process_table_lock_irqsave();
     p->wake_tick = wake_tick;
     p->state = PROC_SUSPENDED;
+    process_table_unlock_irqrestore(flags);
     process_snapshot_mark_dirty();
 }
 
 void process_wake(process_t *p)
 {
+    uint32_t flags;
+
     if (!p)
         return;
-    if (p->state != PROC_SUSPENDED)
-        return;
-    p->state = PROC_READY;
-    p->wake_tick = 0;
-    p->proc_wait_gen = 0;
-    p->input_wait_active = 0;
+    flags = process_table_lock_irqsave();
+    if (p->state == PROC_SUSPENDED) {
+        p->state = PROC_READY;
+        p->wake_tick = 0;
+        p->proc_wait_gen = 0;
+        p->input_wait_active = 0;
+    }
+    process_table_unlock_irqrestore(flags);
     process_snapshot_mark_dirty();
 }
 
@@ -144,15 +152,22 @@ static volatile int g_input_need_sched;
 
 uint32_t input_event_seq(void)
 {
-    return g_input_seq;
+    uint32_t seq;
+    uint32_t flags = spin_lock_irqsave(&g_sync_lock);
+    seq = g_input_seq;
+    spin_unlock_irqrestore(&g_sync_lock, flags);
+    return seq;
 }
 
 int input_event_need_sched(void)
 {
-    if (!g_input_need_sched)
-        return 0;
-    g_input_need_sched = 0;
-    return 1;
+    int v = 0;
+    /* XCHG is implicit-LOCK — clear+return without soft TOCTOU flag. */
+    __asm__ volatile("xchgl %0, %1"
+                     : "+r"(v), "+m"(g_input_need_sched)
+                     :
+                     : "memory");
+    return v;
 }
 
 static int input_relevant(int win_id, uint32_t flags, int hit_id, int focus_id,
@@ -175,19 +190,21 @@ void input_event_notify(uint32_t flags, int hit_id, int focus_id,
                         int prev_hit_id, int wm_id)
 {
     process_t **table;
+    process_t *to_wake[64];
+    int nwake = 0;
     uint32_t flags_irq;
-    int woke = 0;
+    int i;
 
     if (!flags)
         return;
 
+    table = process_table();
+    flags_irq = spin_lock_irqsave(&g_sync_lock);
     g_input_seq++;
     if (g_input_seq == 0)
         g_input_seq = 1;
 
-    table = process_table();
-    flags_irq = spin_lock_irqsave(&g_sync_lock);
-    for (int i = 0; i < PROC_MAX; i++) {
+    for (i = 0; i < PROC_MAX; i++) {
         process_t *p = table[i];
         if (!p || p->state != PROC_SUSPENDED || !p->input_wait_active)
             continue;
@@ -196,12 +213,16 @@ void input_event_notify(uint32_t flags, int hit_id, int focus_id,
         if (!input_relevant(p->input_wait_win, flags, hit_id, focus_id,
                             prev_hit_id, wm_id))
             continue;
-        process_wake(p);
-        woke = 1;
+        if (nwake < (int)(sizeof(to_wake) / sizeof(to_wake[0])))
+            to_wake[nwake++] = p;
     }
     spin_unlock_irqrestore(&g_sync_lock, flags_irq);
 
-    if (woke) {
+    /* Wake outside g_sync_lock — process_wake takes g_proc_lock (no nest). */
+    for (i = 0; i < nwake; i++)
+        process_wake(to_wake[i]);
+
+    if (nwake > 0) {
         g_input_need_sched = 1;
         smp_reschedule_others();
     }
@@ -218,7 +239,7 @@ long input_event_wait(int win_id, uint32_t last_seq, long timeout_ticks)
     if (!cur)
         return -ESRCH;
 
-    cur_seq = g_input_seq;
+    cur_seq = input_event_seq();
     if (cur_seq != last_seq)
         return (long)cur_seq;
 
