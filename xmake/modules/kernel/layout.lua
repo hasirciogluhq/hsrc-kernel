@@ -6,7 +6,7 @@ function kmod_order()
         "ramdisk", "loop", "virtio_blk", "fat",
         "tmpfs", "devtmpfs", "procfs", "sysfs", "initrdfs",
         "exfat", "ext", "iso9660", "udf", "ntfs", "ahci", "nvme",
-        "display_virtio", "display", "virtio_net",
+        "display_vga", "display_virtio", "display", "virtio_net",
     }
 end
 

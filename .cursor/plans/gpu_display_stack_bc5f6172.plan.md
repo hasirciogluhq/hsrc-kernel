@@ -33,8 +33,8 @@ todos:
     content: "PARTIAL — display_virtio + GpuProvider bridge; rename gpu_virtio optional"
     status: pending
   - id: gpu-vga-fb
-    content: "PENDING — BGA silindi; QEMU virtio-gpu; optional gpu_vga LFB later"
-    status: pending
+    content: "DONE — display_vga (vga_lfb Bochs/QEMU -vga std) + initrd order; QEMU -device virtio-gpu-pci; kshell çift serial fix"
+    status: completed
   - id: docs-reed-kilim
     content: docs/graphics-reed-kilim.tr.md + .en.md
     status: pending
@@ -51,7 +51,7 @@ isProject: false
 - **Backward compat yok.** Shim yok. Eski ABI silindi.
 - Her oturumda bu dosyanın `todos` + “İlerleme” güncellenir.
 
-## İlerleme (2026-07-29 — bu oturum)
+## İlerleme (2026-07-29 — boot fix)
 
 | Adım | Durum |
 |------|-------|
@@ -63,6 +63,8 @@ isProject: false
 | Input dx'siz | **DONE** |
 | break-legacy (dx/gfx/BGA/SYS_WM_GX/mkdx) | **DONE** |
 | Apps → wm+kilim stubs | **DONE** (UX stub; parity NEXT) |
+| display_vga LFB + QEMU virtio-gpu | **DONE** (BGA yok; vga_lfb provider) |
+| kshell çift `kernel>` (console+klog) | **DONE** |
 | Full shell/app UX restore | **NEXT** |
 | Docs | pending |
 

@@ -8,6 +8,7 @@ function qemu_args()
         "-m", "1G",
         "-smp", "4,sockets=1,cores=4,threads=1",
         "-vga", "std",
+        "-device", "virtio-gpu-pci",
         "-serial", "stdio",
         "-drive", "if=none,id=vd0,file=" .. path.join(ROOT, "disk.img") .. ",format=raw,cache=writethrough",
         "-device", "virtio-blk-pci,drive=vd0,disable-legacy=on",

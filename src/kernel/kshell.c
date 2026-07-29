@@ -13,8 +13,8 @@
 
 static void kshell_print(const char *s)
 {
+    /* console_putc already mirrors to serial — do not also klog (doubles prompt). */
     console_print(s);
-    klog(s);
 }
 
 static void kshell_prompt(void)
@@ -56,7 +56,7 @@ static int kshell_readline(char *buf, size_t max)
 static void cmd_help(void)
 {
     kshell_print("commands: help, clear, ls [path], cat <path>, run <path|name>, ps, gui?\n");
-    kshell_print("kernel is standalone; GUI needs display+dx+/system/bin/window-manager\n");
+    kshell_print("kernel is standalone; GUI needs display+disp_api then /init → window-manager\n");
 }
 
 static void cmd_clear(void)

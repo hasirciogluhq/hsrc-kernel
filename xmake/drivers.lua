@@ -52,6 +52,7 @@ kernel_define_kmod("ntfs", {"src/drivers/fs/ntfs/*.c"})
 kernel_define_kmod("ahci", {"src/drivers/block/ahci/*.c"})
 kernel_define_kmod("nvme", {"src/drivers/block/nvme/*.c"})
 kernel_define_kmod("virtio_net", {"src/drivers/net/virtio_net/*.c"})
+kernel_define_kmod("display_vga", {"src/drivers/display/vga_lfb/*.c"})
 kernel_define_kmod("display_virtio", {"src/drivers/display/virtio_gpu/*.c"})
 kernel_define_kmod("display", {"src/drivers/disp/*.c"})
 
@@ -60,7 +61,7 @@ local KMOD_ORDER = {
     "ramdisk", "loop", "virtio_blk", "fat",
     "tmpfs", "devtmpfs", "procfs", "sysfs", "initrdfs",
     "exfat", "ext", "iso9660", "udf", "ntfs", "ahci", "nvme",
-    "display_virtio", "display", "virtio_net",
+    "display_vga", "display_virtio", "display", "virtio_net",
 }
 
 target("drivers")

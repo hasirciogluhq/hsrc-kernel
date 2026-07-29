@@ -145,9 +145,9 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
             (void)vfs_close(fd);
     }
 
-    /* Kernel is standalone: no display/dx → console (kshell), not halt. */
+    /* Kernel is standalone: no display/disp → console (kshell), not halt. */
     if (gui_stack_ready()) {
-        klog("[boot] GUI stack ready (display+dx)\n");
+        klog("[boot] GUI stack ready (display+disp)\n");
         boot_splash_show();
     } else {
         klog("[boot] GUI stack unavailable — console mode\n");
