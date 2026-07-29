@@ -21,11 +21,12 @@ namespace {
 
 extern "C" void exec_main(void)
 {
-    reed::Device dev;
+    static reed::Device dev;
+    static kilim::Context k;
+
     if (dev.init() < 0)
         hang();
 
-    kilim::Context k;
     if (k.init(&dev) < 0)
         hang();
 

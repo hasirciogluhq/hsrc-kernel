@@ -800,8 +800,9 @@ static int setup_dirs(void)
 
 extern "C" void exec_main(void)
 {
-    reed::Device device;
-    kilim::Context kctx;
+    /* Context holds ~3MB batch vertex buffers — MUST NOT live on the 64K ustack. */
+    static reed::Device device;
+    static kilim::Context kctx;
 
     if (setup_dirs() < 0) {
         for (;;)

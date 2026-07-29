@@ -12,7 +12,7 @@
 /* Hard ceiling - slots are pointers only; structs/stacks grow on demand. */
 #define PROC_MAX         8192
 #define PROC_KSTACK_SIZE 8192
-#define PROC_USTACK_SIZE 8192
+#define PROC_USTACK_SIZE (64 * 1024) /* was 8K; locals + syscall frames need room */
 #define PROC_NAME_MAX    PROC_PAGE_NAME
 
 /* fds[]: VFS fd (>=0), or tagged socket / epoll instance ids. */
