@@ -11,6 +11,7 @@
 #include <kernel/syscall.h>
 #include <kernel/vfs.h>
 #include <kernel/dx_api.h>
+#include <kernel/disp_api.h>
 #include <kernel/smp.h>
 #include <kernel/klock.h>
 #include <drivers/serial.h>
@@ -254,8 +255,11 @@ static void process_free_console(pid_t pid)
 static void process_free_windows(pid_t pid)
 {
     const dx_api_t *api = dx_api_get();
+    const disp_api_t *disp = disp_api_get();
     if (api && api->wm_destroy_by_pid)
         api->wm_destroy_by_pid((int)pid);
+    if (disp && disp->cleanup_pid)
+        disp->cleanup_pid((uint32_t)pid);
 }
 
 static void process_release_fds(process_t *p)

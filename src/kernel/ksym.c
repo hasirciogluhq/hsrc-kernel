@@ -3,6 +3,7 @@
 #include <kernel/heap.h>
 #include <kernel/module.h>
 #include <kernel/dx_api.h>
+#include <kernel/disp_api.h>
 #include <kernel/vfs_api.h>
 #include <kernel/block_api.h>
 #include <kernel/netif.h>
@@ -16,6 +17,7 @@
 #include <drivers/driver.h>
 #include <drivers/pci.h>
 #include <drivers/display.h>
+#include <drivers/gpu.h>
 #include <drivers/vga.h>
 #include <drivers/serial.h>
 #include <drivers/mouse.h>
@@ -74,8 +76,17 @@ static const ksym_t g_ksyms[] = {
     { "display_active",     (void *)display_active },
     { "display_get_screen_size", (void *)display_get_screen_size },
 
+    { "gpu_framework_init", (void *)gpu_framework_init },
+    { "gpu_provider_register", (void *)gpu_provider_register },
+    { "gpu_provider_unregister", (void *)gpu_provider_unregister },
+    { "gpu_provider_active", (void *)gpu_provider_active },
+    { "gpu_get_screen_size", (void *)gpu_get_screen_size },
+    { "gpu_provider_register_display", (void *)gpu_provider_register_display },
+
     { "dx_api_register",    (void *)dx_api_register },
     { "dx_api_get",         (void *)dx_api_get },
+    { "disp_api_register",  (void *)disp_api_register },
+    { "disp_api_get",       (void *)disp_api_get },
     { "input_event_notify", (void *)input_event_notify },
     { "input_event_seq",    (void *)input_event_seq },
 

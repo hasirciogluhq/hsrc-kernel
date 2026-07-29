@@ -4,6 +4,7 @@
 #include <drivers/driver.h>
 #include <drivers/pci.h>
 #include <drivers/display.h>
+#include <drivers/gpu.h>
 #include <kernel/heap.h>
 #include <kernel/bootmem.h>
 #include <kernel/errno.h>
@@ -96,6 +97,7 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     klog("[boot] core init done\n");
 
     driver_framework_init();
+    gpu_framework_init();
     display_framework_init();
     pci_init();
     drivers_register_internal();

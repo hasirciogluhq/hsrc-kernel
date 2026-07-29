@@ -1,4 +1,5 @@
 #include <drivers/display.h>
+#include <drivers/gpu.h>
 
 static display_ops_t *g_active;
 static int            g_priority = -1;
@@ -18,6 +19,9 @@ int display_register(display_ops_t *ops, int priority)
         g_active = ops;
         g_priority = priority;
     }
+
+    /* Also publish as GpuProvider for display.kmod / Reed. */
+    (void)gpu_provider_register_display(ops, priority, NULL);
     return 0;
 }
 

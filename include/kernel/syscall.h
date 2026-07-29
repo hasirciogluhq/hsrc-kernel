@@ -120,6 +120,9 @@
 #define SYS_SCHED_GET       290  /* a1=&sched_params_t → 0 */
 #define SYS_SCHED_SET       291  /* a1=tick_us(0=keep) a2=life_us(0=keep) → 0 */
 
+/* Display orchestrator (Reed) — a1=DISP_OP_* a2=&args */
+#define SYS_DISP_CALL       296
+
 /* epoll (Linux-like; private numbers — 254/255 taken by SPAWN/WAITPID). */
 #define SYS_EPOLL_CREATE1   292  /* a1=flags → epfd */
 #define SYS_EPOLL_CTL       293  /* a1=epfd a2=op a3=fd a4=&epoll_event */

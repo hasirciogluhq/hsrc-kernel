@@ -27,7 +27,8 @@ typedef enum {
     DRIVER_CLASS_BUS,
     DRIVER_CLASS_CHAR,
     DRIVER_CLASS_BLOCK,
-    DRIVER_CLASS_FS
+    DRIVER_CLASS_FS,
+    DRIVER_CLASS_GPU
 } driver_class_t;
 
 #define DRIVER_FLAG_AUTO  (1u << 0) /* load via drivers_load_all() */

@@ -4,6 +4,7 @@
 #include <kernel/argv.h>
 #include <kernel/exec.h>
 #include <kernel/dx_api.h>
+#include <kernel/disp_api.h>
 #include <kernel/service.h>
 #include <kernel/scheduler.h>
 #include <kernel/sync.h>
@@ -23,6 +24,8 @@
 #include <drivers/vfs_fs.h>
 #include <arch/x86/cpu.h>
 #include <user/gx.h>
+#include <user/disp.h>
+#include <kernel/heap.h>
 
 typedef struct {
     uint32_t edi, esi, ebp, esp, ebx, edx, ecx, eax;
@@ -964,6 +967,118 @@ static long do_gx_info(long outp)
     return 0;
 }
 
+static size_t disp_arg_size(uint32_t op)
+{
+    switch (op) {
+    case DISP_OP_INFO:            return sizeof(disp_info);
+    case DISP_OP_BUFFER_CREATE:   return sizeof(disp_buffer_create);
+    case DISP_OP_BUFFER_DESTROY:
+    case DISP_OP_BUFFER_UNMAP:
+    case DISP_OP_TEXTURE_DESTROY:
+    case DISP_OP_RT_DESTROY:
+    case DISP_OP_FENCE_DESTROY:
+    case DISP_OP_FENCE_SIGNAL:    return sizeof(disp_handle_arg);
+    case DISP_OP_BUFFER_MAP:      return sizeof(disp_buffer_map);
+    case DISP_OP_BUFFER_UPDATE:  return sizeof(disp_buffer_update);
+    case DISP_OP_TEXTURE_CREATE:  return sizeof(disp_texture_create);
+    case DISP_OP_TEXTURE_UPLOAD:  return sizeof(disp_texture_upload);
+    case DISP_OP_TEXTURE_MAP:     return sizeof(disp_texture_map);
+    case DISP_OP_RT_CREATE:       return sizeof(disp_rt_create);
+    case DISP_OP_FENCE_CREATE:    return sizeof(disp_fence_create);
+    case DISP_OP_FENCE_WAIT:      return sizeof(disp_fence_wait);
+    case DISP_OP_SCANOUT:         return sizeof(disp_scanout);
+    case DISP_OP_EXPORT:          return sizeof(disp_export);
+    case DISP_OP_IMPORT:          return sizeof(disp_import);
+    case DISP_OP_STATS:           return sizeof(disp_stats);
+    default:                      return 0;
+    }
+}
+
+static int disp_arg_writes_back(uint32_t op)
+{
+    switch (op) {
+    case DISP_OP_INFO:
+    case DISP_OP_BUFFER_CREATE:
+    case DISP_OP_BUFFER_MAP:
+    case DISP_OP_TEXTURE_CREATE:
+    case DISP_OP_TEXTURE_MAP:
+    case DISP_OP_RT_CREATE:
+    case DISP_OP_FENCE_CREATE:
+    case DISP_OP_EXPORT:
+    case DISP_OP_IMPORT:
+    case DISP_OP_STATS:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static long do_disp_call(long op, long argp)
+{
+    const disp_api_t *api = disp_api_get();
+    process_t *p = process_leader(process_current());
+    uint8_t karg[128];
+    size_t sz;
+    long rc;
+    void *payload = NULL;
+    uint32_t payload_len = 0;
+    const void *user_payload = NULL;
+
+    if (!api || !api->call || !p)
+        return -1;
+    if (op <= 0 || (uint32_t)op > 20)
+        return -1;
+    sz = disp_arg_size((uint32_t)op);
+    if (sz == 0 || sz > sizeof(karg))
+        return -1;
+    if (!argp)
+        return -1;
+    memset(karg, 0, sizeof(karg));
+    if (copy_from_user(karg, (const void *)argp, sz) < 0)
+        return -1;
+
+    if ((uint32_t)op == DISP_OP_BUFFER_UPDATE) {
+        disp_buffer_update *u = (disp_buffer_update *)karg;
+        user_payload = u->data;
+        payload_len = u->len;
+        if (!user_payload || payload_len == 0 || payload_len > (16u * 1024u * 1024u))
+            return -1;
+        payload = kmalloc(payload_len);
+        if (!payload)
+            return -1;
+        if (copy_from_user(payload, user_payload, payload_len) < 0) {
+            kfree(payload);
+            return -1;
+        }
+        u->data = payload;
+    } else if ((uint32_t)op == DISP_OP_TEXTURE_UPLOAD) {
+        disp_texture_upload *u = (disp_texture_upload *)karg;
+        user_payload = u->data;
+        payload_len = u->len;
+        if (!user_payload || payload_len == 0 || payload_len > (16u * 1024u * 1024u))
+            return -1;
+        payload = kmalloc(payload_len);
+        if (!payload)
+            return -1;
+        if (copy_from_user(payload, user_payload, payload_len) < 0) {
+            kfree(payload);
+            return -1;
+        }
+        u->data = payload;
+    }
+
+    rc = api->call((uint32_t)op, karg, (uint32_t)p->pid);
+    if (payload)
+        kfree(payload);
+    if (rc < 0)
+        return rc;
+    if (disp_arg_writes_back((uint32_t)op)) {
+        if (copy_to_user((void *)argp, karg, sz) < 0)
+            return -1;
+    }
+    return rc;
+}
+
 static long do_gx_present(long argp)
 {
     const dx_api_t *api = dx_api();
@@ -1895,6 +2010,7 @@ long syscall_dispatch(long n, long a1, long a2, long a3, long a4, long a5)
     case SYS_WM_GET_FRAME:     return do_wm_get_frame(a1, a2);
     case SYS_WM_FIND:          return do_wm_find(a1);
     case SYS_WM_FIND_CLASS:    return do_wm_find_class(a1);
+    case SYS_DISP_CALL:        return do_disp_call(a1, a2);
 
     default:         return -1;
     }
