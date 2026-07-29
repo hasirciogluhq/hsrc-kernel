@@ -106,7 +106,7 @@ typedef struct process {
     uint32_t     kstack_top;
     uint32_t     ustack_top;
     cpu_context_t ctx;         /* playbook CPU context (esp/GP/CR3/fpu*) */
-    _Alignas(16) uint8_t fpu_state[CPU_FPU_AREA_SIZE];
+    uint8_t fpu_state[CPU_FPU_AREA_SIZE] __attribute__((aligned(16)));
     thread_regs_t regs;        /* debug mirror */
     struct process *free_next; /* freelist link when unused */
     void       (*user_entry)(void);

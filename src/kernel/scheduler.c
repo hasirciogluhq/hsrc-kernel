@@ -23,7 +23,7 @@
  */
 
 static cpu_context_t bootstrap_ctx[CPU_MAX];
-static _Alignas(16) uint8_t bootstrap_fpu[CPU_MAX][CPU_FPU_AREA_SIZE];
+static uint8_t bootstrap_fpu[CPU_MAX][CPU_FPU_AREA_SIZE] __attribute__((aligned(16)));
 static uint64_t g_switch_ticks;
 static spinlock_t g_sched_lock;
 static volatile int g_sched_active;
