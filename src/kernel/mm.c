@@ -5,6 +5,15 @@
 #include <kernel/errno.h>
 #include <kernel/string.h>
 
+/*
+ * process_t::vmas[] is shared mutable state: the owning process can call
+ * mmap/munmap/msync concurrently with other processes/CPUs poking the same
+ * table via ReadProcessMemory/WriteProcessMemory/VirtualAlloc(Ex) (see
+ * proc_mem.c). All find-slot / publish / clear sequences below run under
+ * g_proc_lock (process_table_lock_irqsave) — never sleep while holding it;
+ * file I/O and page alloc/free happen outside the critical section.
+ */
+
 void mm_init(void)
 {
 }
@@ -75,26 +84,34 @@ long mm_mmap(process_t *p, uint32_t addr, size_t len, int prot, int flags,
     (void)addr;
     start = (uint32_t)(uintptr_t)pages;
 
-    for (i = 0; i < VMA_MAX; i++) {
-        if (!vmas[i].used) {
-            slot = (int)i;
-            break;
+    {
+        uint32_t irqf = process_table_lock_irqsave();
+        for (i = 0; i < VMA_MAX; i++) {
+            if (!vmas[i].used) {
+                slot = (int)i;
+                break;
+            }
         }
-    }
-    if (slot < 0) {
-        mm_free_pages(pages, npages);
-        return -ENOMEM;
-    }
+        if (slot < 0) {
+            process_table_unlock_irqrestore(irqf);
+            mm_free_pages(pages, npages);
+            return -ENOMEM;
+        }
 
-    vmas[slot].used = 1;
-    vmas[slot].start = start;
-    vmas[slot].end = start + (uint32_t)(npages * PAGE_SIZE);
-    vmas[slot].offset = (uint32_t)off;
-    vmas[slot].prot = prot;
-    vmas[slot].flags = flags;
-    vmas[slot].fd = vfs_fd;
-    vmas[slot].pages = pages;
-    vmas[slot].npages = npages;
+        vmas[slot].start = start;
+        vmas[slot].end = start + (uint32_t)(npages * PAGE_SIZE);
+        vmas[slot].offset = (uint32_t)off;
+        vmas[slot].prot = prot;
+        vmas[slot].flags = flags;
+        vmas[slot].fd = vfs_fd;
+        vmas[slot].pages = pages;
+        vmas[slot].npages = npages;
+        /* Publish last: readers gate on `used` (release semantics on x86
+         * TSO — a plain store here is ordered after the field writes above
+         * because stores are not reordered with later stores). */
+        vmas[slot].used = 1;
+        process_table_unlock_irqrestore(irqf);
+    }
 
     return (long)(uintptr_t)pages;
 }
@@ -102,47 +119,82 @@ long mm_mmap(process_t *p, uint32_t addr, size_t len, int prot, int flags,
 int mm_munmap(process_t *p, uint32_t addr, size_t len)
 {
     vma_t *vmas;
+    vma_t snap;
     size_t i;
+    int found = 0;
+    uint32_t irqf;
     (void)len;
     if (!p)
         return -EINVAL;
     vmas = proc_vmas(p);
+    if (!vmas)
+        return -ENOMEM;
+
+    irqf = process_table_lock_irqsave();
     for (i = 0; i < VMA_MAX; i++) {
         if (!vmas[i].used)
             continue;
         if ((uint32_t)(uintptr_t)vmas[i].pages == addr || vmas[i].start == addr) {
-            if ((vmas[i].prot & PROT_WRITE) && vmas[i].fd >= 0) {
-                vfs_lseek(vmas[i].fd, (off_t)vmas[i].offset, SEEK_SET);
-                vfs_write(vmas[i].fd, vmas[i].pages, vmas[i].npages * PAGE_SIZE);
-            }
-            mm_free_pages(vmas[i].pages, vmas[i].npages);
+            snap = vmas[i];
             memset(&vmas[i], 0, sizeof(vmas[i]));
-            return 0;
+            found = 1;
+            break;
         }
     }
-    return -EINVAL;
+    process_table_unlock_irqrestore(irqf);
+
+    if (!found)
+        return -EINVAL;
+
+    /* Slot already unpublished; file I/O and free happen lock-free. */
+    if ((snap.prot & PROT_WRITE) && snap.fd >= 0) {
+        vfs_lseek(snap.fd, (off_t)snap.offset, SEEK_SET);
+        vfs_write(snap.fd, snap.pages, snap.npages * PAGE_SIZE);
+    }
+    mm_free_pages(snap.pages, snap.npages);
+    return 0;
 }
 
 int mm_msync(process_t *p, uint32_t addr, size_t len, int flags)
 {
     vma_t *vmas;
+    vma_t snap;
     size_t i;
+    int found = 0;
+    uint32_t irqf;
     (void)flags;
     if (!p)
         return -EINVAL;
     vmas = proc_vmas(p);
+    if (!vmas)
+        return -ENOMEM;
+
+    irqf = process_table_lock_irqsave();
     for (i = 0; i < VMA_MAX; i++) {
         if (!vmas[i].used)
             continue;
         if ((uint32_t)(uintptr_t)vmas[i].pages == addr ||
             (addr >= vmas[i].start && addr < vmas[i].end)) {
-            size_t n = len ? len : (vmas[i].npages * PAGE_SIZE);
-            if ((vmas[i].prot & PROT_WRITE) && vmas[i].fd >= 0) {
-                vfs_lseek(vmas[i].fd, (off_t)vmas[i].offset, SEEK_SET);
-                vfs_write(vmas[i].fd, vmas[i].pages, n);
-            }
-            return 0;
+            snap = vmas[i];
+            found = 1;
+            break;
         }
     }
-    return -EINVAL;
+    process_table_unlock_irqrestore(irqf);
+
+    if (!found)
+        return -EINVAL;
+
+    /*
+     * Best-effort write-back below the lock: another CPU could munmap the
+     * same VMA concurrently and free snap.pages out from under us. This
+     * mirrors the original (already racy) behavior; a fully safe version
+     * would need per-VMA refcounting, tracked separately.
+     */
+    if ((snap.prot & PROT_WRITE) && snap.fd >= 0) {
+        size_t n = len ? len : (snap.npages * PAGE_SIZE);
+        vfs_lseek(snap.fd, (off_t)snap.offset, SEEK_SET);
+        vfs_write(snap.fd, snap.pages, n);
+    }
+    return 0;
 }

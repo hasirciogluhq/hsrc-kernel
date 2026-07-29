@@ -267,6 +267,11 @@ static void exec_zero_bss(const exec_header_t *hdr)
     memset((void *)(uintptr_t)(hdr->load_addr + hdr->image_size), 0, hdr->bss_size);
 }
 
+static int ranges_overlap(uint32_t a_lo, uint32_t a_hi, uint32_t b_lo, uint32_t b_hi)
+{
+    return a_lo < b_hi && b_lo < a_hi;
+}
+
 /*
  * Single address space: reloading an .exec at a fixed load_addr overwrites any
  * still-running instance. Kill those first so we do not corrupt live EIP/data
@@ -277,6 +282,9 @@ static void exec_kill_load_overlap(const exec_header_t *hdr)
     process_t **table;
     uint32_t lo, hi;
     int i;
+    pid_t victims[PROC_MAX];
+    int n_victims = 0;
+    uint32_t irqf;
 
     if (!hdr)
         return;
@@ -289,19 +297,106 @@ static void exec_kill_load_overlap(const exec_header_t *hdr)
     if (!table)
         return;
 
+    /*
+     * g_procs[] / process_t::state are mutated concurrently by other CPUs
+     * (scheduler, exit, other exec spawns). Snapshot matching pids under
+     * g_proc_lock, then call process_kill() outside the lock — process_kill
+     * takes g_proc_lock itself (no recursive spinlocks) and can send IPIs /
+     * touch sync/fd state that must not run with g_proc_lock held.
+     */
+    irqf = process_table_lock_irqsave();
     for (i = 0; i < PROC_MAX; i++) {
         process_t *p = table[i];
-        uint32_t entry;
+        uint32_t p_lo, p_hi;
 
         if (!p || p->state == PROC_UNUSED || p->state == PROC_ZOMBIE)
             continue;
-        if (!p->is_user || !p->user_entry)
+        if (!p->is_user)
             continue;
-        entry = (uint32_t)(uintptr_t)p->user_entry;
-        if (entry < lo || entry >= hi)
+        if (p->load_addr) {
+            /* Full image+bss range known (spawned after load_addr tracking
+             * was added) — catches foreign-app slot bloat, not just self-
+             * reload of the exact same binary. */
+            p_lo = p->load_addr;
+            p_hi = p->load_addr + p->image_bytes;
+            if (!ranges_overlap(lo, hi, p_lo, p_hi))
+                continue;
+        } else if (p->user_entry) {
+            uint32_t entry = (uint32_t)(uintptr_t)p->user_entry;
+            if (entry < lo || entry >= hi)
+                continue;
+        } else {
             continue;
-        (void)process_kill(p->pid);
+        }
+        if (n_victims < PROC_MAX)
+            victims[n_victims++] = p->pid;
     }
+    process_table_unlock_irqrestore(irqf);
+
+    for (i = 0; i < n_victims; i++) {
+        klog("[exec] killing overlapping process pid=");
+        serial_print_uint((uint32_t)victims[i]);
+        klog(" to load into its slot\n");
+        (void)process_kill(victims[i]);
+    }
+}
+
+/*
+ * Defense-in-depth: after killing same-slot occupants, any *remaining*
+ * live process whose [load_addr, load_addr+image_bytes) still intersects
+ * [lo,hi) is a genuine cross-binary slot collision (e.g. a binary outgrew
+ * its fixed xmake load-address spacing). In this single-address-space,
+ * no-MMU tree that is silent memory corruption, not a recoverable fault —
+ * refuse the spawn instead of memcpy-ing over another process's live
+ * code/data. See xmake/userspace.lua load_addr spacing.
+ */
+static int exec_check_foreign_overlap(const exec_header_t *hdr)
+{
+    process_t **table;
+    uint32_t lo, hi;
+    int i;
+    int bad = 0;
+    uint32_t irqf;
+
+    if (!hdr)
+        return 0;
+    lo = hdr->load_addr;
+    hi = hdr->load_addr + hdr->image_size + hdr->bss_size;
+    if (hi < lo)
+        return 0;
+
+    table = process_table();
+    if (!table)
+        return 0;
+
+    irqf = process_table_lock_irqsave();
+    for (i = 0; i < PROC_MAX; i++) {
+        process_t *p = table[i];
+        uint32_t p_lo, p_hi;
+
+        if (!p || p->state == PROC_UNUSED || p->state == PROC_ZOMBIE)
+            continue;
+        if (!p->is_user || !p->load_addr)
+            continue;
+        p_lo = p->load_addr;
+        p_hi = p->load_addr + p->image_bytes;
+        if (!ranges_overlap(lo, hi, p_lo, p_hi))
+            continue;
+        klog("[exec] FATAL slot collision: new image [");
+        serial_print_hex(lo);
+        klog("..");
+        serial_print_hex(hi);
+        klog(") overlaps live proc=");
+        klog(p->name);
+        klog(" [");
+        serial_print_hex(p_lo);
+        klog("..");
+        serial_print_hex(p_hi);
+        klog(") — refusing spawn (widen load_addr spacing in xmake/userspace.lua)\n");
+        bad = 1;
+    }
+    process_table_unlock_irqrestore(irqf);
+    return bad;
 }
 
 static int exec_bind_libs(const exec_header_t *hdr)
@@ -340,8 +435,10 @@ static int exec_spawn_header(const exec_header_t *hdr, uint32_t spawn_flags,
 
     {
         process_t *child = process_get(pid);
-        if (child)
+        if (child) {
             child->image_bytes = hdr->image_size + hdr->bss_size;
+            child->load_addr = hdr->load_addr;
+        }
     }
 
     klog("[exec] spawned ");
@@ -381,6 +478,10 @@ int exec_spawn_flags(const void *blob, size_t size, uint32_t spawn_flags,
     klog("\n");
 
     exec_kill_load_overlap(hdr);
+    if (exec_check_foreign_overlap(hdr)) {
+        klog("[exec] spawn refused: slot collision\n");
+        return -1;
+    }
 
     img = (const uint8_t *)blob + hdr->header_size;
     dst = (uint8_t *)(uintptr_t)hdr->load_addr;
@@ -453,6 +554,11 @@ int exec_spawn_path_flags(const char *path, uint32_t spawn_flags,
     klog("\n");
 
     exec_kill_load_overlap(&hdr);
+    if (exec_check_foreign_overlap(&hdr)) {
+        klog("[exec] spawn refused: slot collision\n");
+        (void)vfs_close(fd);
+        return -1;
+    }
 
     dst = (uint8_t *)(uintptr_t)hdr.load_addr;
     if (vfs_lseek(fd, (off_t)hdr.header_size, SEEK_SET) < 0) {

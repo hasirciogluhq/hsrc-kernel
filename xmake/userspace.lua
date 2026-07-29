@@ -106,22 +106,36 @@ end
 
 local kGuiLibs = {"sdk-wm", "sdk-kilim", "sdk-reed"}
 
+--[[
+Fixed load-address slots — single address space, no MMU (identity VA==PA).
+Reloading/loading a binary at a fixed load_addr blindly overwrites whatever
+already lives there (see exec_kill_load_overlap / exec_check_foreign_overlap
+in src/kernel/exec.c). Every kGuiLibs app statically owns a `kilim::Context`
+(~3MB, see M13) plus a `reed::Device` and other buffers, so image+bss for a
+GUI app can reach 6-7MB. Slots MUST be spaced wider than the largest
+observed image+bss or one app's bss silently corrupts the next app's code —
+this caused a real, reproducible #UD boot crash (os-shell killed by
+window-manager's bss overflowing into its slot). Keep this gap generous
+(8MB) and check `img=`/`bss=` boot log sizes when adding big new statics.
+--]]
+local SLOT = 0x00800000 -- 8 MiB per app slot (headroom over ~6MB worst case)
+
 define_app("init", 0x02000000, {"userspace/init/main.cpp"})
 define_app("window-manager", 0x02400000, {"userspace/window-manager/main.cpp"},
     nil, nil, nil, kGuiLibs)
-define_app("os-shell", 0x02600000, {"userspace/os-shell/main.cpp"},
+define_app("os-shell", 0x02400000 + SLOT, {"userspace/os-shell/main.cpp"},
     nil, nil, nil, kGuiLibs)
-define_app("os-settings", 0x02800000, {"userspace/os-settings/main.cpp"},
+define_app("os-settings", 0x02400000 + 2 * SLOT, {"userspace/os-settings/main.cpp"},
     nil, nil, nil, kGuiLibs)
-define_app("terminal", 0x02A00000, {"userspace/terminal/main.cpp"},
+define_app("terminal", 0x02400000 + 3 * SLOT, {"userspace/terminal/main.cpp"},
     nil, nil, nil, kGuiLibs)
-define_app("files", 0x02C00000, {"userspace/files/main.cpp"},
+define_app("files", 0x02400000 + 4 * SLOT, {"userspace/files/main.cpp"},
     nil, nil, nil, kGuiLibs)
-define_app("activity-monitor", 0x02E00000, {"userspace/activity-monitor/main.cpp"},
+define_app("activity-monitor", 0x02400000 + 5 * SLOT, {"userspace/activity-monitor/main.cpp"},
     nil, nil, nil, kGuiLibs)
-define_app("minesweeper", 0x03000000, {"userspace/minesweeper/main.cpp"},
+define_app("minesweeper", 0x02400000 + 6 * SLOT, {"userspace/minesweeper/main.cpp"},
     nil, nil, nil, kGuiLibs)
-define_app("imgui-demo", 0x03200000, {
+define_app("imgui-demo", 0x02400000 + 7 * SLOT, {
     "userspace/imgui-demo/main.cpp",
     "userspace/imgui-demo/imgui_impl_kilim.cpp",
     "userspace/imgui-demo/support.cpp",
@@ -135,10 +149,10 @@ define_app("imgui-demo", 0x03200000, {
     "userspace/imgui-demo/third_party/imgui",
 }, kernel_imgui_cxxflags(), nil, kGuiLibs)
 
-define_app("libfs-demo", 0x03400000, {
+define_app("libfs-demo", 0x02400000 + 8 * SLOT, {
     "userspace/libfs-demo/main.cpp",
 }, nil, nil, {"libfs.dynlib"})
-define_app("libfs-demo2", 0x03600000, {
+define_app("libfs-demo2", 0x02400000 + 9 * SLOT, {
     "userspace/libfs-demo2/main.cpp",
 }, nil, nil, {"libfs.dynlib"})
 

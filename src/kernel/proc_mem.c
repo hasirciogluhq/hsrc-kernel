@@ -98,8 +98,11 @@ static int prot_from_page(uint32_t prot)
     return p;
 }
 
-static int resolve_addr(process_t *target, uint32_t addr, size_t len,
-                        void **out_ptr, size_t *out_max)
+/* Caller must hold process_table_lock_irqsave() — reads lead->vmas[] /
+ * ustack_base / kstack_base, which mm_mmap()/mm_munmap() mutate under the
+ * same lock from other CPUs. */
+static int resolve_addr_locked(process_t *target, uint32_t addr, size_t len,
+                               void **out_ptr, size_t *out_max)
 {
     process_t *lead = process_leader(target);
     size_t i;
@@ -273,15 +276,27 @@ static long copy_with_access(int handle, uint32_t need_access, uint32_t addr,
     if (!target)
         return -ESRCH;
 
-    rc = resolve_addr(target, addr, len, &ptr, &max);
-    if (rc < 0)
+    /*
+     * Hold g_proc_lock across resolve + copy: resolve_addr_locked() returns
+     * a raw pointer into the target's vma/stack backing. Without the lock a
+     * concurrent munmap() on another CPU could free that memory between
+     * resolve and memcpy (use-after-free). Critical section is bounded by
+     * `len` (capped by the syscall's out_bytes) — no sleeping inside.
+     */
+    f = process_table_lock_irqsave();
+    rc = resolve_addr_locked(target, addr, len, &ptr, &max);
+    if (rc < 0) {
+        process_table_unlock_irqrestore(f);
         return rc;
+    }
     if (len > max)
         len = max;
     if (writing)
         memcpy(ptr, buf, len);
     else
         memcpy(buf, ptr, len);
+    process_table_unlock_irqrestore(f);
+
     if (out_n)
         *out_n = len;
     return (long)len;
@@ -489,6 +504,9 @@ long sys_query_process_vm(int handle, void *out, size_t out_bytes)
     lead = process_leader(target);
     dst = (proc_vm_region_t *)out;
 
+    /* lead->vmas[] is mutated by mm_mmap()/mm_munmap() under g_proc_lock
+     * from any CPU; take the same lock while walking it. */
+    f = process_table_lock_irqsave();
     if (lead->ustack_base && lead->ustack_size && n < max_n) {
         dst[n].base = (uint32_t)(uintptr_t)lead->ustack_base;
         dst[n].size = lead->ustack_size;
@@ -506,6 +524,7 @@ long sys_query_process_vm(int handle, void *out, size_t out_bytes)
         dst[n].kind = 2; /* heap/vma */
         n++;
     }
+    process_table_unlock_irqrestore(f);
     return (long)n;
 }
 

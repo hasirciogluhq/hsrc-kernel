@@ -136,6 +136,7 @@ typedef struct process {
     int          wait_event;   /* kevent id while waiting, or -1 */
     struct process *wait_next; /* kevent waiter list link */
     uint32_t     image_bytes; /* .hxe image+bss at load_addr (0 for kernel threads) */
+    uint32_t     load_addr;   /* fixed exec load base (0 for kernel threads); [load_addr, load_addr+image_bytes) */
     int          fds[VFS_MAX_FD];
     vma_t        vmas[VMA_MAX];
     proc_env_t   env;
