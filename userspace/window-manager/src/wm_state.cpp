@@ -28,7 +28,6 @@ int g_compose_dirty = 1;
 int g_cursor_x = -1000;
 int g_cursor_y = -1000;
 reed::Device *g_dev = nullptr;
-reed::Texture2D g_cursor_tex;
 
 const DockItem g_dock_items[] = {
     {"Files", "files", "files", 0, 120, 212},

@@ -6,8 +6,8 @@
 
 /*
  * Reed — OpenGL-style userspace client.
- * Records DISP_CMD_* into a command buffer; submit → display.kmod → GpuProvider.
- * NEVER writes pixels. Raster/blit/compose run only in the GPU provider.
+ * Records DISP_CMD_* into a command buffer; submit → display.kmod → gpu_cmd_*
+ * → GpuProvider (virtio ring). NEVER writes pixels.
  */
 
 namespace reed {

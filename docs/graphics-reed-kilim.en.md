@@ -11,7 +11,7 @@ Active graphics architecture for mykernel. Legacy `dx` / `mkdx` / `gfx.hpp` / `S
 | **WM** | Compositor | Import app FBOs, compose via Reed blit, sole scanout |
 | **GpuProvider** | GPU driver | **All** raster / blit / compose pixel work |
 
-**Hard rule:** userspace (Reed / Kilim / apps) **never** writes framebuffer pixels. CPU may upload textures/buffers only.
+**Hard rule:** userspace (Reed / Kilim / apps) **never** writes framebuffer pixels. CPU may upload textures/buffers only. Softpipe / CPU raster / `gpu_soft` are **forbidden**.
 
 ## Stack
 
@@ -24,40 +24,49 @@ Application
 display.kmod          — handles + resolve → GpuProvider
         │
         ▼  gpu_submit / present
-display_bga | display_virtio   (softpipe today; VirGL later)
+display_virtio (VirGL SUBMIT_3D)   preferred — GPU_CAP_HW_SUBMIT
+display_bga                        scanout/present only (no 3D)
 ```
 
 - **WM** is the sole present owner (`kilim::end_frame` / Reed present).
 - **Client apps** only `kilim::commit_frame` (export + attach); they **must not** scanout.
 - **os-shell** owns the wallpaper (background surface); menubar/dock v1 is WM chrome.
 
-`gui_stack_ready()` = `display_active() && disp_api_get()`. Without GUI → **kshell**.
+`gui_stack_ready()` = `display_active() && disp_api_get() && gpu_provider_active() with GPU_CAP_HW_SUBMIT`. Without HW 3D → **kshell** (B24).
 
 ## Frame flow (DX11-ish)
 
 1. Reed opens / binds an FBO (`create_render_target` / swapchain target).
 2. Kilim `begin_frame` → clear + drawlist open.
 3. App/Kilim emit draws (`fill_rect` → Reed `draw`); cmds go into Reed command buffer.
-4. `commit_frame` / `end_frame` → `DISP_OP_SUBMIT` → **GpuProvider::gpu_submit** writes the FBO.
+4. `commit_frame` / `end_frame` → `DISP_OP_SUBMIT` → **GpuProvider::gpu_submit** (VirGL on host).
 5. WM imports app surface tokens, `blit` into its FBO (also via submit), then `present` / scanout.
 
 ## Kernel / display
 
 | Piece | Location | Role |
 |-------|----------|------|
-| Softpipe | `gpu_soft.c` (kernel) | Provider `gpu_submit` backend for BGA/virtio-2D |
-| Bridge | `display.c`, `gpu.c` | provider pick, mode, LFB/scanout |
+| VirGL 3D | `providers/virtio/virtio_virgl.c` | CLEAR / DRAW / BLIT via `SUBMIT_3D` |
+| Virtio 2D | `providers/virtio/virtio_cmd.c` | PRESENT + scanout ring cmds |
+| Bridge | `display.c`, `gpu.c` | provider pick; `display_ops.gpu_caps` → `GPU_CAP_*` |
 | Orchestrator | `display_mod.c` | `SYS_DISP_CALL` — **no** pixel loops |
-| BGA / Virtio | `providers/*` | `gpu_submit` + `present*` |
+| BGA | `providers/bga/*` | LFB present only; 3D cmds return -1 |
+
+### VirGL path
+
+1. Feature negotiate `VIRTIO_GPU_F_VIRGL` (`virtio_ring_has_virgl()`).
+2. `virtio_virgl_init` → `CTX_CREATE` + minimal pipeline (blend/RS/DSA/VE + TGSI VS/FS) + sub-ctx.
+3. `gpu_cmd_*` → `virtio_virgl_exec` (bind state, CLEAR, DRAW, BLIT). Vertex MVP is CPU-prepped into a staging buffer then `TRANSFER_TO_HOST` — **no** RT pixel writes on CPU.
+4. `GPU_CMD_PRESENT` stays in `virtio_cmd` (2D transfer/flush).
 
 ### QEMU (one primary)
 
 | Goal | Args | Provider |
 |------|------|----------|
-| BGA | `-vga std` | `display_bga` |
-| Virtio | `-vga virtio` **or** `-vga none` + `-device virtio-gpu-pci` | `display_virtio` |
+| BGA (console-friendly) | `-vga std` | `display_bga` (no HW_SUBMIT → kshell GUI) |
+| Virtio + VirGL | `-vga none` + `virtio-gpu-gl-pci` (if QEMU has it) else `virtio-gpu-pci` | VirGL → HW_SUBMIT; 2D-only → no GUI (B24) |
 
-**Forbidden:** std VGA + `virtio-gpu-pci` together → black screen.
+**Forbidden:** std VGA + `virtio-gpu-*` together → black screen.
 
 Default resolution: **1920×1080**.
 

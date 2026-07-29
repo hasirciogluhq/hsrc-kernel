@@ -1,6 +1,0 @@
-#ifndef MYKERNEL_DRIVERS_DISPLAY_VIRTIO_GPU_H
-#define MYKERNEL_DRIVERS_DISPLAY_VIRTIO_GPU_H
-
-int kmod_init(void);
-
-#endif

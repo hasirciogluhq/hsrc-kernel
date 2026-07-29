@@ -1,7 +1,7 @@
 #include <drivers/driver.h>
 #include <drivers/display/display.h>
 #include <drivers/display/gpu.h>
-#include <drivers/display/gpu_soft.h>
+#include <drivers/display/gpu_cmd.h>
 #include <drivers/console/serial.h>
 #include <kernel/disp_api.h>
 #include <kernel/heap.h>
@@ -14,10 +14,11 @@
 #include <user/disp.h>
 
 /*
- * display.kmod — resource/fence/scanout orchestrator for Reed.
+ * display.kmod — Reed resource orchestrator + command translator.
  *
- * Reed → SYS_DISP_CALL → here → GpuProvider::gpu_submit / present.
- * Pixel work lives ONLY in the GPU provider (never in Reed/Kilim).
+ * Reed (OpenGL-style) records DISP_CMD_* with handles.
+ * Here: resolve handles → gpu_cmd_* (ready buffer views) → GpuProvider.
+ * Virtio converts gpu_cmd_* → virtio-gpu ring ops. No CPU raster here.
  *
  * Lock: callers enter via disp_api (klock_disp). Tables are single-threaded
  * under that lock; no extra spinlock needed for table mutations.
@@ -705,10 +706,26 @@ static long op_scanout(disp_scanout *a, uint32_t pid)
         return -1;
 
     gpu = gpu_provider_active();
+    if (gpu && gpu->gpu_submit) {
+        /* Prefer ring path: ready buffer → GPU_CMD_PRESENT → device. */
+        gpu_cmd_present_t p;
+        memset(&p, 0, sizeof(p));
+        p.hdr.op = GPU_CMD_PRESENT;
+        p.hdr.size = (uint16_t)sizeof(p);
+        p.color.data = (void *)src;
+        p.color.width = sw;
+        p.color.height = sh;
+        p.color.stride = stride * 4u;
+        p.color.format = DISP_FMT_RGBA8;
+        p.x = a->x;
+        p.y = a->y;
+        p.w = a->w;
+        p.h = a->h;
+        return gpu->gpu_submit(gpu, &p, sizeof(p));
+    }
     if (gpu) {
-        if (a->w == 0 || a->h == 0) {
+        if (a->w == 0 || a->h == 0)
             return gpu->present(gpu, src, stride);
-        }
         if (gpu->present_rect)
             return gpu->present_rect(gpu, src, stride, a->x, a->y, a->w, a->h);
         return gpu->present(gpu, src, stride);
@@ -856,27 +873,13 @@ static long op_stats(disp_stats *a, uint32_t pid)
     return 0;
 }
 
-static int submit_lookup_buf(uint32_t handle, uint32_t pid, void **data, uint32_t *size,
-                             void *ctx)
-{
-    disp_buf_t *b;
-    (void)ctx;
-    b = buf_lookup(handle, pid);
-    if (!b || !b->data)
-        return -1;
-    *data = b->data;
-    *size = b->size;
-    return 0;
-}
+/* Scratch for DISP_CMD_* → gpu_cmd_* under klock_disp (single-threaded). */
+static uint8_t g_gpu_cmd_scratch[GPU_CMD_MAX_BYTES];
 
-static int submit_lookup_tex(uint32_t handle, uint32_t pid, gpu_tex_view_t *out, void *ctx)
+static int tex_view_from_handle(uint32_t handle, uint32_t pid, gpu_tex_view_t *out)
 {
-    disp_tex_t *t;
-    (void)ctx;
-    if (!out)
-        return -1;
-    t = tex_lookup(handle, pid);
-    if (!t || !t->data)
+    disp_tex_t *t = tex_lookup(handle, pid);
+    if (!t || !t->data || !out)
         return -1;
     out->data = t->data;
     out->width = t->width;
@@ -886,22 +889,267 @@ static int submit_lookup_tex(uint32_t handle, uint32_t pid, gpu_tex_view_t *out,
     return 0;
 }
 
-static int submit_lookup_rt_color(uint32_t handle, uint32_t pid, uint32_t *color_tex,
-                                  void *ctx)
+static int rt_color_view(uint32_t rt_handle, uint32_t pid, gpu_tex_view_t *out)
 {
-    disp_rt_t *r;
-    (void)ctx;
-    r = rt_lookup(handle, pid);
+    disp_rt_t *r = rt_lookup(rt_handle, pid);
     if (!r || !r->color_tex)
         return -1;
-    *color_tex = r->color_tex;
+    return tex_view_from_handle(r->color_tex, pid, out);
+}
+
+static int buf_view_from_handle(uint32_t handle, uint32_t pid, gpu_buf_view_t *out)
+{
+    disp_buf_t *b = buf_lookup(handle, pid);
+    if (!b || !b->data || !out)
+        return -1;
+    out->data = b->data;
+    out->size = b->size;
+    return 0;
+}
+
+static int emit_gpu(uint8_t *dst, uint32_t *off, uint32_t cap, const void *pkt, uint32_t sz)
+{
+    uint32_t n = (sz + 3u) & ~3u;
+    if (!pkt || sz < sizeof(gpu_cmd_hdr_t) || *off + n > cap)
+        return -1;
+    memcpy(dst + *off, pkt, sz);
+    if (n > sz)
+        memset(dst + *off + sz, 0, n - sz);
+    *off += n;
+    return 0;
+}
+
+/*
+ * Translate Reed DISP_CMD_* (handles) → gpu_cmd_* (ready buffers).
+ * No pixel work — only resolve + repack for the provider.
+ */
+static long reed_to_gpu_cmds(const void *cmds, uint32_t size, uint32_t pid,
+                             void *out, uint32_t out_cap, uint32_t *out_size)
+{
+    const uint8_t *p = (const uint8_t *)cmds;
+    const uint8_t *end;
+    uint32_t off = 0;
+
+    if (!cmds || !out || !out_size || size < sizeof(disp_cmd_hdr))
+        return -1;
+    end = p + size;
+    *out_size = 0;
+
+    while (p + sizeof(disp_cmd_hdr) <= end) {
+        const disp_cmd_hdr *h = (const disp_cmd_hdr *)p;
+        uint32_t psz;
+
+        if (h->size < sizeof(disp_cmd_hdr) || (h->size & 3u))
+            return -1;
+        psz = h->size;
+        if (p + psz > end)
+            return -1;
+
+        switch (h->op) {
+        case DISP_CMD_BIND_PIPELINE: {
+            const disp_cmd_bind_pipeline *c = (const disp_cmd_bind_pipeline *)p;
+            gpu_cmd_bind_pipeline_t g;
+            if (psz < sizeof(*c))
+                return -1;
+            memset(&g, 0, sizeof(g));
+            g.hdr.op = GPU_CMD_BIND_PIPELINE;
+            g.hdr.size = (uint16_t)sizeof(g);
+            g.topology = c->topology;
+            g.cull = c->cull;
+            g.blend = c->blend;
+            g.shade = c->shade;
+            g.depth_test = c->depth_test;
+            g.depth_write = c->depth_write;
+            if (emit_gpu(out, &off, out_cap, &g, sizeof(g)) < 0)
+                return -1;
+            break;
+        }
+        case DISP_CMD_BIND_VB: {
+            const disp_cmd_bind_handle *c = (const disp_cmd_bind_handle *)p;
+            gpu_cmd_bind_vb_t g;
+            if (psz < sizeof(*c))
+                return -1;
+            memset(&g, 0, sizeof(g));
+            g.hdr.op = GPU_CMD_BIND_VB;
+            g.hdr.size = (uint16_t)sizeof(g);
+            if (buf_view_from_handle(c->handle, pid, &g.vb) < 0)
+                return -1;
+            if (emit_gpu(out, &off, out_cap, &g, sizeof(g)) < 0)
+                return -1;
+            break;
+        }
+        case DISP_CMD_BIND_IB: {
+            const disp_cmd_bind_handle *c = (const disp_cmd_bind_handle *)p;
+            gpu_cmd_bind_ib_t g;
+            if (psz < sizeof(*c))
+                return -1;
+            memset(&g, 0, sizeof(g));
+            g.hdr.op = GPU_CMD_BIND_IB;
+            g.hdr.size = (uint16_t)sizeof(g);
+            if (buf_view_from_handle(c->handle, pid, &g.ib) < 0)
+                return -1;
+            if (emit_gpu(out, &off, out_cap, &g, sizeof(g)) < 0)
+                return -1;
+            break;
+        }
+        case DISP_CMD_BIND_TEX: {
+            const disp_cmd_bind_tex *c = (const disp_cmd_bind_tex *)p;
+            gpu_cmd_bind_tex_t g;
+            if (psz < sizeof(*c))
+                return -1;
+            memset(&g, 0, sizeof(g));
+            g.hdr.op = GPU_CMD_BIND_TEX;
+            g.hdr.size = (uint16_t)sizeof(g);
+            g.slot = c->slot;
+            g.wrap = c->wrap;
+            g.filter = c->filter;
+            if (tex_view_from_handle(c->handle, pid, &g.tex) < 0)
+                return -1;
+            if (emit_gpu(out, &off, out_cap, &g, sizeof(g)) < 0)
+                return -1;
+            break;
+        }
+        case DISP_CMD_BIND_RT: {
+            const disp_cmd_bind_handle *c = (const disp_cmd_bind_handle *)p;
+            gpu_cmd_bind_rt_t g;
+            if (psz < sizeof(*c))
+                return -1;
+            memset(&g, 0, sizeof(g));
+            g.hdr.op = GPU_CMD_BIND_RT;
+            g.hdr.size = (uint16_t)sizeof(g);
+            if (rt_color_view(c->handle, pid, &g.color) < 0)
+                return -1;
+            if (emit_gpu(out, &off, out_cap, &g, sizeof(g)) < 0)
+                return -1;
+            break;
+        }
+        case DISP_CMD_SET_UNIFORM: {
+            const disp_cmd_set_uniform *c = (const disp_cmd_set_uniform *)p;
+            gpu_cmd_set_uniform_t g;
+            if (psz < sizeof(*c))
+                return -1;
+            memset(&g, 0, sizeof(g));
+            g.hdr.op = GPU_CMD_SET_UNIFORM;
+            g.hdr.size = (uint16_t)sizeof(g);
+            memcpy(&g.u, &c->u, sizeof(g.u) < sizeof(c->u) ? sizeof(g.u) : sizeof(c->u));
+            if (emit_gpu(out, &off, out_cap, &g, sizeof(g)) < 0)
+                return -1;
+            break;
+        }
+        case DISP_CMD_SET_VIEWPORT: {
+            const disp_cmd_set_viewport *c = (const disp_cmd_set_viewport *)p;
+            gpu_cmd_set_viewport_t g;
+            if (psz < sizeof(*c))
+                return -1;
+            memset(&g, 0, sizeof(g));
+            g.hdr.op = GPU_CMD_SET_VIEWPORT;
+            g.hdr.size = (uint16_t)sizeof(g);
+            g.x = c->x;
+            g.y = c->y;
+            g.w = c->w;
+            g.h = c->h;
+            g.min_depth = c->min_depth;
+            g.max_depth = c->max_depth;
+            if (emit_gpu(out, &off, out_cap, &g, sizeof(g)) < 0)
+                return -1;
+            break;
+        }
+        case DISP_CMD_SET_SCISSOR: {
+            const disp_cmd_set_scissor *c = (const disp_cmd_set_scissor *)p;
+            gpu_cmd_set_scissor_t g;
+            if (psz < sizeof(*c))
+                return -1;
+            memset(&g, 0, sizeof(g));
+            g.hdr.op = GPU_CMD_SET_SCISSOR;
+            g.hdr.size = (uint16_t)sizeof(g);
+            g.x = c->x;
+            g.y = c->y;
+            g.w = c->w;
+            g.h = c->h;
+            if (emit_gpu(out, &off, out_cap, &g, sizeof(g)) < 0)
+                return -1;
+            break;
+        }
+        case DISP_CMD_CLEAR: {
+            const disp_cmd_clear *c = (const disp_cmd_clear *)p;
+            gpu_cmd_clear_t g;
+            if (psz < sizeof(*c))
+                return -1;
+            memset(&g, 0, sizeof(g));
+            g.hdr.op = GPU_CMD_CLEAR;
+            g.hdr.size = (uint16_t)sizeof(g);
+            g.color_rgba = c->color_rgba;
+            g.depth = c->depth;
+            if (emit_gpu(out, &off, out_cap, &g, sizeof(g)) < 0)
+                return -1;
+            break;
+        }
+        case DISP_CMD_DRAW: {
+            const disp_cmd_draw *c = (const disp_cmd_draw *)p;
+            gpu_cmd_draw_t g;
+            if (psz < sizeof(*c))
+                return -1;
+            memset(&g, 0, sizeof(g));
+            g.hdr.op = GPU_CMD_DRAW;
+            g.hdr.size = (uint16_t)sizeof(g);
+            g.count = c->count;
+            g.first = c->first;
+            if (emit_gpu(out, &off, out_cap, &g, sizeof(g)) < 0)
+                return -1;
+            break;
+        }
+        case DISP_CMD_DRAW_INDEXED: {
+            const disp_cmd_draw_indexed *c = (const disp_cmd_draw_indexed *)p;
+            gpu_cmd_draw_indexed_t g;
+            if (psz < sizeof(*c))
+                return -1;
+            memset(&g, 0, sizeof(g));
+            g.hdr.op = GPU_CMD_DRAW_INDEXED;
+            g.hdr.size = (uint16_t)sizeof(g);
+            g.count = c->count;
+            g.first_index = c->first_index;
+            g.base_vertex = c->base_vertex;
+            if (emit_gpu(out, &off, out_cap, &g, sizeof(g)) < 0)
+                return -1;
+            break;
+        }
+        case DISP_CMD_BLIT: {
+            const disp_cmd_blit *c = (const disp_cmd_blit *)p;
+            gpu_cmd_blit_t g;
+            if (psz < sizeof(*c))
+                return -1;
+            memset(&g, 0, sizeof(g));
+            g.hdr.op = GPU_CMD_BLIT;
+            g.hdr.size = (uint16_t)sizeof(g);
+            if (tex_view_from_handle(c->src_tex, pid, &g.src) < 0)
+                return -1;
+            if (rt_color_view(c->dst_rt, pid, &g.dst) < 0)
+                return -1;
+            g.dst_x = c->dst_x;
+            g.dst_y = c->dst_y;
+            g.src_x = c->src_x;
+            g.src_y = c->src_y;
+            g.src_w = c->src_w;
+            g.src_h = c->src_h;
+            g.blend = c->blend;
+            if (emit_gpu(out, &off, out_cap, &g, sizeof(g)) < 0)
+                return -1;
+            break;
+        }
+        default:
+            return -1;
+        }
+        p += psz;
+    }
+
+    *out_size = off;
     return 0;
 }
 
 static long op_submit(disp_submit *a, uint32_t pid)
 {
     gpu_provider_ops_t *gpu;
-    gpu_submit_res_t res;
+    uint32_t gpu_size = 0;
     long rc;
 
     if (!a || !a->cmds || a->size == 0 || a->size > DISP_MAX_SUBMIT_BYTES)
@@ -911,16 +1159,13 @@ static long op_submit(disp_submit *a, uint32_t pid)
     if (!gpu || !gpu->gpu_submit)
         return -1;
 
-    /* Resolve handles in display.kmod; raster runs in the provider. */
-    memset(&res, 0, sizeof(res));
-    res.lookup_buf = submit_lookup_buf;
-    res.lookup_tex = submit_lookup_tex;
-    res.lookup_rt_color = submit_lookup_rt_color;
-    res.ctx = NULL;
-    res.pid = pid;
-    gpu_submit_res_set(&res);
-    rc = gpu->gpu_submit(gpu, a->cmds, a->size);
-    gpu_submit_res_set(NULL);
+    if (reed_to_gpu_cmds(a->cmds, a->size, pid, g_gpu_cmd_scratch,
+                         sizeof(g_gpu_cmd_scratch), &gpu_size) < 0)
+        return -1;
+    if (gpu_size == 0)
+        return 0;
+
+    rc = gpu->gpu_submit(gpu, g_gpu_cmd_scratch, gpu_size);
     if (rc < 0)
         return rc;
     if (a->fence) {

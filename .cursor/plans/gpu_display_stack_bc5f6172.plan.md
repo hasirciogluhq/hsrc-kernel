@@ -57,9 +57,10 @@ isProject: false
 
 ## Politika
 
-- **Backward compat yok.** Shim yok. Eski ABI silindi.
-- Her oturumda bu dosyanın `todos` + “İlerleme” güncellenir.
-- Mevcut çalışan stack’i bozmadan ilerlenir (static Context, import-share, tek primary QEMU, WM tek present).
+- **Backward compat yok.** Shim yok. Eski ABI (`dx`, `mkdx`, `gfx.hpp`, `SYS_WM_*`, `SYS_GX_*`) silindi.
+- **GPU-only.** CPU rendering, software composition, SW rasterization ve soft-GPU (`gpu_soft` dahil) tüm stack boyunca yasak. Tek istisna: glyph atlas offline bake + texture upload; ekranda yine GPU 1:1 quad.
+- Her oturumda bu dosyanın `todos` + "İlerleme" tablosu güncellenir.
+- Mevcut çalışan stack korunur: static `kilim::Context`, import-share, tek primary QEMU display, WM tek present sahibi.
 
 ## İlerleme (2026-07-29 — FS/TTY/imgui + process mem)
 
@@ -89,13 +90,13 @@ Apps → kilim DrawList → reed cmdbuf → DISP_OP_SUBMIT
          ↓
 display.kmod (resolve handles) → GpuProvider::gpu_submit / present
          ↓
-display_bga | display_virtio  (softpipe in gpu_soft.c until VirGL)
+display_bga | display_virtio  (real GPU only; CPU/soft path forbidden)
 ```
 
-Userspace never writes FB pixels. Softpipe lives only behind provider `gpu_submit`.
+Userspace never writes FB pixels. Soft-GPU / CPU render / CPU composition path is forbidden across the entire stack (Reed, Kilim, WM, provider, kernel). GUI mode requires a real GPU provider (virtio-gpu preferred); without it the system boots to console (kshell) instead of falling back to CPU.
 
 ## Sonraki iş
 
-- ImGui GPU path (kilim textured batches) instead of SW blit
+- ImGui GPU path (kilim textured batches) — CPU blit yolu tamamen kaldırıldı, üstünde yalnızca GPU quad'lar kalır
 - Per-process page tables (mmap MAP_FIXED)
 - Richer proc_audit policy (sysfs toggle)

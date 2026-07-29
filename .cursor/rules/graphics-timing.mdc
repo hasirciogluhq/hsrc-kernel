@@ -6,24 +6,42 @@ alwaysApply: false
 
 # Frame Timing / Scheduler / Geometry
 
-- **T01** Ideal: present Frame Scheduler ile; v1 WM loop + yield kabul, spam present kaçın. — Gerekçe: input rate ≠ frame rate.
-- **T01b** Render input’u beklememeli; input compose’u bloke etmemeli. — Gerekçe: latency sınıfları.
-- **T02** App’ler vsync busy-wait MUST NOT. — Gerekçe: CPU waste.
-- **T03** Missed deadline’da unbounded catch-up MUST NOT. — Gerekçe: latency spiral.
-- **T04** Animation clock ile input clock ayrılabilmeli. — Gerekçe: tradeoff.
-- **T05** Per-window frame request coalesced olmalı. — Gerekçe: wake storms.
-- **T06** Display mode-set present hot path dışında. — Gerekçe: mode-set pahalı.
-- **T07** Damage yoksa idle; boş full compose kaçın. — Gerekçe: power/FPS.
-- **T08** Budget aşımında efekt degrade edilebilir. — Gerekçe: adaptive quality.
-- **T09** Resize commit frame boundary’de. — Gerekçe: geometry tear.
-- **T10** Move sırasında buffer realloc MUST NOT. — Gerekçe: move ≠ realloc.
-- **T11** Maximize/fullscreen damage net rect. — Gerekçe: maliyet.
-- **T12** Multi-monitor bağımsız schedule (ileride). — Gerekçe: ölçek.
-- **T13** Frame id/seq artmalı. — Gerekçe: sync.
-- **T14** Present spam rate-limit. — Gerekçe: thrash.
-- **T15** Blocking sleep render deadline’ı bozmamalı. — Gerekçe: drift.
-- **T16** Splash→desktop handoff tek temiz present; sonra damage modeli. — Gerekçe: black void yok.
-- **T17** Stats read-only export edilebilir. — Gerekçe: privilege.
-- **T18** Warm-up alloc ilk interactive frame’den önce. — Gerekçe: first-frame jank.
-- **T19** Teardown’da in-flight drain. — Gerekçe: UAF.
-- **T20** Input→cursor ve app→pixel ayrı bütçe. — Gerekçe: SLO.
+Frame scheduler ile pacing; damage yoksa idle. Resize/move deterministik ve buffer realloc'suz.
+
+## DO (pozitif)
+
+- WM loop + yield (v1) yeterli; ideal olarak frame scheduler kullanılır.
+- Damage yoksa idle kalınır; boş present yok.
+- Resize commit frame boundary'de uygulanır.
+- Frame id / sequence monotonic artar.
+
+## DON'T (negatif)
+
+- App'lerde vsync busy-wait YASAK.
+- Missed deadline'da unbounded catch-up YASAK.
+- Move sırasında buffer realloc YASAK.
+- Splash → desktop geçişinde blank frame YASAK.
+
+## Rules
+
+- **T01** DO: Present frame scheduler ile pace edilir (v1: WM loop + yield). DON'T: Spam present. Why: Input rate ≠ frame rate.
+- **T01b** DO: Render input'u beklemez; input compose'u bloklamaz. DON'T: İki yolu ortak lock ile bağlamak. Why: Latency sınıfları ayrı kalır.
+- **T02** DO: App'ler vsync event ile uyanır. DON'T: Vsync busy-wait. Why: CPU waste.
+- **T03** DO: Missed deadline'da tek frame'e catch-up yapılır. DON'T: Unbounded catch-up. Why: Latency spiral önlenir.
+- **T04** DO: Animation clock ile input clock ayrılabilir. DON'T: Tek clock ile her iş. Why: Trade-off yönetimi.
+- **T05** DO: Per-window frame request'leri coalesce edilir. DON'T: Her istek için wake. Why: Wake storms.
+- **T06** DO: Display mode-set present dışında yapılır. DON'T: Hot path'te mode set. Why: Mode-set pahalı.
+- **T07** DO: Damage yoksa idle kalınır. DON'T: Idle'da full compose. Why: Power ve FPS.
+- **T08** DO: Budget aşımında efekt (blur/gölge) degrade edilir. DON'T: Budget'ı ezmek. Why: Adaptive quality.
+- **T09** DO: Resize commit frame boundary'de uygulanır. DON'T: Frame ortasında commit. Why: Geometry tear önlenir.
+- **T10** DO: Move sırasında buffer boyutu sabit kalır. DON'T: Move için buffer realloc. Why: Move ≠ realloc.
+- **T11** DO: Maximize/fullscreen için net damage rect verilir. DON'T: Belirsiz "her yer" damage. Why: Maliyet.
+- **T12** DO: Multi-monitor bağımsız schedule (ileride). DON'T: Tek loop'a çakıştırmak. Why: Ölçeklenme.
+- **T13** DO: Frame id / sequence monotonic artar. DON'T: Sıfırlanan / geri giden sayaç. Why: Senkron.
+- **T14** DO: Present rate-limit edilir. DON'T: Present spam. Why: Thrash önlenir.
+- **T15** DO: Sleep süreleri deadline'ı dikkate alır. DON'T: Blocking sleep'in frame'i geciktirmesi. Why: Drift.
+- **T16** DO: Splash → desktop handoff tek temiz present ile yapılır, ardından damage modeli devreye girer. DON'T: Handoff sırasında blank frame. Why: Black void yok.
+- **T17** DO: Stats read-only export edilir. DON'T: Yazma yetkili endpoint. Why: Privilege.
+- **T18** DO: Warm-up alloc ilk interactive frame öncesi yapılır. DON'T: İlk frame içinde alloc. Why: First-frame jank önlenir.
+- **T19** DO: Teardown'da in-flight iş drain edilir. DON'T: In-flight buffer'ı serbest bırakmak. Why: UAF.
+- **T20** DO: Input→cursor ve app→pixel için ayrı bütçe tutulur. DON'T: Tek bütçe altında karıştırmak. Why: SLO ayrımı.

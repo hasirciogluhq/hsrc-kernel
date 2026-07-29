@@ -34,7 +34,7 @@ void *dynlib_lookup(const char *sym);
 dynlib_t *dynlib_find(const char *name);
 
 /*
- * App import table (lives in .exec image). slot_addr is the absolute VA of a
+ * App import table (lives in the user image). slot_addr is the absolute VA of a
  * void* function-pointer slot that the loader fills after relocation.
  */
 typedef struct dynlib_import {

@@ -3,5 +3,5 @@ Description=Window Manager
 Restart=always
 
 [Service]
-ExecStart=/applications/window-manager.exec
+ExecStart=/system/bin/window-manager.elf
 Critical=yes

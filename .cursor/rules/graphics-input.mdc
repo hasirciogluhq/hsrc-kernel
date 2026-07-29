@@ -6,21 +6,39 @@ alwaysApply: false
 
 # Input / Interrupt / Latency
 
-- **I01** Mouse interrupt içinde render/compose MUST NOT. — Gerekçe: ISR µs.
-- **I02** Input compose thread’ini beklememeli. — Gerekçe: input-to-photon.
-- **I03** ISR yalnızca enqueue + wake; allocation MUST NOT. — Gerekçe: deadlock/latency.
-- **I04** Mouse event coalesce; 1000Hz input ≠ 1000 FPS. — Gerekçe: storm kesilir.
-- **I05** Keyboard pointer kuyruğunu boğmamalı. — Gerekçe: fairness.
-- **I06** Input path’te kernel heap allocation MUST NOT. — Gerekçe: atomic safety.
-- **I07** Focus routing usermode WM; driver flood MUST NOT. — Gerekçe: gereksiz wake.
-- **I08** Cursor güncellemesi idealde present’ten bağımsız. — Gerekçe: hissedilen latency.
-- **I09** High-rate device budget drop/coalesce. — Gerekçe: kuyruk.
-- **I10** Timestamp monotonic. — Gerekçe: scheduling.
-- **I11** Compositor input read blocking olsa bile frame üretebilmeli. — Gerekçe: bağımsızlık.
-- **I12** Drag-move geometri coalesced frame’e hizalı. — Gerekçe: IRQ→redraw yasak.
-- **I13** Hit-test cache invalidate bilinçli. — Gerekçe: CPU.
-- **I14** Global grab tek ve net. — Gerekçe: correctness.
-- **I15** Input backlog üst sınırı. — Gerekçe: blow-up.
-- **I16** Event merge window. — Gerekçe: context switch↓.
-- **I17** `SYS_INPUT_STATE` dx’siz; mouse/keyboard drivers. — Gerekçe: stack contract.
-- **I18** `drivers_poll` present hot path’e gömülmemeli (BGA present içi `ps2_poll` yasak). — Gerekçe: scanout latency.
+Input yolu minimum iş yapar: ISR sadece enqueue + wake. Compose input'u beklemez, input compose'u bloklamaz.
+
+## DO (pozitif)
+
+- ISR yalnızca event'i enqueue edip waiter'ı wake eder.
+- Mouse event'leri coalesce edilir; 1000 Hz input ≠ 1000 FPS.
+- Cursor update present'ten bağımsız yolla yapılır.
+- Focus routing usermode WM'de olur.
+
+## DON'T (negatif)
+
+- ISR içinde render/compose/allocation YASAK.
+- Present hot path içinde `drivers_poll` / `ps2_poll` YASAK.
+- Her mouse tick'inde full compose YASAK.
+- Input path'te kernel heap alloc YASAK.
+
+## Rules
+
+- **I01** DO: Interrupt sadece event kaydeder. DON'T: Mouse interrupt içinde render/compose. Why: ISR mikrosaniye kalmalı.
+- **I02** DO: Input compose'a paralel akar. DON'T: Input compose thread'ini beklemek. Why: Input-to-photon latency.
+- **I03** DO: ISR yalnızca enqueue + wake yapar. DON'T: ISR içinde allocation. Why: Deadlock ve latency riski.
+- **I04** DO: Mouse event'leri coalesce edilir. DON'T: Her tick'i ayrı olay olarak yaymak. Why: Storm kesilir.
+- **I05** DO: Keyboard ve pointer kuyrukları dengeli akar. DON'T: Birinin diğerini boğması. Why: Fairness.
+- **I06** DO: Input yolu preallocated buffer'lardan akar. DON'T: Input path'te kernel heap alloc. Why: Atomic safety.
+- **I07** DO: Focus routing usermode WM'de yapılır. DON'T: Driver'ın focus tabanlı flood etmesi. Why: Gereksiz wake önlenir.
+- **I08** DO: Cursor güncellemesi ideal olarak present'ten bağımsız yolla akar. DON'T: Cursor'u full frame present'ine bağlamak. Why: Hissedilen latency.
+- **I09** DO: High-rate device event'i budget aşımında drop/coalesce edilir. DON'T: Sınırsız kuyruğa yığmak. Why: Kuyruk backup.
+- **I10** DO: Timestamp'lar monotonic clock'a bağlanır. DON'T: Wall clock kullanmak. Why: Scheduling doğruluğu.
+- **I11** DO: Compositor input blocked olsa da frame üretebilir. DON'T: Input read'e compose'u bağlamak. Why: Bağımsızlık.
+- **I12** DO: Drag-move geometri coalesced frame'e hizalanır. DON'T: IRQ→redraw zinciri kurmak. Why: Storm önlenir.
+- **I13** DO: Hit-test cache bilinçli invalidate edilir. DON'T: Her frame invalidate. Why: CPU tasarrufu.
+- **I14** DO: Global grab tek ve net sahibe verilir. DON'T: Çakışan grab kaynakları. Why: Correctness.
+- **I15** DO: Input backlog üst sınırlı tutulur. DON'T: Backlog'u sınırsız büyütmek. Why: Blow-up önlenir.
+- **I16** DO: Event merge window uygulanır. DON'T: Her event için ayrı wake. Why: Context switch düşer.
+- **I17** DO: `SYS_INPUT_STATE` mouse/keyboard driver'ları üzerinden akar. DON'T: DX/eski input kanalları. Why: Stack contract.
+- **I18** DO: `drivers_poll` present dışı yollarda çağrılır. DON'T: BGA present içinde `ps2_poll`. Why: Scanout latency.

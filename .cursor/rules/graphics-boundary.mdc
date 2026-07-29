@@ -6,25 +6,45 @@ alwaysApply: false
 
 # Responsibility Boundaries
 
-- **B01** Kernel MUST NOT yüksek seviyeli GUI çizim motoruna dönüşmek; uygulama çizim mantığını (shape, text layout, widget paint) yürütmemek. — Gerekçe: kritik yolu kısa tutar, FPS ve isolation sağlar.
-- **B02** Kernel MUST GpuProvider/scanout, disp resource/fence, güvenlik, scheduling yapmak; window policy userspace; piksel üretimi GpuProvider `gpu_submit`. — Gerekçe: sorumluluk sınırı.
-- **B03** Piksel üretimi MUST GpuProvider `gpu_submit` / present yolunda tamamlanmak; Reed/Kilim yalnızca komut + upload. — Gerekçe: userspace FB yazmaz.
-- **B04** Font rasterization MUST NOT kernel içinde yapılmak. — Gerekçe: CPU yoğun iş syscall süresini şişirir.
-- **B05** Text shaping / glyph cache MUST userspace Kilim’de tutulmak. — Gerekçe: cache locality uygulama sürecinde daha iyidir.
-- **B06** Image decode (PNG/JPEG/BMP parse) MUST NOT kernel present yolunda yapılmak. — Gerekçe: decode latency frame deadline’ını bozar.
-- **B07** Widget/layout hesapları MUST NOT display.kmod veya kernel’de yapılmak. — Gerekçe: WM/SDK userspace.
-- **B08** Kernel MUST front buffer’a uygulama adına doğrudan yazmamak (provider present hariç). — Gerekçe: tear ve race önlenir.
-- **B09** Userspace MUST NOT kernel iç yapı pointer’larına erişmek; map/export handle kullanmak. — Gerekçe: ABI ve memory safety.
-- **B10** Graphics ABI (`user/disp.h`, Reed/Kilim) değişiklikleri MUST plan + migration notu ile yapılmak; soft shim yok. — Gerekçe: bilinçli kırılma.
-- **B11** Display provider (bga/virtio) MUST scanout/present **ve** `gpu_submit` (Reed cmd stream) sağlamak; UI çizmemek. — Gerekçe: driver sınırı.
-- **B12** Usermode WM MUST uygulama paint kodunu çağırmamak / beklememek; app de WM’yi bloklamamak. — Gerekçe: non-blocking; jank izolasyonu.
-- **B13** GPU/accel yolu varsa blit/compose MUST mümkün olduğunca GPU’da bitmek. — Gerekçe: CPU bandwidth ve cache miss azalır.
-- **B14** Kernel MUST NOT userspace heap allocator semantiğini taklit etmek (malloc-benzeri grow in render path). — Gerekçe: deterministik latency.
-- **B15** Debug/overlay çizimi MUST production hot path’i bozmayacak şekilde kapalı kalabilmek. — Gerekçe: ölçüm bias ve FPS regresyonu önlenir.
-- **B16** Policy (focus, stacking) MUST usermode WM’de; pixel blend MUST provider `gpu_submit` compose’ta. — Gerekçe: sorumluluk ayrımı.
-- **B17** Syscall handler (`SYS_DISP_CALL`) MUST resolve + `gpu_submit` forward; Reed userspace’te raster **yasak**. — Gerekçe: mimari + latency.
-- **B18** Userspace SDK MUST kernel’e “nasıl çizileceğini” değil resource/scanout commit iletmek. — Gerekçe: deklaratif commit modeli.
-- **B19** Kernel MUST NOT tema/renk/skin kararları vermek. — Gerekçe: politika userspace’tedir.
-- **B20** Her yeni grafik özelliği MUST hangi katmanda yaşayacağını (Kilim / WM / display.kmod / provider) açıkça seçmek. — Gerekçe: sınır ihlali engellenir.
-- **B21** `gui_stack_ready` MUST `display_active() && disp_api_get()` olmak; DX/mkdx yok. — Gerekçe: boot contract.
-- **B22** System chrome (menubar/dock) v1 WM’de çizilebilir; app content shell surface’te kalmalı. — Gerekçe: chrome her frame görünür kalsın.
+Kernel, WM, SDK ve GPU sürücüsü arasındaki sorumluluk sınırları. Piksel her zaman gerçek GPU'da üretilir.
+
+## DO (pozitif)
+
+- Kernel: GpuProvider yönetimi, scanout, disp resource + fence, güvenlik, scheduling.
+- WM (userspace): stacking, focus, damage, IPC, chrome policy.
+- Kilim/Reed (userspace): draw komutlarını batch'ler ve `SYS_DISP_CALL` ile gönderir.
+- Provider: gerçek GPU `gpu_submit` + present/scanout sağlar.
+
+## DON'T (negatif)
+
+- Kernel'de widget paint, text layout, image decode veya tema kararı YASAK.
+- Piksel üretimini CPU'da yapmak (WM, SDK, provider, kernel) YASAK.
+- Userspace'in kernel iç pointer'ına erişmesi YASAK (handle/export mecburi).
+- Soft-GPU / `gpu_soft` / CPU renderer provider YASAK.
+
+## Rules
+
+- **B01** DO: Kernel yalnızca resource, scanout ve scheduling yapar. DON'T: Kernel içinde widget paint / shape / text layout çalıştırma. Why: Kritik yolu kısa tutar, izolasyon ve FPS sağlar.
+- **B02** DO: Kernel GpuProvider'ı, disp resource/fence'i ve güvenliği yönetir; window policy userspace'te; pikselleri gerçek GPU `gpu_submit` üretir. DON'T: Sorumlulukları katmanlar arasında karıştırma. Why: Net sınır az bug getirir.
+- **B03** DO: Piksel üretimi GpuProvider `gpu_submit` / present yolunda biter; Reed/Kilim yalnızca komut + upload yapar. DON'T: Userspace'te framebuffer'a yazmak. Why: B23 GPU-only sözleşmesi.
+- **B04** DO: Font rasterization userspace Kilim'de olur. DON'T: Kernel içinde font raster etmek. Why: CPU-yoğun iş syscall süresini şişirir.
+- **B05** DO: Text shaping ve glyph cache userspace Kilim'de tutulur. DON'T: Kernel'de shape/cache tutmak. Why: Cache locality process içinde daha iyidir.
+- **B06** DO: Image decode (PNG/JPEG/BMP) userspace'te ve present dışında olur. DON'T: Kernel present yolunda decode çalıştırmak. Why: Decode latency frame deadline'ını bozar.
+- **B07** DO: Widget ve layout hesabı SDK veya WM'de yapılır. DON'T: display.kmod veya kernel içine layout kodu koymak. Why: Sınır ihlali sızıntı üretir.
+- **B08** DO: Front buffer'a yalnızca provider present yolunda atomik yazılır. DON'T: Kernel veya uygulamanın front buffer'a doğrudan yazması. Why: Tear ve race önlenir.
+- **B09** DO: Userspace kernel yapılarına map/export handle ile erişir. DON'T: Kernel iç pointer'ını userspace'e sızdırmak. Why: ABI ve memory safety.
+- **B10** DO: Graphics ABI değişiklikleri (`user/disp.h`, Reed/Kilim) plan + migration notu ile açık şekilde kırılır. DON'T: Soft shim / geçici compat katmanı yazmak. Why: Bilinçli, ölçülebilir kırılma.
+- **B11** DO: Display provider yalnızca scanout/present + gerçek GPU `gpu_submit` sağlar. DON'T: Provider içinde UI çizmek veya soft-GPU implementasyonu yazmak. Why: Sürücü sınırı + B23.
+- **B12** DO: WM app'ten bağımsız compose eder; app WM'yi bloklamaz. DON'T: WM'nin uygulama paint kodunu çağırıp beklemesi. Why: Non-blocking; jank izolasyonu.
+- **B13** DO: Blit, compose, blend, fill, scale ve scene rasterization GPU'da biter. DON'T: CPU blit/fill/blend/scale yolu, `gpu_soft`, CPU renderer fallback. Why: Bandwidth, cache, tek mimari yol.
+- **B14** DO: Render path'te allocation sabit ve önceden reserve edilir. DON'T: Malloc-benzeri grow-in-render kullanmak. Why: Deterministik latency.
+- **B15** DO: Debug/overlay çizimi flag ile production'da tamamen kapatılabilir. DON'T: Debug overlay'in hot path'i kalıcı yavaşlatması. Why: Ölçüm bias ve FPS regresyonu önlenir.
+- **B16** DO: Policy (focus, stacking) WM'de; pixel blend ve layer compose GpuProvider `gpu_submit` ile. DON'T: Policy'yi provider'a, blend'i WM CPU'ya taşımak. Why: Sorumluluk ayrımı + GPU-only.
+- **B17** DO: `SYS_DISP_CALL` handler resolve edip `gpu_submit`'e forward eder. DON'T: Reed/Kilim/WM/kernel soft path içinde CPU raster çalıştırmak. Why: Mimari + latency.
+- **B18** DO: SDK kernel'e resource ve scanout commit iletir. DON'T: "Nasıl çizileceğini" imperative olarak kernel'e yazdırmak. Why: Deklaratif commit modeli.
+- **B19** DO: Tema/renk/skin kararı userspace WM ve app'te alınır. DON'T: Kernel'de tema kararı vermek. Why: Politika userspace'in işidir.
+- **B20** DO: Her yeni grafik özelliği hangi katmanda yaşayacağını (Kilim / WM / display.kmod / provider) açıkça seçer. DON'T: Katmanlar arasında "sıkışmış" özellik bırakmak. Why: Sınır ihlali engellenir.
+- **B21** DO: `gui_stack_ready()` = `display_active() && disp_api_get()`. DON'T: DX/mkdx tabanlı hazırlık kontrolü. Why: Boot contract.
+- **B22** DO: System chrome (menubar/dock) v1 WM'de çizilir; app content shell surface'te kalır. DON'T: App'in system chrome'u ezmesi. Why: Chrome her frame görünür kalır.
+- **B23** DO: Tüm piksel üretimi ve compose gerçek GPU cmd yoluna (`gpu_submit` → device) gider. DON'T: CPU rendering / software composition / SW raster / soft-GPU (provider veya userspace). Why: Tek GPU pipeline; CPU fallback yok.
+- **B24** DO: Provider gerçek GPU accelerated path sunar; yoksa GUI stack başlatılmaz. DON'T: BGA-only / CPU-fill LFB "renderer" kabul etmek veya soft fallback yazmak. Why: B23 ile tutarlı boot contract.

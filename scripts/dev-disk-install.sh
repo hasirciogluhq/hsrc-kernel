@@ -11,10 +11,10 @@ echo "[dev-disk-install] building userspace + disk image..."
 xmake -j"$JOBS" userspace disk
 
 echo "[dev-disk-install] disk.img layout (mounted as /):"
-echo "  /init.exec             — PID1"
-echo "  /system/bin/*.exec     — OS/GUI package (window-manager, shell, terminal, ...)"
+echo "  /init                  — PID1 (ELF)"
+echo "  /system/bin/*.elf      — OS/GUI package (window-manager, shell, terminal, ...)"
 echo "  /system/lib/*.dynlib   — dynamic libraries"
-echo "  /applications/*.exec   — user apps"
+echo "  /applications/*.elf    — user apps"
 echo "  /system/share/*        — icons / wallpaper"
 echo "  /system/etc/environment"
 echo "  (+ /dev /proc /sys /tmp virtual mounts at runtime)"

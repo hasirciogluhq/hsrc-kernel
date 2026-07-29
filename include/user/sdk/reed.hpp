@@ -266,7 +266,7 @@ public:
     void blit(const Texture2D &src, RenderTarget &dst, int32_t dst_x, int32_t dst_y,
               const Rect *src_rect = nullptr, BlendMode blend = BlendMode::Alpha);
 
-    /* DISP_OP_SUBMIT → display.kmod → GpuProvider (softpipe or HW). */
+    /* DISP_OP_SUBMIT → display.kmod → GpuProvider (VirGL / HW). */
     int submit(Fence *fence = nullptr);
 
     /* Present RT to scanout via GpuProvider. */

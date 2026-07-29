@@ -1,9 +1,9 @@
-/* Usermode .exec link script. LOAD_ADDR = USER_IMAGE_BASE via --defsym. */
+/* Usermode ELF (ET_EXEC) — fixed VA base 0x00400000 (USER_IMAGE_BASE). */
 ENTRY(exec_main)
 
 SECTIONS
 {
-    . = LOAD_ADDR;
+    . = 0x00400000;
 
     _exec_start = .;
 

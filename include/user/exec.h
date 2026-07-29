@@ -27,7 +27,7 @@ typedef struct exec_header {
 extern "C" {
 #endif
 
-/* Every .exec exports this as the ring-3 entry (CRT-less). */
+/* Every usermode ELF exports this as the ring-3 entry (CRT-less). */
 void exec_main(void);
 
 #ifdef __cplusplus

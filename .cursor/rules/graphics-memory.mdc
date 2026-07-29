@@ -6,25 +6,44 @@ alwaysApply: false
 
 # Memory / Locks / Allocation
 
-- **M01** Kernel present/scanout sırasında unbounded heap grow MUST NOT. — Gerekçe: deterministik frame time.
-- **M02** Render pipeline içinde büyük global lock tasarımı MUST NOT; `klock_disp` kısa kritik bölge. — Gerekçe: latency.
-- **M03** Spinlock yalnızca çok kısa bölgelerde (`klock` → asm `XCHG`+`PAUSE`). — Gerekçe: playbook.
-- **M03b** Her frame malloc/free MUST NOT; texture/RT reuse. — Gerekçe: allocation jitter.
-- **M04** Shared surface mapping refcount’lu olmalı; import share, steal-free MUST NOT. — Gerekçe: use-after-free.
-- **M05** Buffer pool / önceden reserve tercih; frame ortası grow kaçın. — Gerekçe: jitter.
-- **M06** Hot counter false sharing önlenmeli. — Gerekçe: cache miss↓.
-- **M07** Büyük FB scanline-order. — Gerekçe: prefetch.
-- **M08** Gereksiz userspace↔kernel copy yasak. — Gerekçe: bandwidth.
-- **M09** Temporary scratch prealloc/static. — Gerekçe: allocator contention.
-- **M10** Virtio backing guest-phys bilinçli; cache/DMA. — Gerekçe: coherency.
-- **M11** Fragmentasyon yaratan sık small alloc render path’te MUST NOT. — Gerekçe: jitter.
-- **M12** Lock sırası: `klock_disp` ile sched/proc karıştırma dokümante. — Gerekçe: deadlock.
-- **M13** `kilim::Context` (~3MB) static/BSS/heap; ustack MUST NOT. — Gerekçe: default ustack 1 MiB (`PROC_USTACK_DEFAULT`); Context ≫ stack.
-- **M13b** User stack size MUST `exec_header.stack_size` ile seçilebilir olmak (0→1 MiB, clamp MIN..MAX); sabit gizli 8K/64K varsayımı yasak. — Gerekçe: Windows-like per-binary reserve.
-- **M14** OOM’da last-good frame korunmaya çalışılmalı. — Gerekçe: resilience.
-- **M15** Userspace pointer kernel’de async saklanmamalı (handle). — Gerekçe: lifetime.
-- **M16** mmap/shared region max limit. — Gerekçe: DoS.
-- **M17** Texture destroy: shared backing yalnızca son ref’te `kfree`. — Gerekçe: double-free yok.
-- **M18** Leak audit surface destroy / `disp_cleanup_pid`. — Gerekçe: güvenlik.
-- **M19** Hot path lazy alloc page fault stratejisi MUST NOT. — Gerekçe: fault = frame miss.
-- **M20** 1080p RT ≈ 8MiB; WM+shell+provider FB budget bilinçli. — Gerekçe: heap baskısı.
+Deterministik frame time için render path'te alloc yok, lock kısa, buffer'lar reuse edilir. RT/texture GPU-backed olmak zorundadır.
+
+## DO (pozitif)
+
+- Texture/RT önceden alloc edilir ve reuse edilir; frame ortasında grow yok.
+- `klock_disp` yalnızca kısa kritik bölgelerde tutulur.
+- `kilim::Context` static/BSS/heap'te durur; user stack'e girmez.
+- Import share + refcount; yalnızca last-ref'te `kfree`.
+
+## DON'T (negatif)
+
+- Her frame malloc/free YASAK.
+- Global "büyük" render lock YASAK.
+- Soft-GPU / CPU scratch FB'ye render etmek YASAK.
+- Hot path'te lazy alloc + page fault YASAK.
+
+## Rules
+
+- **M01** DO: Kernel present/scanout sırasında allocation sabit sınırda kalır. DON'T: Unbounded heap grow. Why: Deterministik frame time.
+- **M02** DO: `klock_disp` küçük kritik bölgeleri korur. DON'T: Render pipeline etrafında büyük global lock. Why: Latency.
+- **M03** DO: Spinlock yalnızca çok kısa bölgelerde (`klock` → asm `XCHG`+`PAUSE`). DON'T: Uzun bölge spinlock. Why: Playbook.
+- **M03b** DO: Texture/RT reuse edilir. DON'T: Her frame malloc/free. Why: Allocation jitter.
+- **M04** DO: Shared surface mapping refcount'lu tutulur; import share edilir. DON'T: Steal-free import. Why: Use-after-free.
+- **M05** DO: Buffer pool / önceden reserve tercih edilir. DON'T: Frame ortasında grow. Why: Jitter.
+- **M06** DO: Hot counter'lar cache line boyunca ayrılır. DON'T: False sharing yapmak. Why: Cache miss düşer.
+- **M07** DO: Büyük FB scanline-order tutulur. DON'T: Interleaved / random order. Why: Prefetch verimi.
+- **M08** DO: Zero-copy handle/export ile veri geçer. DON'T: Gereksiz userspace↔kernel copy. Why: Bandwidth.
+- **M09** DO: Temporary scratch prealloc/static. DON'T: Her call'da alloc. Why: Allocator contention.
+- **M10** DO: Virtio backing guest-phys bilinçli tutulur. DON'T: DMA/cache koherensini varsaymak. Why: Coherency.
+- **M11** DO: Render path'te sabit boyut alloc pool'ları kullanılır. DON'T: Fragmentasyon üreten sık small alloc. Why: Jitter.
+- **M12** DO: Lock sırası dokümante: `klock_disp` ile sched/proc karıştırma açıkça yazılır. DON'T: AB-BA lock. Why: Deadlock.
+- **M13** DO: `kilim::Context` (~3 MB) static/BSS/heap'te tutulur. DON'T: Ustack'e koymak. Why: Default ustack 1 MiB (`PROC_USTACK_DEFAULT`); Context ≫ stack.
+- **M13b** DO: User stack size `exec_header.stack_size` ile seçilir (0 → 1 MiB, clamp MIN..MAX). DON'T: Sabit gizli 8K/64K varsayımı. Why: Windows-like per-binary reserve.
+- **M14** DO: OOM anında son iyi frame korunmaya çalışılır. DON'T: OOM'da blank basmak. Why: Resilience.
+- **M15** DO: Kernel handle üzerinden pointer takip eder. DON'T: Userspace pointer'ı kernel'de async saklamak. Why: Lifetime.
+- **M16** DO: mmap/shared region için maksimum limit uygulanır. DON'T: Sınırsız map. Why: DoS.
+- **M17** DO: Texture destroy'da shared backing yalnızca son ref'te `kfree` edilir. DON'T: Erken free. Why: Double-free önlenir.
+- **M18** DO: Surface destroy / `disp_cleanup_pid` ile leak audit yapılır. DON'T: PID kapanınca kaynak sızdırmak. Why: Güvenlik.
+- **M19** DO: Hot path'te tüm sayfalar önceden faulted olur. DON'T: Lazy alloc + page fault. Why: Fault = frame miss.
+- **M20** DO: 1080p RT ≈ 8 MiB; WM+shell+provider FB budget'ı bilinçli tutulur. DON'T: Belirsiz FB çoğaltmak. Why: Heap baskısı.
+- **M21** DO: RT/texture GPU-backed olur ve `gpu_submit` ile doldurulur. DON'T: Soft-GPU / CPU scratch FB "render target" allocate edip CPU doldurmak. Why: B23 GPU-only.

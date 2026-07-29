@@ -143,8 +143,8 @@ typedef struct disp_stats {
 
 /*
  * DISP_OP_SUBMIT — Reed command stream.
- * display.kmod resolves handles, then GpuProvider::gpu_submit executes
- * (softpipe or HW). Userspace never rasterizes.
+ * display.kmod resolves handles → gpu_cmd_*, then GpuProvider ring path.
+ * Userspace never rasterizes. Provider must not CPU-raster either.
  */
 typedef struct disp_submit {
     const void *cmds;   /* packed disp_cmd_* packets */

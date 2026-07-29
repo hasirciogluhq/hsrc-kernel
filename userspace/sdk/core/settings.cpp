@@ -11,7 +11,7 @@ namespace {
 
 constexpr const char *kSettingsTitle = "System Settings";
 constexpr const char *kSettingsClass = "os.settings";
-constexpr const char *kSettingsPath = "/system/bin/os-settings.exec";
+constexpr const char *kSettingsPath = "/system/bin/os-settings.elf";
 constexpr const char *kRunDir = "/run";
 constexpr const char *kDeepLinkPath = "/run/settings.deeplink";
 constexpr const char *kThemeGenPath = "/run/os-theme.gen";

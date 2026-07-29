@@ -9,9 +9,8 @@ namespace {
 
 struct BackendData {
     int win_id = -1;
-    uint8_t *font_pixels = nullptr;
-    int font_w = 0;
-    int font_h = 0;
+    reed::Device *dev = nullptr;
+    reed::Texture2D font_atlas;
     uint8_t prev_keys[32]{};
 };
 
@@ -20,43 +19,19 @@ BackendData *bd()
     return reinterpret_cast<BackendData *>(ImGui::GetIO().BackendRendererUserData);
 }
 
-uint32_t blend_argb(uint32_t dst, uint8_t r, uint8_t g, uint8_t b, uint8_t a)
-{
-    if (a == 0)
-        return dst;
-    if (a == 255)
-        return (255u << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
-    const uint32_t dr = (dst >> 16) & 0xFFu;
-    const uint32_t dg = (dst >> 8) & 0xFFu;
-    const uint32_t db = dst & 0xFFu;
-    const uint32_t ia = 255u - a;
-    return (255u << 24) | (((r * a + dr * ia) / 255u) << 16) |
-           (((g * a + dg * ia) / 255u) << 8) | ((b * a + db * ia) / 255u);
-}
-
-uint8_t sample_font_a(BackendData *b, float u, float v)
-{
-    if (!b || !b->font_pixels || b->font_w <= 0 || b->font_h <= 0)
-        return 255;
-    int x = (int)(u * (float)b->font_w);
-    int y = (int)(v * (float)b->font_h);
-    if (x < 0)
-        x = 0;
-    if (y < 0)
-        y = 0;
-    if (x >= b->font_w)
-        x = b->font_w - 1;
-    if (y >= b->font_h)
-        y = b->font_h - 1;
-    return b->font_pixels[(size_t)y * (size_t)b->font_w + (size_t)x];
-}
-
 void unpack_col(ImU32 c, uint8_t &r, uint8_t &g, uint8_t &b, uint8_t &a)
 {
     r = (uint8_t)((c >> IM_COL32_R_SHIFT) & 0xFFu);
     g = (uint8_t)((c >> IM_COL32_G_SHIFT) & 0xFFu);
     b = (uint8_t)((c >> IM_COL32_B_SHIFT) & 0xFFu);
     a = (uint8_t)((c >> IM_COL32_A_SHIFT) & 0xFFu);
+}
+
+uint32_t pack_rgba(ImU32 c)
+{
+    uint8_t r, g, b, a;
+    unpack_col(c, r, g, b, a);
+    return kilim::rgba(r, g, b, a);
 }
 
 bool nearly_eq(float a, float b, float eps)
@@ -69,68 +44,6 @@ bool nearly_eq(float a, float b, float eps)
 
 bool nearly_eq_pos(float a, float b) { return nearly_eq(a, b, 0.5f); }
 bool nearly_eq_uv(float a, float b) { return nearly_eq(a, b, 1.0e-4f); }
-
-bool try_draw_aa_quad(uint32_t *pixels, uint32_t stride_px, int fb_w, int fb_h,
-                      BackendData *b, const ImDrawVert &a, const ImDrawVert &c,
-                      int clip_x0, int clip_y0, int clip_x1, int clip_y1)
-{
-    float min_x = a.pos.x < c.pos.x ? a.pos.x : c.pos.x;
-    float max_x = a.pos.x > c.pos.x ? a.pos.x : c.pos.x;
-    float min_y = a.pos.y < c.pos.y ? a.pos.y : c.pos.y;
-    float max_y = a.pos.y > c.pos.y ? a.pos.y : c.pos.y;
-
-    int x0 = (int)min_x;
-    int y0 = (int)min_y;
-    int x1 = (int)max_x;
-    int y1 = (int)max_y;
-    if (x0 < clip_x0)
-        x0 = clip_x0;
-    if (y0 < clip_y0)
-        y0 = clip_y0;
-    if (x1 > clip_x1)
-        x1 = clip_x1;
-    if (y1 > clip_y1)
-        y1 = clip_y1;
-    if (x0 < 0)
-        x0 = 0;
-    if (y0 < 0)
-        y0 = 0;
-    if (x1 > fb_w)
-        x1 = fb_w;
-    if (y1 > fb_h)
-        y1 = fb_h;
-    if (x0 >= x1 || y0 >= y1)
-        return true;
-
-    const float du = c.uv.x - a.uv.x;
-    const float dv = c.uv.y - a.uv.y;
-    const float dw = max_x - min_x;
-    const float dh = max_y - min_y;
-    if (dw <= 0.0f || dh <= 0.0f)
-        return true;
-
-    uint8_t cr, cg, cb, ca;
-    unpack_col(a.col, cr, cg, cb, ca);
-    const bool solid_uv = nearly_eq_uv(a.uv.x, c.uv.x) && nearly_eq_uv(a.uv.y, c.uv.y);
-
-    for (int y = y0; y < y1; y++) {
-        const float fy = ((float)y + 0.5f - min_y) / dh;
-        const float v = a.uv.y + dv * fy;
-        uint32_t *row = pixels + (uint32_t)y * stride_px;
-        for (int x = x0; x < x1; x++) {
-            uint8_t ta = 255;
-            if (!solid_uv) {
-                const float fx = ((float)x + 0.5f - min_x) / dw;
-                ta = sample_font_a(b, a.uv.x + du * fx, v);
-            }
-            const uint8_t out_a = (uint8_t)((ca * ta) / 255u);
-            if (out_a == 0)
-                continue;
-            row[x] = blend_argb(row[x], cr, cg, cb, out_a);
-        }
-    }
-    return true;
-}
 
 bool verts_form_aa_quad(const ImDrawVert *vs, int count, ImDrawVert &out_min,
                         ImDrawVert &out_max)
@@ -177,99 +90,38 @@ bool verts_form_aa_quad(const ImDrawVert *vs, int count, ImDrawVert &out_min,
     return true;
 }
 
-void draw_triangle_slow(uint32_t *pixels, uint32_t stride_px, int fb_w, int fb_h,
-                        BackendData *b, const ImDrawVert &v0, const ImDrawVert &v1,
-                        const ImDrawVert &v2, int clip_x0, int clip_y0, int clip_x1,
-                        int clip_y1)
-{
-    float min_x = v0.pos.x, max_x = v0.pos.x;
-    float min_y = v0.pos.y, max_y = v0.pos.y;
-    if (v1.pos.x < min_x)
-        min_x = v1.pos.x;
-    if (v2.pos.x < min_x)
-        min_x = v2.pos.x;
-    if (v1.pos.x > max_x)
-        max_x = v1.pos.x;
-    if (v2.pos.x > max_x)
-        max_x = v2.pos.x;
-    if (v1.pos.y < min_y)
-        min_y = v1.pos.y;
-    if (v2.pos.y < min_y)
-        min_y = v2.pos.y;
-    if (v1.pos.y > max_y)
-        max_y = v1.pos.y;
-    if (v2.pos.y > max_y)
-        max_y = v2.pos.y;
-
-    int x0 = (int)min_x;
-    int y0 = (int)min_y;
-    int x1 = (int)max_x + 1;
-    int y1 = (int)max_y + 1;
-    if (x0 < clip_x0)
-        x0 = clip_x0;
-    if (y0 < clip_y0)
-        y0 = clip_y0;
-    if (x1 > clip_x1)
-        x1 = clip_x1;
-    if (y1 > clip_y1)
-        y1 = clip_y1;
-    if (x0 < 0)
-        x0 = 0;
-    if (y0 < 0)
-        y0 = 0;
-    if (x1 > fb_w)
-        x1 = fb_w;
-    if (y1 > fb_h)
-        y1 = fb_h;
-    if (x0 >= x1 || y0 >= y1)
-        return;
-    if ((x1 - x0) * (y1 - y0) > 4096)
-        return;
-
-    const float area = (v1.pos.x - v0.pos.x) * (v2.pos.y - v0.pos.y) -
-                       (v1.pos.y - v0.pos.y) * (v2.pos.x - v0.pos.x);
-    if (area == 0.0f)
-        return;
-    const float inv = 1.0f / area;
-
-    uint8_t r0, g0, b0, a0, r1, g1, b1, a1, r2, g2, b2, a2;
-    unpack_col(v0.col, r0, g0, b0, a0);
-    unpack_col(v1.col, r1, g1, b1, a1);
-    unpack_col(v2.col, r2, g2, b2, a2);
-
-    for (int y = y0; y < y1; y++) {
-        for (int x = x0; x < x1; x++) {
-            float px = (float)x + 0.5f;
-            float py = (float)y + 0.5f;
-            float w0 = ((v1.pos.x - px) * (v2.pos.y - py) -
-                        (v1.pos.y - py) * (v2.pos.x - px)) *
-                       inv;
-            float w1 = ((v2.pos.x - px) * (v0.pos.y - py) -
-                        (v2.pos.y - py) * (v0.pos.x - px)) *
-                       inv;
-            float w2 = 1.0f - w0 - w1;
-            if (w0 < 0.0f || w1 < 0.0f || w2 < 0.0f)
-                continue;
-            float u = w0 * v0.uv.x + w1 * v1.uv.x + w2 * v2.uv.x;
-            float v = w0 * v0.uv.y + w1 * v1.uv.y + w2 * v2.uv.y;
-            uint8_t ta = sample_font_a(b, u, v);
-            uint8_t cr = (uint8_t)(w0 * r0 + w1 * r1 + w2 * r2);
-            uint8_t cg = (uint8_t)(w0 * g0 + w1 * g1 + w2 * g2);
-            uint8_t cb = (uint8_t)(w0 * b0 + w1 * b1 + w2 * b2);
-            uint8_t ca = (uint8_t)(w0 * a0 + w1 * a1 + w2 * a2);
-            uint8_t out_a = (uint8_t)((ca * ta) / 255u);
-            if (out_a == 0)
-                continue;
-            uint32_t &dst = pixels[(uint32_t)y * stride_px + (uint32_t)x];
-            dst = blend_argb(dst, cr, cg, cb, out_a);
-        }
-    }
-}
-
 static ImDrawVert offset_vert(ImDrawVert v, int dy)
 {
     v.pos.y += (float)dy;
     return v;
+}
+
+static void emit_quad_gpu(kilim::Context &k, BackendData *b, const ImDrawVert &a,
+                          const ImDrawVert &c)
+{
+    const bool solid_uv =
+        nearly_eq_uv(a.uv.x, c.uv.x) && nearly_eq_uv(a.uv.y, c.uv.y);
+    const uint32_t tint = pack_rgba(a.col);
+    if (solid_uv) {
+        int x = (int)a.pos.x;
+        int y = (int)a.pos.y;
+        int w = (int)(c.pos.x - a.pos.x);
+        int h = (int)(c.pos.y - a.pos.y);
+        if (w < 0) {
+            x = (int)c.pos.x;
+            w = -w;
+        }
+        if (h < 0) {
+            y = (int)c.pos.y;
+            h = -h;
+        }
+        k.fill_rect(x, y, w, h, tint);
+        return;
+    }
+    if (!b->font_atlas.valid())
+        return;
+    k.image_uv(b->font_atlas, a.pos.x, a.pos.y, c.pos.x, c.pos.y, a.uv.x, a.uv.y,
+               c.uv.x, c.uv.y, tint);
 }
 
 /* US QWERTY set-1 → printable / special for ImGui. */
@@ -312,12 +164,15 @@ static void feed_scancode_edge(ImGuiIO &io, int sc, int shift, int down)
 
 } // namespace
 
-bool ImGui_ImplKilim_Init()
+bool ImGui_ImplKilim_Init(reed::Device *dev)
 {
     ImGuiIO &io = ImGui::GetIO();
     IM_ASSERT(io.BackendRendererUserData == nullptr);
+    if (!dev || !dev->valid())
+        return false;
 
     BackendData *b = IM_NEW(BackendData)();
+    b->dev = dev;
     io.BackendRendererUserData = b;
     io.BackendRendererName = "imgui_impl_kilim";
     io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
@@ -327,11 +182,30 @@ bool ImGui_ImplKilim_Init()
     unsigned char *pixels = nullptr;
     int w = 0, h = 0;
     io.Fonts->GetTexDataAsAlpha8(&pixels, &w, &h);
-    b->font_pixels = pixels;
-    b->font_w = w;
-    b->font_h = h;
-    io.Fonts->SetTexID((ImTextureID)(uintptr_t)1);
-    return pixels != nullptr && w > 0 && h > 0;
+    if (!pixels || w <= 0 || h <= 0) {
+        IM_DELETE(b);
+        io.BackendRendererUserData = nullptr;
+        return false;
+    }
+
+    /* Atlas bake is CPU; upload once — runtime FB never written by CPU. */
+    b->font_atlas = dev->create_texture(reed::TexFormat::A8, (uint32_t)w, (uint32_t)h, 1);
+    if (!b->font_atlas.valid()) {
+        IM_DELETE(b);
+        io.BackendRendererUserData = nullptr;
+        return false;
+    }
+    uint8_t *dst = (uint8_t *)b->font_atlas.map();
+    if (!dst) {
+        b->font_atlas.destroy();
+        IM_DELETE(b);
+        io.BackendRendererUserData = nullptr;
+        return false;
+    }
+    memcpy(dst, pixels, (size_t)w * (size_t)h);
+    b->font_atlas.unmap();
+    io.Fonts->SetTexID((ImTextureID)(uintptr_t)b->font_atlas.handle());
+    return true;
 }
 
 void ImGui_ImplKilim_Shutdown()
@@ -340,6 +214,7 @@ void ImGui_ImplKilim_Shutdown()
     BackendData *b = bd();
     if (!b)
         return;
+    b->font_atlas.destroy();
     io.Fonts->SetTexID(0);
     io.BackendRendererName = nullptr;
     io.BackendRendererUserData = nullptr;
@@ -411,21 +286,14 @@ void ImGui_ImplKilim_NewFrame(wm::Window &win, const wm::Input &in,
         b->prev_keys[i] = in.keys[i];
 }
 
-void ImGui_ImplKilim_RenderDrawData(ImDrawData *draw_data, reed::Texture2D &fb,
+void ImGui_ImplKilim_RenderDrawData(ImDrawData *draw_data, kilim::Context &k,
                                     int client_top)
 {
     BackendData *b = bd();
-    if (!draw_data || !fb.valid() || !b)
+    if (!draw_data || !k.valid() || !b)
         return;
     if (client_top < 0)
         client_top = 0;
-
-    uint32_t *pixels = (uint32_t *)fb.map();
-    if (!pixels)
-        return;
-    const int fb_w = (int)fb.width();
-    const int fb_h = (int)fb.height();
-    const uint32_t stride_px = fb.stride() / 4u;
 
     for (int n = 0; n < draw_data->CmdListsCount; n++) {
         const ImDrawList *cmd_list = draw_data->CmdLists[n];
@@ -443,39 +311,31 @@ void ImGui_ImplKilim_RenderDrawData(ImDrawData *draw_data, reed::Texture2D &fb,
             int clip_y0 = (int)pcmd->ClipRect.y + client_top;
             int clip_x1 = (int)pcmd->ClipRect.z;
             int clip_y1 = (int)pcmd->ClipRect.w + client_top;
+            int cw = clip_x1 - clip_x0;
+            int ch = clip_y1 - clip_y0;
+            if (cw > 0 && ch > 0)
+                k.set_clip(clip_x0, clip_y0, cw, ch);
 
             unsigned int i = 0;
             while (i + 6 <= pcmd->ElemCount) {
                 ImDrawVert vs[6];
-                for (int k = 0; k < 6; k++) {
-                    const ImDrawIdx id = idx[pcmd->IdxOffset + i + (unsigned)k];
-                    vs[k] = offset_vert(vtx[pcmd->VtxOffset + id], client_top);
+                for (int kk = 0; kk < 6; kk++) {
+                    const ImDrawIdx id = idx[pcmd->IdxOffset + i + (unsigned)kk];
+                    vs[kk] = offset_vert(vtx[pcmd->VtxOffset + id], client_top);
                 }
                 ImDrawVert qmin{}, qmax{};
                 if (verts_form_aa_quad(vs, 6, qmin, qmax)) {
-                    (void)try_draw_aa_quad(pixels, stride_px, fb_w, fb_h, b, qmin,
-                                           qmax, clip_x0, clip_y0, clip_x1, clip_y1);
+                    emit_quad_gpu(k, b, qmin, qmax);
                     i += 6;
                     continue;
                 }
-                draw_triangle_slow(pixels, stride_px, fb_w, fb_h, b, vs[0], vs[1],
-                                   vs[2], clip_x0, clip_y0, clip_x1, clip_y1);
-                draw_triangle_slow(pixels, stride_px, fb_w, fb_h, b, vs[3], vs[4],
-                                   vs[5], clip_x0, clip_y0, clip_x1, clip_y1);
+                /* Non-AA path: still emit as two tris via AABB UV approx of first tri pair. */
+                emit_quad_gpu(k, b, vs[0], vs[2]);
+                emit_quad_gpu(k, b, vs[3], vs[5]);
                 i += 6;
             }
-            for (; i + 3 <= pcmd->ElemCount; i += 3) {
-                draw_triangle_slow(
-                    pixels, stride_px, fb_w, fb_h, b,
-                    offset_vert(vtx[pcmd->VtxOffset + idx[pcmd->IdxOffset + i + 0]],
-                                client_top),
-                    offset_vert(vtx[pcmd->VtxOffset + idx[pcmd->IdxOffset + i + 1]],
-                                client_top),
-                    offset_vert(vtx[pcmd->VtxOffset + idx[pcmd->IdxOffset + i + 2]],
-                                client_top),
-                    clip_x0, clip_y0, clip_x1, clip_y1);
-            }
+            /* Leftover triangles → skip (no CPU raster). */
         }
     }
-    fb.unmap();
+    k.clear_clip();
 }

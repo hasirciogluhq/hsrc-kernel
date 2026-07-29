@@ -6,7 +6,21 @@ alwaysApply: false
 
 # Graphics Engineering Gate
 
-Bu dosya seti kernel display/disp, GpuProvider, usermode WM, Reed/Kilim SDK için zorunlu mühendislik kurallarıdır. Code review checklist olarak kullanılır.
+Kernel display/disp, GpuProvider, usermode WM ve Reed/Kilim SDK için zorunlu mühendislik kuralları. Code review checklist olarak kullanılır.
+
+## DO (pozitif)
+
+- Tüm piksel işi gerçek GPU'ya gider: Reed/Kilim cmd → `SYS_DISP_CALL` → `display.kmod` → GpuProvider `gpu_submit` → device present.
+- GUI için gerçek GPU provider (`display_virtio` / virtio-gpu) kullanılır; soft/CPU fallback yok.
+- Kilim glyph atlasını offline bake edip texture olarak upload eder; ekranda GPU 1:1 quad çizer.
+- Her PR syscall / context switch / copy / redraw sayısını düşürür.
+
+## DON'T (negatif)
+
+- CPU rendering, software composition, SW rasterization, soft-GPU (`gpu_soft`), CPU blit/fill/blend YASAK.
+- FB / render target'a userspace veya kernel'den doğrudan piksel yazmak YASAK (provider present hariç).
+- "Geçici" CPU fallback / TODO YASAK; ihlal düzeltilmeden merge yok.
+- Legacy `dx`, `mkdx`, `gfx.hpp`, `SYS_WM_*`, `SYS_GX_*` yolları YASAK (silindi).
 
 ## Aktif stack (2026-07)
 
@@ -15,10 +29,10 @@ Apps → wm::Window + kilim::Context + reed::Device
          ↓ /tmp/wm file IPC
 window-manager (compose + present)
          ↓ SYS_DISP_CALL
-display.kmod → GpuProvider ← display_bga | display_virtio
+display.kmod → GpuProvider ← display_virtio (gerçek GPU; CPU/soft path yok)
 ```
 
-Legacy `dx` / `mkdx` / `gfx.hpp` / `SYS_WM_*` / `SYS_GX_*` **yok**. `klock_disp` (eski `klock_gfx`).
+`klock_disp` (eski adı `klock_gfx`) `disp_api` + `drivers_poll` erişimini serialize eder.
 
 ## Hedefler (öncelik sırası)
 
@@ -30,28 +44,60 @@ Legacy `dx` / `mkdx` / `gfx.hpp` / `SYS_WM_*` / `SYS_GX_*` **yok**. `klock_disp`
 6. Ölçeklenebilir GUI mimarisi
 7. Profesyonel kernel kalitesi (deterministik, kısa kritik yollar)
 
-**Öncelik:** Syscall / context switch / copy / redraw azaltmak, yeni özellik eklemekten daha önemlidir.
+Bu öncelikleri geri götüren yeni özellik reddedilir.
+
+## Hard ban — GPU-only
+
+Aşağıdaki yollar kesin yasaktır; geçici fallback kabul edilmez:
+
+- CPU rendering (fill, blit, blend, scale, triangle/quad raster)
+- Software / CPU composition (WM veya kernel)
+- SW rasterization (Reed, Kilim, provider, `gpu_soft`)
+- Soft-GPU / CPU renderer'ın "GpuProvider gibi davranan" implementasyonları
+
+Zorunlu yol: Reed/Kilim cmd → `DISP_OP_SUBMIT` → GpuProvider **gerçek GPU** `gpu_submit` → GPU present / scanout.
+
+Tek istisna: glyph atlas'ın **offline bake + texture upload** edilmesi. Ekranda yine GPU 1:1 quad çizilir; FB veya RT'ye CPU tarafında yazmak yasaktır. Detay: **B13, B23, B24, C20, P20, P31, S06, S25**.
+
+```c
+// BAD — CPU compose / blit
+for (int y = 0; y < h; y++)
+    for (int x = 0; x < w; x++)
+        fb[y * pitch + x] = blend(a[y][x], b[y][x]);
+
+// GOOD — GPU submit
+reed_bind_pipeline(dev, pipe);
+reed_bind_texture(dev, tex);
+reed_draw_quads(dev, verts, n);
+kilim_end_frame(ctx); // → DISP_OP_SUBMIT → gpu_submit
+```
 
 ## Review kararı
 
-- Bu kurallar ihlal edilemez.
-- Kural ihlali varsa PR/değişiklik reddedilir veya düzeltilmeden merge edilmez.
-- "Geçici" ihlal yalnızca açık TODO + ölçülebilir regresyon planı ile kabul edilir.
+- Kurallar ihlal edilemez.
+- İhlal varsa PR reddedilir veya düzeltilmeden merge edilmez.
+- CPU / soft-GPU ihlali için "geçici" TODO yok.
+- Diğer alanlarda geçici sapma yalnızca açık TODO + ölçülebilir regresyon planı ile kabul edilir.
 - Performans kaybettiren çözüm yalnızca teknik olarak kaçınılmazsa kabul edilir.
 
 ## Feature Gate (zorunlu)
 
-Yeni özellik eklenmeden önce: syscall sayısı, context switch, memory copy, redraw, allocation, cache, scheduler, latency, FPS. Daha verimli alternatif araştırılmadan kabul edilmez.
+Yeni özellik eklenmeden önce şu metrikler değerlendirilir: syscall sayısı, context switch, memory copy, redraw, allocation, cache pattern, scheduler etkisi, latency, FPS. Daha verimli alternatif araştırılmadan kabul edilmez.
 
 ## Hard lessons (bu tree)
 
-- `kilim::Context` (~3MB batch buffers) **MUST NOT** user stack’te yaşamak → `static` / heap. Default ustack **1 MiB** (`PROC_USTACK_DEFAULT` / `exec_header.stack_size`); Context için yine yetmez.
-- QEMU: **tek** primary display. BGA: `-vga std`. Virtio: `-vga virtio` **veya** `-vga none` + `-device virtio-gpu-pci`. `virtio-gpu-pci` + default/std VGA = yanlış pencereye present → siyah ekran.
-- Texture **import** exporter backing’i çalmamalı; share + refcount free.
+- `kilim::Context` (~3 MB batch buffer) user stack'te yaşamaz → `static` veya heap. Default ustack **1 MiB** (`PROC_USTACK_DEFAULT` / `exec_header.stack_size`); Context için yine yetmez.
+- QEMU tek primary display kullanır: BGA için `-vga std`; virtio için `-vga virtio` veya `-vga none` + `-device virtio-gpu-pci`. `virtio-gpu-pci` + default/std VGA = yanlış pencereye present → siyah ekran.
+- Texture **import** exporter backing'ini çalmaz; share + refcount ile serbest bırakılır.
+- Mouse bounds display mode'a göre `mouse_set_bounds` ile set edilir (aksi hâlde 1024×768 duvarı).
+- WM idle'da full compose yapmaz; yalnızca cursor damage present eder.
+- Metin: glyph atlas upload edildikten sonra ekranda GPU 1:1 quad. CPU text blit / stretch yasaktır.
+- Shell wallpaper bir kez commit edilir; her frame recommit lag kaynağıdır.
+- Soft-GPU / CPU compose regresyonu "bilinçli kabul" değildir; **B23 hard ban**.
 
 ## Kural dosyaları
 
-Not: `eng` eski isimde *engineering* anlamındaydı (English değil). Dosyalar artık `graphics-*.mdc`.
+Not: eski isimdeki `eng` = *engineering* (English değil). Dosyalar artık `graphics-*.mdc`.
 
 - `graphics-boundary.mdc` — sorumluluk sınırları
 - `graphics-syscall.mdc` — syscall, batching, IPC
@@ -60,10 +106,3 @@ Not: `eng` eski isimde *engineering* anlamındaydı (English değil). Dosyalar a
 - `graphics-input.mdc` — input, interrupt, latency
 - `graphics-memory.mdc` — bellek, lock, allocation
 - `graphics-timing.mdc` — frame scheduler, vsync, resize/move
-
-## Hard lessons (ek)
-
-- Mouse bounds MUST display mode ile `mouse_set_bounds` yapılmak (yoksa 1024×768 duvar).
-- WM idle’da full compose MUST NOT; cursor-only present.
-- Text: glyph’ler exact pixel size’ta AA raster + 1:1 quad (stretch yasak).
-- Shell wallpaper once; her frame recommit lag kaynağı.

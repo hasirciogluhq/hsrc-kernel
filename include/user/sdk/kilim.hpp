@@ -151,6 +151,15 @@ public:
     void image(reed::Texture2D &tex, int x, int y, int w = -1, int h = -1,
                uint32_t tint = 0xffffffffu);
 
+    /* Textured axis-aligned quad with explicit UVs (ImGui glyphs / atlas). */
+    void image_uv(reed::Texture2D &tex, float x0, float y0, float x1, float y1,
+                  float u0, float v0, float u1, float v1,
+                  uint32_t tint = 0xffffffffu);
+
+    /* GPU scissor for nested clip (flush + Reed set_scissor). */
+    void set_clip(int x, int y, int w, int h);
+    void clear_clip();
+
     /*
      * Compositor surface copy via Reed blit cmd (GPU path).
      * Flushes pending batches first so draw order stays correct.

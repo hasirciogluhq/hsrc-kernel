@@ -10,8 +10,8 @@
 #include <user/sdk/syscall.hpp>
 
 /*
- * Usermode compositor — file IPC under /tmp/wm/, Reed+Kilim present.
- * Kernel SYS_WM_* is not used.
+ * Usermode compositor — /tmp/wm IPC + Kilim drawlist + Reed present.
+ * Pixel work is Reed submit only (no CPU FB write).
  */
 
 extern "C" void exec_main(void) {

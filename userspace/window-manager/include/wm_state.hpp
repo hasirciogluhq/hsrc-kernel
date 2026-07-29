@@ -49,7 +49,6 @@ extern int g_compose_dirty;
 extern int g_cursor_x;
 extern int g_cursor_y;
 extern reed::Device *g_dev;
-extern reed::Texture2D g_cursor_tex;
 
 extern const DockItem g_dock_items[];
 extern const int kDockCount;

@@ -1,7 +1,10 @@
 #include <arch/x86/lapic.h>
 #include <arch/x86/idt.h>
+#include <kernel/vmm.h>
+#include <drivers/console/serial.h>
 
 #define LAPIC_BASE 0xFEE00000u
+#define LAPIC_SIZE 0x1000u /* 4 KiB MMIO window */
 
 #define LAPIC_ID      0x0020
 #define LAPIC_EOI     0x00B0
@@ -68,8 +71,20 @@ static void lapic_install_vectors(void)
     idt_set_irq_gate(APIC_ERROR_VECTOR, (uint32_t)apic_error_stub);
 }
 
+static void lapic_map_mmio(void)
+{
+    /* Paging identity-maps RAM only; LAPIC sits in high MMIO. Must be
+     * present before any register access (and before addrspace clones). */
+    if (vmm_identity_map_range(LAPIC_BASE, LAPIC_SIZE) < 0) {
+        klog("[lapic] FATAL: MMIO map failed\n");
+        for (;;)
+            __asm__ volatile("hlt");
+    }
+}
+
 static void lapic_common_init(int is_bsp)
 {
+    lapic_map_mmio();
     lapic_install_vectors();
     lapic_enable_msr();
 

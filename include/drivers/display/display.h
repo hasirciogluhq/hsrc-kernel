@@ -21,6 +21,11 @@ typedef struct display_rect {
 
 typedef struct display_ops {
     const char *name;
+    /*
+     * Extra GPU_CAP_* bits (from gpu.h). Bridge ORs these into the
+     * GpuProvider caps. Set GPU_CAP_HW_SUBMIT when VirGL / real 3D is ready.
+     */
+    uint32_t gpu_caps;
     int (*get_mode)(display_mode_t *out);
     int (*present)(const uint32_t *src, uint32_t src_stride_px);
     int (*present_rect)(const uint32_t *src, uint32_t src_stride_px,

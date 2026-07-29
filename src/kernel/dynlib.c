@@ -572,6 +572,26 @@ int dynlib_bind_exec(process_t *proc, const char needed[][DYNLIB_NAME_MAX],
         }
     }
 
+    /*
+     * ELF apps often have no DT_NEEDED / packed needed[]; still load every
+     * lib named in .dynimports before mapping and slot patching.
+     */
+    if (imports_off != 0 && imports_off < proc->image_bytes) {
+        const dynlib_import_t *scan =
+            (const dynlib_import_t *)(image_pa + imports_off);
+        uint32_t g = 0;
+        while (scan->lib[0] && g < 64) {
+            if (dynlib_ensure(scan->lib) < 0) {
+                klog("[dynlib] ensure (import) failed: ");
+                klog(scan->lib);
+                klog("\n");
+                return -ENOENT;
+            }
+            scan++;
+            g++;
+        }
+    }
+
     /* Mark every loaded dynlib executable/readable from this process. */
     for (i = 0; i < (int)g_dynlib_count; i++) {
         if (!g_dynlib[i].loaded)

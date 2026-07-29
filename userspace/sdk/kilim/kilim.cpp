@@ -712,11 +712,44 @@ void Context::image(reed::Texture2D &tex, int x, int y, int w, int h, uint32_t t
         h = (int)tex.height();
     if (w <= 0 || h <= 0)
         return;
+    image_uv(tex, (float)x, (float)y, (float)(x + w), (float)(y + h), 0, 0, 1, 1, tint);
+}
+
+void Context::image_uv(reed::Texture2D &tex, float x0, float y0, float x1, float y1,
+                       float u0, float v0, float u1, float v1, uint32_t tint)
+{
+    if (!frame_open_ || !tex.valid())
+        return;
+    if (x1 <= x0 || y1 <= y0)
+        return;
     Batch *b = get_batch(3, tex.handle());
     if (!b)
         return;
     b->tex_ = tex;
-    emit_quad(b, (float)x, (float)y, (float)(x + w), (float)(y + h), 0, 0, 1, 1, tint);
+    emit_quad(b, x0, y0, x1, y1, u0, v0, u1, v1, tint);
+}
+
+void Context::set_clip(int x, int y, int w, int h)
+{
+    if (!frame_open_ || !dev_ || w <= 0 || h <= 0)
+        return;
+    scissor_x_ = x;
+    scissor_y_ = y;
+    scissor_w_ = w;
+    scissor_h_ = h;
+    flush();
+    reed::Rect sc = {x, y, w, h};
+    cmd_.set_scissor(sc);
+}
+
+void Context::clear_clip()
+{
+    if (!frame_open_ || !dev_)
+        return;
+    flush();
+    reed::Rect sc = {0, 0, (int32_t)dev_->caps().width, (int32_t)dev_->caps().height};
+    cmd_.set_scissor(sc);
+    scissor_w_ = 0;
 }
 
 void Context::blit(reed::Texture2D &src, int x, int y, int w, int h, int alpha_blend)

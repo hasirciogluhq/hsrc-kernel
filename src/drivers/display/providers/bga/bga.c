@@ -1,6 +1,7 @@
 #include "bga.h"
+#include "bga_cmd.h"
 #include <drivers/display/display.h>
-#include <drivers/display/gpu_soft.h>
+#include <drivers/display/gpu.h>
 #include <drivers/driver.h>
 #include <drivers/bus/pci.h>
 #include <drivers/console/serial.h>
@@ -295,10 +296,26 @@ static int bga_drv_probe(driver_t *drv, void *ctx)
 
 static int bga_gpu_submit(const void *cmd, uint32_t size)
 {
-    /* Softpipe: Reed cmd stream → FBO pixels. Scanout still via present(). */
-    if (!g_ready)
+    return bga_cmd_submit_gpu(cmd, size);
+}
+
+int bga_present_from_cmd(void *data, uint32_t width, uint32_t height,
+                         uint32_t stride_bytes, uint32_t x, uint32_t y,
+                         uint32_t w, uint32_t h)
+{
+    uint32_t stride_px;
+
+    if (!g_ready || !data)
         return -1;
-    return (int)gpu_soft_submit(cmd, size);
+    if (width != g_mode.width || height != g_mode.height)
+        return -1;
+    if (stride_bytes == 0 || (stride_bytes % 4u) != 0)
+        return -1;
+    stride_px = stride_bytes / 4u;
+
+    if (w == 0 || h == 0)
+        return bga_present((const uint32_t *)data, stride_px);
+    return bga_present_rect((const uint32_t *)data, stride_px, x, y, w, h);
 }
 
 static int bga_drv_init(driver_t *drv, void *ctx)
@@ -310,6 +327,9 @@ static int bga_drv_init(driver_t *drv, void *ctx)
 
     memset(&g_ops, 0, sizeof(g_ops));
     g_ops.name = "bga";
+    /* Scanout/present only — no GPU_CAP_HW_SUBMIT (B24). */
+    g_ops.gpu_caps = GPU_CAP_SCANOUT | GPU_CAP_PRESENT_RECT | GPU_CAP_PRESENT_RECTS |
+                     GPU_CAP_SUBMIT;
     g_ops.get_mode = bga_get_mode;
     g_ops.present = bga_present;
     g_ops.present_rect = bga_present_rect;

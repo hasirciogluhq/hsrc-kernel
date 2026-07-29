@@ -137,7 +137,7 @@ typedef struct process {
     int          input_wait_win;    /* -1 = any window; else filter */
     int          wait_event;   /* kevent id while waiting, or -1 */
     struct process *wait_next; /* kevent waiter list link */
-    uint32_t     image_bytes; /* .exec image+bss size (0 for kernel threads) */
+    uint32_t     image_bytes; /* user image size (0 for kernel threads) */
     uint32_t     load_addr;   /* user VA base of image (USER_IMAGE_BASE) */
     void        *image_pages; /* physical backing for image+bss */
     size_t       image_npages;

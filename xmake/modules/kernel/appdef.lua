@@ -1,12 +1,10 @@
 -- Shared userspace app target factory (canonical USER_IMAGE_BASE link).
 
 --[[
-All .exec images link at the same canonical VA (USER_IMAGE_BASE / 0x00400000).
-The kernel maps each process's image into a private address space at that VA,
-so concurrent apps no longer need fixed physical SLOT spacing.
+All usermode apps link at the same canonical VA (USER_IMAGE_BASE / 0x00400000).
+The kernel ELF loader maps PT_LOAD into a private address space at that VA.
+Output is a plain ELF32 ET_EXEC (.elf); legacy .exec packing is optional/unused.
 --]]
-
-USER_IMAGE_BASE = 0x00400000
 
 kGuiLibs = {"sdk-wm", "sdk-kilim", "sdk-reed"}
 
@@ -22,7 +20,7 @@ function define_app(name, files, incs, flags, needed, extra_libs)
         set_kind("binary")
         set_default(false)
         kernel_cross_target()
-        add_deps("sdk-core", "pack_exec")
+        add_deps("sdk-core")
         if needed then
             -- Build-order only: object-kind dep must not pull libfs.c.o into the app link
             -- (import.cpp resolves libfs_* via dynlib; linking libfs.c.o doubles symbols).
@@ -44,9 +42,6 @@ function define_app(name, files, incs, flags, needed, extra_libs)
         add_cxxflags(flags or kernel_cxxflags(), {force = true})
         set_targetdir(path.join(BUILD, "userspace", name))
         set_filename(name .. ".elf")
-        -- Pack .exec inside on_link (not after_build): with -jN, xmake can
-        -- start disk/initrd after_build as soon as the .elf exists, racing
-        -- pack_exec and leaving imgui-demo.exec missing on CI/release.
         on_link(function (target)
             local out = target:targetfile()
             os.mkdir(path.directory(out))
@@ -55,7 +50,6 @@ function define_app(name, files, incs, flags, needed, extra_libs)
             local args = {
                 "-m", "elf_i386", "-nostdlib",
                 "-T", path.join(ROOT, "ld/user.ld"),
-                "--defsym=LOAD_ADDR=" .. string.format("0x%x", USER_IMAGE_BASE),
                 "-o", out,
             }
             local app_tag = "/app-" .. name .. "/"
@@ -74,7 +68,5 @@ function define_app(name, files, incs, flags, needed, extra_libs)
             table.insert(args, sdk)
             if libgcc ~= "" then table.insert(args, libgcc) end
             os.execv("i686-elf-ld", args)
-            import("kernel.pack")
-            pack.pack_exec(target, name, needed)
         end)
 end

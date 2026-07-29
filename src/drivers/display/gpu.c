@@ -129,7 +129,7 @@ int gpu_provider_register_display(display_ops_t *ops, int priority,
         return -1;
 
     slot = &g_bridge[g_bridge_n++];
-    caps = GPU_CAP_SCANOUT;
+    caps = GPU_CAP_SCANOUT | ops->gpu_caps;
     if (ops->present_rect)
         caps |= GPU_CAP_PRESENT_RECT;
     if (ops->present_rects)

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Pack production-ready release artifacts:
 #   - kernel + initrd
-#   - executables (.exec / .dynlib)
+#   - executables (.elf / .dynlib)
 #   - small FAT disk.img (mountable + QEMU-bootable via run.sh)
 #
 # Usage:
@@ -83,32 +83,32 @@ USER_EXECS=(
 DYNLIBS=(libfs)
 
 for n in "${SYSTEM_EXECS[@]}"; do
-  src="$ROOT/build/userspace/$n/$n.exec"
+  src="$ROOT/build/userspace/$n/$n.elf"
   [[ -f "$src" ]] || { echo "[release] missing $src" >&2; exit 1; }
-  cp "$src" "$OUT/executables/system/bin/$n.exec"
+  cp "$src" "$OUT/executables/system/bin/$n.elf"
 done
 for n in "${USER_EXECS[@]}"; do
-  src="$ROOT/build/userspace/$n/$n.exec"
+  src="$ROOT/build/userspace/$n/$n.elf"
   [[ -f "$src" ]] || { echo "[release] missing $src" >&2; exit 1; }
-  cp "$src" "$OUT/executables/applications/$n.exec"
+  cp "$src" "$OUT/executables/applications/$n.elf"
 done
 for n in "${DYNLIBS[@]}"; do
   src="$ROOT/build/userspace/lib/$n.dynlib"
   [[ -f "$src" ]] || { echo "[release] missing $src" >&2; exit 1; }
   cp "$src" "$OUT/executables/system/lib/$n.dynlib"
 done
-cp "$ROOT/build/userspace/init/init.exec" "$OUT/executables/initrd/init"
+cp "$ROOT/build/userspace/init/init.elf" "$OUT/executables/initrd/init"
 
 # Compact production FAT image (mountable: mount -o loop,offset=0 disk.img /mnt)
 IMG="$OUT/disk.img"
 "$MKFAT" "$IMG" "$DISK_SIZE_MB"
 fat_args=("$IMG")
-fat_args+=("$OUT/executables/initrd/init:init.exec")
+fat_args+=("$OUT/executables/initrd/init:init")
 for n in "${SYSTEM_EXECS[@]}"; do
-  fat_args+=("$OUT/executables/system/bin/$n.exec:system/bin/$n.exec")
+  fat_args+=("$OUT/executables/system/bin/$n.elf:system/bin/$n.elf")
 done
 for n in "${USER_EXECS[@]}"; do
-  fat_args+=("$OUT/executables/applications/$n.exec:applications/$n.exec")
+  fat_args+=("$OUT/executables/applications/$n.elf:applications/$n.elf")
 done
 for n in "${DYNLIBS[@]}"; do
   fat_args+=("$OUT/executables/system/lib/$n.dynlib:system/lib/$n.dynlib")
@@ -165,7 +165,7 @@ Contents
   boot/kernel.bin     Multiboot kernel
   boot/initrd.img     kmods + /init
   disk.img            FAT16 system disk (${DISK_SIZE_MB} MiB)
-  executables/        loose .exec / .dynlib copies (same as on disk)
+  executables/        loose .elf / .dynlib copies (same as on disk)
   run.sh              QEMU launcher
 
 Run

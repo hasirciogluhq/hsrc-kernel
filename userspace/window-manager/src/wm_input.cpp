@@ -17,8 +17,17 @@ void handle_input(void) {
   if (hsrc::sdk::syscall1(SYS_INPUT_STATE, (long)&st) < 0)
     return;
 
+  int prev_hover = g_dock_hover;
   g_dock_hover = dock_hit(st.mouse_x, st.mouse_y);
   g_hit_id = (g_dock_hover >= 0) ? -1 : hit_test(st.mouse_x, st.mouse_y);
+
+  if (st.mouse_x != g_cursor_x || st.mouse_y != g_cursor_y) {
+    g_cursor_x = st.mouse_x;
+    g_cursor_y = st.mouse_y;
+    g_compose_dirty = 1;
+  }
+  if (prev_hover != g_dock_hover)
+    g_compose_dirty = 1;
 
   uint8_t btn = st.buttons;
   uint8_t pressed = (uint8_t)(btn & ~g_prev_buttons);
@@ -32,6 +41,7 @@ void handle_input(void) {
   if (pressed & INPUT_BTN_LEFT) {
     if (st.mouse_y < wm::kMenubarH && st.mouse_x < 90) {
       g_menu_open = g_menu_open ? 0 : 1;
+      g_compose_dirty = 1;
       g_prev_buttons = btn;
       return;
     }
@@ -44,6 +54,7 @@ void handle_input(void) {
           launch_or_focus(g_dock_items[row]);
       }
       g_menu_open = 0;
+      g_compose_dirty = 1;
       g_prev_buttons = btn;
       return;
     }

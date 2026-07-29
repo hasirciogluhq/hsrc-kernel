@@ -4,29 +4,48 @@ globs: src/kernel/syscall.c,src/kernel/disp_api.c,userspace/sdk/**,include/user/
 alwaysApply: false
 ---
 
-# Syscall, Batching, IPC
+# Syscall / Batching / IPC
 
-- **S01** Draw primitive başına ayrı syscall MUST NOT. — Gerekçe: Kilim batch + tek commit.
-- **S02** Küçük grafik syscall’ları yerine `SYS_DISP_CALL` opcode batch / Kilim flush MUST. — Gerekçe: amortize.
-- **S03** Her Kilim API çağrısı MUST NOT zorunlu syscall üretmek. — Gerekçe: userspace biriktirme.
-- **S04** Kernel MUST resource create/map/export ve scanout’ta haberdar edilmek. — Gerekçe: hot path sade.
-- **S05** Bir syscall MUST mümkün olan en kısa sürede tamamlanmak (`klock_disp` kısa tut). — Gerekçe: latency.
-- **S06** Userspace Reed içinde piksel loop / SW raster MUST NOT; submit → GpuProvider. — Gerekçe: mimari + isolation.
-- **S07** Context switch azaltmak MUST öncelikli. — Gerekçe: TLB/cache.
-- **S08** Aynı frame için birden fazla `DISP_OP_SCANOUT` MUST NOT (WM tek present). — Gerekçe: bandwidth.
-- **S09** `SYS_INPUT_STATE` ile present commit ayrı kanallar. — Gerekçe: back-pressure.
-- **S10** Polling sınırlı backoff; busy-wait varsayılan MUST NOT. — Gerekçe: CPU spin.
-- **S11** WM IPC file-based; unbounded payload MUST NOT. — Gerekçe: DoS.
-- **S12** Large buffer MUST handle/export/import; byte-copy syscall MUST NOT. — Gerekçe: copy elision.
-- **S13** Syscall argüman doğrulama erken fail. — Gerekçe: tutarlılık.
-- **S14** `disp_*` arg struct’ları size-checked (`do_disp_call`). — Gerekçe: memory safety.
-- **S15** Userspace MUST NOT her mouse move için scanout çağırmak. — Gerekçe: input ≠ frame rate.
-- **S16** Redundant damage/commit SDK/WM tarafından coalesce. — Gerekçe: boş girişleri keser.
-- **S17** Blocking syscall içinde uzun loop MUST NOT. — Gerekçe: priority inversion.
-- **S18** Hata kodları stabil; sessiz ignore yasak. — Gerekçe: debuggability.
-- **S19** Yeni syscall yerine `DISP_OP_*` opcode genişletmek tercih MUST. — Gerekçe: ABI şişkinliği.
-- **S20** `drivers_poll` + `disp_api` aynı `klock_disp` altında; kritik bölüm kısa MUST. — Gerekçe: lock contention.
-- **S21** Kernel MUST NOT unbounded command stream’i senkron execute etmek. — Gerekçe: DoS.
-- **S22** Commit/scanout atomically; yarım state userspace’e görünür MUST NOT. — Gerekçe: consistency.
-- **S23** Syscall hot path’te log MUST NOT (debug flag dışında). — Gerekçe: I/O latency.
-- **S24** Per-draw kernel round-trip MUST NOT. — Gerekçe: minimum syscall/frame.
+Grafik iş yükü tek `SYS_DISP_CALL` opcode kanalına batch'lenir. Kritik bölüm kısa; büyük buffer copy yok; per-draw round-trip yok.
+
+## DO (pozitif)
+
+- Kilim userspace'te komut biriktirir ve frame sonunda tek `SYS_DISP_CALL` batch gönderir.
+- Büyük buffer'lar handle/export/import ile paylaşılır (zero-copy).
+- Yeni fonksiyonalite için `DISP_OP_*` opcode eklenir (yeni syscall değil).
+- `klock_disp` altında kritik bölüm mikrosaniye seviyesinde tutulur.
+
+## DON'T (negatif)
+
+- Her draw primitive için ayrı syscall YASAK.
+- Kernel içinde CPU pixel loop / SW raster / soft-GPU YASAK.
+- Syscall hot path'te log, uzun loop, unbounded stream execution YASAK.
+- Her mouse move için scanout çağırmak YASAK.
+
+## Rules
+
+- **S01** DO: Draw primitive'ler Kilim batch içinde toplanır ve tek commit ile gider. DON'T: Draw başına ayrı syscall. Why: Amortize.
+- **S02** DO: Küçük grafik syscall'ları yerine `SYS_DISP_CALL` opcode batch / Kilim flush kullanılır. DON'T: Feature başına yeni syscall. Why: Amortize + minimal ABI.
+- **S03** DO: Kilim API çağrıları userspace'te biriktirilir. DON'T: Her API için zorunlu syscall üretmek. Why: Userspace batch.
+- **S04** DO: Kernel yalnızca resource create/map/export ve scanout için haberdar edilir. DON'T: Her state için kernel round-trip. Why: Hot path sade.
+- **S05** DO: Syscall en kısa sürede döner; `klock_disp` kısa tutulur. DON'T: Handler içinde uzun iş yapmak. Why: Latency.
+- **S06** DO: Reed/Kilim/WM/provider yalnızca GPU submit yolunu kullanır. DON'T: Herhangi bir katmanda CPU pixel loop / SW raster / soft-GPU / CPU compose. Why: B23 GPU-only.
+- **S07** DO: Context switch sayısını düşürecek batch tercih edilir. DON'T: Gereksiz thread hand-off. Why: TLB/cache maliyeti.
+- **S08** DO: Frame başına tek `DISP_OP_SCANOUT`. DON'T: Aynı frame içinde çoklu scanout. Why: Bandwidth + WM tek present.
+- **S09** DO: `SYS_INPUT_STATE` ve present commit ayrı kanallardan akar. DON'T: Input ile present'i tek kanalda karıştırmak. Why: Back-pressure.
+- **S10** DO: Polling sınırlı backoff ile yapılır. DON'T: Busy-wait'i varsayılan yol yapmak. Why: CPU spin.
+- **S11** DO: WM IPC file-based; payload size bounded. DON'T: Unbounded IPC payload. Why: DoS.
+- **S12** DO: Büyük buffer handle/export/import ile geçer. DON'T: Byte-copy syscall. Why: Copy elision.
+- **S13** DO: Syscall argümanları erken doğrulanır ve fail edilir. DON'T: Kısmi state ile devam etmek. Why: Tutarlılık.
+- **S14** DO: `disp_*` arg struct'ları size-checked (`do_disp_call`). DON'T: Serbest boyutlu payload kabul etmek. Why: Memory safety.
+- **S15** DO: Cursor update present'ten bağımsızdır. DON'T: Her mouse move için scanout çağırmak. Why: Input rate ≠ frame rate.
+- **S16** DO: SDK/WM redundant damage/commit'i coalesce eder. DON'T: Boş commit'leri kernel'e yollamak. Why: Boş girdi kesilir.
+- **S17** DO: Blocking syscall içinde kısa iş yapılır. DON'T: Handler'da uzun loop. Why: Priority inversion.
+- **S18** DO: Hata kodları stabil ve döndürülür. DON'T: Sessiz ignore. Why: Debuggability.
+- **S19** DO: Yeni fonksiyonalite `DISP_OP_*` opcode ile eklenir. DON'T: Yeni top-level syscall açmak. Why: ABI şişkinliği önlenir.
+- **S20** DO: `drivers_poll` + `disp_api` `klock_disp` altında kısa çalışır. DON'T: Lock altında uzun iş. Why: Lock contention.
+- **S21** DO: Kernel command stream'i bounded şekilde execute eder. DON'T: Unbounded stream'i senkron yürütmek. Why: DoS.
+- **S22** DO: Commit/scanout atomik uygulanır. DON'T: Yarım state userspace'e görünmek. Why: Consistency.
+- **S23** DO: Hot path'te log yalnızca debug flag ile. DON'T: Her syscall'da log basmak. Why: I/O latency.
+- **S24** DO: Frame başına syscall sayısı minimal tutulur. DON'T: Per-draw kernel round-trip. Why: Minimum syscall/frame.
+- **S25** DO: Komutlar doğrudan GPU'ya verilir; upload edilen tek CPU-yanı iş glyph atlas gibi offline bake'dir. DON'T: Hot path'te "geçici" CPU render/compose yapıp sonucu upload etmek. Why: B23; gizli CPU raster yasak.

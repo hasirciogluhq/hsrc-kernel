@@ -1,16 +1,25 @@
 -- Launch QEMU with kernel + initrd + disk
 --
 -- Display (pick ONE primary — dual GPU = black window):
---   BGA path:    "-vga", "std"              → display_bga, LFB 0xfd00_0000
---   Virtio path: "-vga", "virtio"           → virtio-vga = visible window + virtio-gpu
+--   BGA path:    "-vga", "std"                         → display_bga (scanout only; no HW_SUBMIT)
+--   Virtio 2D:   "-vga", "none" + virtio-gpu-pci       → display_virtio (present; VirGL iff host offers)
+--   Virtio+GL:   "-vga", "none" + virtio-gpu-gl-pci    → display_virtio + VirGL (Linux QEMU + virglrenderer)
 --
--- NEVER do: comment out -vga std and only add "-device", "virtio-gpu-pci"
---   → QEMU still keeps default std VGA; BGA blacks that window; present goes to
---     the invisible virtio head (prio 20) → splash/WM “work” but you see black.
--- NEVER combine "-vga", "std" with "-device", "virtio-gpu-pci" for the same reason.
+-- NEVER combine "-vga", "std" with virtio-gpu-* (dual head → black window).
+-- Homebrew macOS QEMU often lacks virtio-gpu-gl-pci; we auto-pick.
+
+function qemu_virtio_gpu_device()
+    local help = try { function () return os.iorunv("qemu-system-i386", {"-device", "help"}) end } or ""
+    if help:find("virtio%-gpu%-gl%-pci", 1) then
+        return "virtio-gpu-gl-pci"
+    end
+    return "virtio-gpu-pci"
+end
+
 function qemu_args()
     local ROOT = os.projectdir()
     local BUILD = path.join(ROOT, "build")
+    local gpu = qemu_virtio_gpu_device()
     return {
         "-kernel", path.join(BUILD, "kernel.bin"),
         "-initrd", path.join(BUILD, "drivers", "initrd.img"),

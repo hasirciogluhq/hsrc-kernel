@@ -5,7 +5,7 @@ local BUILD = path.join(ROOT, "build")
 
 local KMOD_INCLUDES = {
     INC,
-    path.join(ROOT, "src/drivers/display/providers/virtio_gpu"),
+    path.join(ROOT, "src/drivers/display/providers/virtio"),
 }
 
 function kernel_define_kmod(name, patterns)
@@ -53,7 +53,7 @@ kernel_define_kmod("ahci", {"src/drivers/block/ahci/*.c"})
 kernel_define_kmod("nvme", {"src/drivers/block/nvme/*.c"})
 kernel_define_kmod("virtio_net", {"src/drivers/net/virtio_net/*.c"})
 kernel_define_kmod("display_bga", {"src/drivers/display/providers/bga/*.c"})
-kernel_define_kmod("display_virtio", {"src/drivers/display/providers/virtio_gpu/*.c"})
+kernel_define_kmod("display_virtio", {"src/drivers/display/providers/virtio/*.c"})
 kernel_define_kmod("display", {"src/drivers/display/display_mod.c"})
 kernel_define_kmod("proc_audit", {"src/drivers/proc_audit/proc_audit.c"})
 

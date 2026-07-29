@@ -34,7 +34,7 @@ target("initrd")
             table.insert(args, path.join(BUILD, "drivers", n .. ".kmod"))
         end
         for _, n in ipairs(layout.initrd_exec_names()) do
-            local src = path.join(BUILD, "userspace", n, n .. ".exec")
+            local src = path.join(BUILD, "userspace", n, n .. ".elf")
             local staged = path.join(stagedir, n)
             os.cp(src, staged)
             table.insert(args, staged)
@@ -44,13 +44,14 @@ target("initrd")
 
 --[[
   Dev disk image layout (FAT on vda = /):
-    /init                     PID1
-    /system/bin/*.exec        OS / GUI package
+    /init                     PID1 (ELF)
+    /system/bin/*.elf         OS / GUI package
     /system/lib/*.dynlib      dynamic libraries
     /system/share/...         assets
     /system/etc/environment
-    /applications/*.exec      user apps
+    /applications/*.elf       user apps
   Virtual mounts on top after boot: /dev /proc /sys /tmp
+  Legacy .exec still loadable if present; resolve tries bare → .elf → .exec.
 ]]
 target("disk")
     set_kind("phony")
@@ -64,15 +65,15 @@ target("disk")
         -- DISK_SIZE_MB=32 for release; default 64 for local dev.
         local size_mb = os.getenv("DISK_SIZE_MB") or "64"
         local args = {img}
-        -- PID1 lives on the root disk like Linux /init
-        table.insert(args, path.join(BUILD, "userspace/init/init.exec") .. ":init.exec")
+        -- PID1 lives on the root disk like Linux /init (bare name, ELF bytes)
+        table.insert(args, path.join(BUILD, "userspace/init/init.elf") .. ":init")
         for _, n in ipairs(layout.system_exec_names()) do
-            local src = path.join(BUILD, "userspace", n, n .. ".exec")
-            table.insert(args, src .. ":system/bin/" .. n .. ".exec")
+            local src = path.join(BUILD, "userspace", n, n .. ".elf")
+            table.insert(args, src .. ":system/bin/" .. n .. ".elf")
         end
         for _, n in ipairs(layout.user_exec_names()) do
-            local src = path.join(BUILD, "userspace", n, n .. ".exec")
-            table.insert(args, src .. ":applications/" .. n .. ".exec")
+            local src = path.join(BUILD, "userspace", n, n .. ".elf")
+            table.insert(args, src .. ":applications/" .. n .. ".elf")
         end
         for _, n in ipairs(layout.system_dynlib_names()) do
             local src = path.join(BUILD, "userspace/lib", n .. ".dynlib")

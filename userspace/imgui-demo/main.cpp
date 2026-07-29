@@ -45,7 +45,7 @@ extern "C" void exec_main(void)
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    if (!ImGui_ImplKilim_Init())
+    if (!ImGui_ImplKilim_Init(&dev))
         hsrc::sdk::exit(1);
 
     bool mapped = false;
@@ -78,8 +78,7 @@ extern "C" void exec_main(void)
         ImGui::End();
 
         ImGui::Render();
-        ImGui_ImplKilim_RenderDrawData(ImGui::GetDrawData(), k.target().color(),
-                                       wm::kChromeTitleH);
+        ImGui_ImplKilim_RenderDrawData(ImGui::GetDrawData(), k, wm::kChromeTitleH);
 
         (void)k.commit_frame();
         if (!mapped) {

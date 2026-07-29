@@ -6,34 +6,53 @@ alwaysApply: false
 
 # Draw / Damage / Present / Buffers
 
-- **P01** Draw işlemleri Reed cmdbuf’a kaydedilip `DISP_OP_SUBMIT` → GpuProvider’da tamamlanmalı. — Gerekçe: userspace yalnızca komut üretir.
-- **P02** Bir frame için mümkün olan en fazla bir present MUST hedeflenmek (`Kilim::end_frame` / WM compose). — Gerekçe: display bandwidth sınırı.
-- **P03** Front buffer’a doğrudan yazmak MUST NOT (provider LFB hariç atomik present). — Gerekçe: tear-free.
-- **P04** Present MUST GpuProvider `present` / `present_rect(s)` üzerinden yapılmak. — Gerekçe: tek scanout yolu.
-- **P05** Damage olmayan region tekrar çizilmemeli / compose edilmemeli. — Gerekçe: minimum redraw.
-- **P06** Full-screen clear+redraw varsayılan yol MUST NOT olmak (idle’da skip). — Gerekçe: cache ve bandwidth israfı.
-- **P07** Damage rect’ler MUST birleştirilerek iletilmek (`present_rects` / WM damage union). — Gerekçe: aşırı fragmentasyon pahalıdır.
-- **P08** Aynı surface aynı frame içinde ikinci kez compose MUST NOT. — Gerekçe: duplicate work.
-- **P09** Gereksiz memory copy yasaktır; export/import/map/handle tercih MUST. — Gerekçe: bandwidth = FPS düşmanı.
-- **P10** Buffer format dönüşümü present hot path’te MUST NOT yapılmak. — Gerekçe: per-pixel tax.
-- **P11** Stride/pitch uyumsuzlukları allocate zamanında çözülmeli; present’te fixup MUST NOT. — Gerekçe: hot path sade.
-- **P12** Alpha blend yalnızca gerekli dirty bölgede MUST çalışmak. — Gerekçe: overdraw maliyeti.
-- **P13** Opaque region’lar MUST alttaki katmanları skip ettirmek. — Gerekçe: occlusion culling.
-- **P14** Scissor/clip dışı draw CPU’da bile üretilmemeli (Kilim tarafında). — Gerekçe: wasted fill rate.
-- **P15** Double buffering provider’da (BGA flip / virtio resource) tercih MUST. — Gerekçe: tear-free.
-- **P15b** Aynı frame birden fazla kez kopyalanmamalı; present yolu tek net transfer/flip ile bitmeli. — Gerekçe: bandwidth.
-- **P16** Present yolu tear-free olmalı; vsync veya atomik flip olmadan tearing kabul MUST NOT. — Gerekçe: görsel kalite.
-- **P17** Partial present (`present_rect`) destekleniyorsa full present yerine MUST kullanılmak. — Gerekçe: minimum scanout traffic.
-- **P18** Surface buffer’ları page-aligned allocate MUST (`kmalloc_aligned`). — Gerekçe: DMA/virtio backing.
-- **P19** Readback UI animasyon hot path’inde MUST NOT. — Gerekçe: sync bubble.
-- **P20** CPU blit yolları satır-kopya dostu olmalı; byte-byte loop MUST NOT. — Gerekçe: cache line kullanımı.
-- **P21** Framebuffer pointer userspace’e raw sızdırılmamalı; `DISP_OP_TEXTURE_MAP` / export MUST. — Gerekçe: lifetime safety.
-- **P22** Import MUST exporter backing’i share etmeli; steal+free exporter slot MUST NOT. — Gerekçe: app RT yaşamı.
-- **P23** Clear rengi bile damage dışı bölgeye yazılmamalı (ideal). — Gerekçe: false damage.
-- **P24** Wallpaper/static katman cache’lenmeli; her frame yeniden decode/scale MUST NOT. — Gerekçe: sabit maliyet.
-- **P25** Scaling/filtering resize commit dışında hot present’te MUST NOT tekrarlanmak. — Gerekçe: amortized cost.
-- **P26** Kilim draw komutları frame sonuna kadar userspace batch’te birikmeli. — Gerekçe: tek commit.
-- **P27** Present başarısız olursa state MUST tutarlı kalmak. — Gerekçe: stuck UI önlenir.
-- **P28** App `commit_frame` (no present) + WM `end_frame` (scanout) ayrımı korunmalı. — Gerekçe: tek present ownership.
-- **P29** Overdraw budget aşıldığında layer merge stratejisi düşünülmeli. — Gerekçe: ölçeklenebilirlik.
-- **P30** Screenshot/capture yolu normal present yolunu stall etmemeli. — Gerekçe: FPS regresyonu önlenir.
+Draw komut üretimi userspace'te; çizim gerçek GPU'da. Frame başına tek present; damage yalnızca minimum rect.
+
+## DO (pozitif)
+
+- Reed cmdbuf → `DISP_OP_SUBMIT` → GpuProvider `gpu_submit` GPU tarafında yürür.
+- Frame başına tek present; damage rect'leri union edilerek verilir.
+- Buffer'lar page-aligned allocate edilir; export/import ile paylaşılır.
+- Wallpaper/static katman cache'lenir; her frame decode yok.
+
+## DON'T (negatif)
+
+- CPU blit / CPU fill / CPU blend / soft raster YASAK.
+- Front buffer'a doğrudan yazmak YASAK (provider present hariç).
+- Present hot path'inde format/pitch dönüşümü, readback veya alloc YASAK.
+- Full-screen clear + redraw'ı varsayılan yol yapmak YASAK.
+
+## Rules
+
+- **P01** DO: Draw komutları Reed cmdbuf'a kaydedilir ve `DISP_OP_SUBMIT` ile GPU'ya gider. DON'T: Userspace veya kernel'de CPU execute. Why: Userspace komut üretir; B23.
+- **P02** DO: Frame başına en fazla bir present hedeflenir (`Kilim::end_frame` / WM compose). DON'T: Aynı frame içinde çoklu present. Why: Display bandwidth sınırı.
+- **P03** DO: Present provider'ın atomik yolu ile yapılır. DON'T: Front buffer'a doğrudan yazmak. Why: Tear-free garanti.
+- **P04** DO: Present GpuProvider `present` / `present_rect(s)` üzerinden gerçekleşir. DON'T: Alternatif scanout kestirmeleri. Why: Tek scanout yolu.
+- **P05** DO: Yalnızca damage'lı region çizilir/compose edilir. DON'T: Damage dışı region'ı yeniden çizmek. Why: Minimum redraw.
+- **P06** DO: Damage yoksa idle kalınır; present yok. DON'T: Idle'da full-screen clear+redraw. Why: Cache ve bandwidth israfı.
+- **P07** DO: Damage rect'leri birleştirilerek iletilir (`present_rects` / WM damage union). DON'T: Her küçük rect'i ayrı göndermek. Why: Aşırı fragmentasyon pahalıdır.
+- **P08** DO: Aynı surface bir frame içinde bir kez compose olur. DON'T: Aynı surface'i frame içinde iki kez compose etmek. Why: Duplicate work.
+- **P09** DO: Buffer'lar export/import/map/handle ile paylaşılır. DON'T: Gereksiz memory copy. Why: Bandwidth FPS düşmanı.
+- **P10** DO: Format dönüşümü allocate zamanında yapılır. DON'T: Present hot path'te format convert. Why: Per-pixel tax önlenir.
+- **P11** DO: Stride/pitch allocate anında çözülür. DON'T: Present sırasında pitch fixup. Why: Hot path sade kalır.
+- **P12** DO: Alpha blend yalnızca gerekli dirty bölgede çalışır. DON'T: Tüm scene'de blend. Why: Overdraw maliyeti.
+- **P13** DO: Opaque region'lar alttaki katmanları skip ettirir. DON'T: Occlusion görmezden gelmek. Why: Occlusion culling.
+- **P14** DO: Scissor/clip dışına Kilim cmd üretilmez; piksel işi hep GPU submit ile. DON'T: CPU raster ile pixel yazmak. Why: Wasted fill + B23.
+- **P15** DO: Provider'da double buffering (BGA flip / virtio resource) kullanılır. DON'T: Single buffer scanout ile tearing. Why: Tear-free.
+- **P15b** DO: Present yolu tek net transfer/flip ile biter. DON'T: Aynı frame'i birden fazla kez kopyalamak. Why: Bandwidth.
+- **P16** DO: Present vsync veya atomik flip ile tear-free olur. DON'T: Vsync/flip olmadan present. Why: Görsel kalite.
+- **P17** DO: `present_rect` destekleniyorsa full present yerine kullanılır. DON'T: Her frame full present. Why: Minimum scanout traffic.
+- **P18** DO: Surface buffer'ları `kmalloc_aligned` ile page-aligned alloc edilir. DON'T: Unaligned buffer. Why: DMA/virtio backing zorunluluğu.
+- **P19** DO: Readback yalnızca offline yolda yapılır. DON'T: UI animasyon hot path'inde readback. Why: Sync bubble.
+- **P20** DO: Blit / compose / scale GPU cmd ile yapılır. DON'T: CPU blit / fill / blend / soft raster. Why: B13/B23 GPU-only.
+- **P21** DO: Framebuffer userspace'e `DISP_OP_TEXTURE_MAP` / export ile verilir. DON'T: Raw FB pointer sızdırmak. Why: Lifetime safety.
+- **P22** DO: Import exporter backing'ini share eder ve refcount'la tutar. DON'T: Steal + free exporter slot. Why: App RT yaşamı.
+- **P23** DO: Clear yalnızca damage bölgesine yazılır (ideal). DON'T: Damage dışına clear yazmak. Why: False damage önlenir.
+- **P24** DO: Wallpaper/static katman cache'lenir. DON'T: Her frame decode/scale. Why: Sabit maliyet.
+- **P25** DO: Scaling/filtering resize commit anında yapılır. DON'T: Hot present'te scale tekrarı. Why: Amortized cost.
+- **P26** DO: Kilim draw komutları frame sonuna kadar userspace batch'te birikir. DON'T: Her komut için ayrı submit. Why: Tek commit.
+- **P27** DO: Present başarısız olursa state tutarlı kalır. DON'T: Yarı state ile devam etmek. Why: Stuck UI önlenir.
+- **P28** DO: App `commit_frame` (present yok) + WM `end_frame` (scanout) ayrımı korunur. DON'T: App'in kendi scanout etmesi. Why: Tek present ownership.
+- **P29** DO: Overdraw budget aşımında layer merge stratejisi düşünülür. DON'T: Sınırsız overdraw. Why: Ölçeklenebilirlik.
+- **P30** DO: Screenshot/capture yolu normal present'i stall etmez. DON'T: Capture için scanout duraklatmak. Why: FPS regresyonu önlenir.
+- **P31** DO: Tek yol: GPU `gpu_submit` + GPU present. DON'T: `gpu_soft`, userspace SW raster, WM CPU compose, kernel soft fallback. Why: B23 hard gate.

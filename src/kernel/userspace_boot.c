@@ -9,6 +9,7 @@
 #include <drivers/console/serial.h>
 #include <drivers/console/vga.h>
 #include <drivers/display/display.h>
+#include <drivers/display/gpu.h>
 
 #define USERSPACE_INIT_PATH "/init"
 
@@ -72,7 +73,11 @@ static int install_init_from_initrd(void)
 
 int gui_stack_ready(void)
 {
-    return (display_active() && disp_api_get()) ? 1 : 0;
+    gpu_provider_ops_t *gpu = gpu_provider_active();
+    if (!display_active() || !disp_api_get() || !gpu)
+        return 0;
+    /* B24: GUI requires real HW 3D submit (VirGL), not scanout-only / soft. */
+    return (gpu->caps & GPU_CAP_HW_SUBMIT) ? 1 : 0;
 }
 
 void userspace_boot(void)
