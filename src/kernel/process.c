@@ -404,20 +404,48 @@ static void setup_kstack(process_t *p, void (*trampoline)(void (*)(void)), void 
 {
     uint32_t *sp = (uint32_t *)p->kstack_top;
     /*
-     * context_switch pops ebx..ebp then ret → trampoline.
-     * cdecl trampoline(void (*entry)(void)) expects:
-     *   [esp]     = return address (unused dummy)
-     *   [esp+4]   = entry
-     * Low → high: ebx, esi, edi, ebp, trampoline, dummy_ret, entry
+     * context_switch frame (low→high): eflags,eax,ecx,edx,ebx,esi,edi,ebp,eip
+     * then cdecl: dummy_ret, entry for trampoline(void (*entry)(void)).
      */
     *--sp = (uint32_t)entry;
-    *--sp = 0; /* dummy return address for cdecl */
-    *--sp = (uint32_t)trampoline;
-    *--sp = 0;
-    *--sp = 0;
-    *--sp = 0;
-    *--sp = 0;
+    *--sp = 0; /* dummy return for trampoline */
+    *--sp = (uint32_t)trampoline; /* ret eip */
+    *--sp = 0; /* ebp */
+    *--sp = 0; /* edi */
+    *--sp = 0; /* esi */
+    *--sp = 0; /* ebx */
+    *--sp = 0; /* edx */
+    *--sp = 0; /* ecx */
+    *--sp = 0; /* eax */
+    *--sp = 0x202; /* eflags: reserved1 | IF */
     p->esp = sp;
+    memset(&p->regs, 0, sizeof(p->regs));
+    thread_regs_from_stack(p);
+}
+
+void thread_regs_from_stack(process_t *p)
+{
+    uint32_t *s;
+
+    if (!p || !p->esp)
+        return;
+    s = p->esp;
+    p->regs.eflags = s[0];
+    p->regs.eax = s[1];
+    p->regs.ecx = s[2];
+    p->regs.edx = s[3];
+    p->regs.ebx = s[4];
+    p->regs.esi = s[5];
+    p->regs.edi = s[6];
+    p->regs.ebp = s[7];
+    p->regs.eip = s[8];
+    p->regs.esp = (uint32_t)(uintptr_t)s;
+    p->regs.cs = 0x08;
+    p->regs.ds = 0x10;
+    p->regs.es = 0x10;
+    p->regs.fs = 0x10;
+    p->regs.gs = 0x10;
+    p->regs.ss = 0x10;
 }
 
 void process_init(void)

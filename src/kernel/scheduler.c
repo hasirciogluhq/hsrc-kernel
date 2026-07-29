@@ -401,7 +401,7 @@ void schedule(void)
             smp_kick_idle_cpus();
     }
 
-    context_switch(old_esp, next->esp);
+    context_switch(old_esp, next->esp, cur ? &cur->regs : NULL);
     spin_unlock_irqrestore(&g_sched_lock, flags);
 }
 

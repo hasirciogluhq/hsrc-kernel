@@ -66,6 +66,20 @@ typedef struct sys_info {
  */
 #define PROC_THREADS_HARD_MAX 256
 
+/*
+ * Per-OS-thread CPU register file. Live state while not Running lives on the
+ * kernel stack at esp (see context_switch); regs mirrors that frame for debug
+ * and so each thread owns a full private GPR + flags set (OS-thread model).
+ */
+typedef struct thread_regs {
+    uint32_t ebp, edi, esi, ebx;
+    uint32_t edx, ecx, eax;
+    uint32_t eflags;
+    uint32_t eip;
+    uint32_t esp; /* kernel stack pointer (same as process.esp) */
+    uint32_t cs, ds, es, fs, gs, ss;
+} thread_regs_t;
+
 typedef struct process {
     pid_t        pid;
     pid_t        ppid;
@@ -90,6 +104,7 @@ typedef struct process {
     uint32_t     kstack_top;
     uint32_t     ustack_top;
     uint32_t    *esp;          /* saved kernel stack pointer */
+    thread_regs_t regs;        /* private CPU register file for this thread */
     struct process *free_next; /* freelist link when unused */
     void       (*user_entry)(void);
     int          exit_code;
@@ -149,7 +164,8 @@ int  process_alloc_sock_fd(process_t *p, int sock_id);
 int  process_lookup_fd(process_t *p, int user_fd);
 void process_free_fd(process_t *p, int user_fd);
 
-void context_switch(uint32_t **old_esp, uint32_t *new_esp);
+void context_switch(uint32_t **old_esp, uint32_t *new_esp, thread_regs_t *old_regs);
 void enter_usermode(uint32_t entry, uint32_t user_stack);
+void thread_regs_from_stack(process_t *p);
 
 #endif

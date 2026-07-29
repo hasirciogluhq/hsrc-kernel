@@ -87,6 +87,7 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     scheduler_init();
     klog("[boot] scheduler_init done\n");
     smp_init();
+    cpu_debug_dump();
     time_init();
     klog("[boot] core init done\n");
 
