@@ -100,62 +100,64 @@ Bu plan yazildigindan beri kod tabani bu dosyadaki "pending" varsayimlarinin
 çoğunu geride birakti. Kod → plan yönünde güncellenen özet:
 
 - **Process/service/time/thread/event çekirdegi büyük ölçüde bitti.**
-  `include/kernel/syscall.h` içinde `SYS_SPAWN/WAITPID/GETPPID/KILL`,
-  `SYS_PROC_LIST/STAT/MAP/WAIT`, `SYS_SYSINFO`, `SYS_SERVICE_LIST/START/STOP/STATUS`,
-  `SYS_GETENV/SETENV`, `SYS_CONSOLE_SHOW`, `SYS_GETARGC/GETARGV`,
-  `SYS_TIME_MAP/GET/SET/SETTZ/SETFLAGS`, `SYS_EVENT_CREATE/DESTROY/WAIT/SIGNAL/BROADCAST`,
-  `SYS_THREAD_CREATE/EXIT`   numaralari **200 sonrasi** aralikta zaten tanimli ve
-  `src/kernel/process.c` (zombie/ppid/wait kuyrugu), `src/kernel/service.c`
-  (`service_info_t` registry — basit `int critical` flag, plandaki roles bitmask
-  `CRITICAL`/`SESSION_UI` **henüz yok**), `src/kernel/env.c`, `src/kernel/time.c`
-  içinde implement. Hâlâ eksik: gerçek `SYS_FORK` (copy/COW — syscall #2 tanımlı ama
-  dispatch'te `-1` stub), `SYS_EXECVE`, `brk/sbrk/mprotect`, `pipe/dup/fcntl/poll/select/ioctl`
-  (Wave C sıfırdan), `stat/access/chmod/readlink/symlink/truncate/utimens/sync/openat`
-  (Wave D sıfırdan). Gerçek boot yolu **`kernel → /init`** (`userspace/init/main.cpp`,
-  68 satır, window-manager+os-shell spawn + `waitpid` + respawn); `userspace/systemd`
-  (23 satır) daha zayıf/ikincil bir kopya ve `.service` unit dosyaları hiç parse
-  edilmeyen dekoratif INI — "init→systemd" ayrımı plandaki gibi net değil, tek gerçek
-  PID1 `/init`.
+`include/kernel/syscall.h` içinde `SYS_SPAWN/WAITPID/GETPPID/KILL`,
+`SYS_PROC_LIST/STAT/MAP/WAIT`, `SYS_SYSINFO`, `SYS_SERVICE_LIST/START/STOP/STATUS`,
+`SYS_GETENV/SETENV`, `SYS_CONSOLE_SHOW`, `SYS_GETARGC/GETARGV`,
+`SYS_TIME_MAP/GET/SET/SETTZ/SETFLAGS`, `SYS_EVENT_CREATE/DESTROY/WAIT/SIGNAL/BROADCAST`,
+`SYS_THREAD_CREATE/EXIT`   numaralari **200 sonrasi** aralikta zaten tanimli ve
+`src/kernel/process.c` (zombie/ppid/wait kuyrugu), `src/kernel/service.c`
+(`service_info_t` registry — basit `int critical` flag, plandaki roles bitmask
+`CRITICAL`/`SESSION_UI` **henüz yok**), `src/kernel/env.c`, `src/kernel/time.c`
+içinde implement. Hâlâ eksik: gerçek `SYS_FORK` (copy/COW — syscall #2 tanımlı ama
+dispatch'te `-1` stub), `SYS_EXECVE`, `brk/sbrk/mprotect`, `pipe/dup/fcntl/poll/select/ioctl`
+(Wave C sıfırdan), `stat/access/chmod/readlink/symlink/truncate/utimens/sync/openat`
+(Wave D sıfırdan). Gerçek boot yolu `**kernel → /init**` (`userspace/init/main.cpp`,
+68 satır, window-manager+os-shell spawn + `waitpid` + respawn); `userspace/systemd`
+(23 satır) daha zayıf/ikincil bir kopya ve `.service` unit dosyaları hiç parse
+edilmeyen dekoratif INI — "init→systemd" ayrımı plandaki gibi net değil, tek gerçek
+PID1 `/init`.
 - **Networking** (`src/kernel/netstack.c`, `dhcp.c`, `socket.c`) ARP/IPv4/ICMP/DHCP +
-  **TCP state machine + SOCK_STREAM** dahil önemli ölçüde ilerledi (Wave F1/F2 tamam,
-  F3 çoğunlukla tamam). Hâlâ eksik: e1000 fallback, pipe/poll/select/ioctl (Wave C sıfırdan),
-  fs `stat/access/chmod/...` ailesi (Wave D sıfırdan).
+**TCP state machine + SOCK_STREAM** dahil önemli ölçüde ilerledi (Wave F1/F2 tamam,
+F3 çoğunlukla tamam). Hâlâ eksik: e1000 fallback, pipe/poll/select/ioctl (Wave C sıfırdan),
+fs `stat/access/chmod/...` ailesi (Wave D sıfırdan).
 - **Usermode apps çok daha ileride:** `userspace/os-shell` (eski `os-ui`, macOS-vari
-  dock magnification + menubar deep-link + tema + wifi/battery/clock status TAMAM),
-  `userspace/os-settings` (~1250 satır, tüm sayfalar + persist), `userspace/terminal`
-  (~1545 satır), `userspace/files` (~471 satır Explorer), `userspace/activity-monitor`
-  (~754 satır), `userspace/systemd` + `userspace/init` (service registry + unit dosyaları
-  `os-shell.service` / `window-manager.service`) hepsi **var ve çalışıyor**. Bu, Wave I/K/L/M/N
-  ve Phase H9/H10/H13'ün "pending" etiketini geçersiz kılıyor — bkz. güncellenmiş todo durumları.
-- **Kritik mimari sapma (grafik):** Bu planın H1/H2 maddeleri "`SYS_WM_*`/`SYS_GX_*`/`mkdx` OS
-  syscall dispatch'inde YOK, grafik `gpu_display_stack`'te" diyordu. Gerçekte
-  `SYS_WM_*`/`SYS_GX_*` (200-219, 275, 278 numaralı) hâlâ **aktif, üretimde kullanılan** ve
-  yukarıdaki tüm usermode app'lerin üzerine kurulu olduğu tek çalışan grafik ABI'si.
-  `userspace/sdk/reed` ve `userspace/sdk/kilim` yalnızca 12-13 satırlık stub (`-1` dönüyor);
-  `userspace/window-manager/main.cpp` kendi yorumunda bunu itiraf ediyor: *"compositor still
-  kernel mkdx for now; gpu_display_stack will replace the body."* Bu OS planı artık bu gerçeği
-  varsaymalı: grafik ABI değişene kadar **`SYS_WM_*`/`SYS_GX_*` silinmez**, yeni OS syscall'ları
-  (fd/ipc, fs, execve) bu numara aralığıyla (200-286 dolu) çakışmayacak şekilde eklenir.
+dock magnification + menubar deep-link + tema + wifi/battery/clock status TAMAM),
+`userspace/os-settings` (~~1250 satır, tüm sayfalar + persist), `userspace/terminal`
+(~~1545 satır), `userspace/files` (~~471 satır Explorer), `userspace/activity-monitor`
+(~~754 satır), `userspace/systemd` + `userspace/init` (service registry + unit dosyaları
+`os-shell.service` / `window-manager.service`) hepsi **var ve çalışıyor**. Bu, Wave I/K/L/M/N
+ve Phase H9/H10/H13'ün "pending" etiketini geçersiz kılıyor — bkz. güncellenmiş todo durumları.
+- **Kritik mimari sapma (grafik):** Bu planın H1/H2 maddeleri "`SYS_WM_`*/`SYS_GX_*`/`mkdx` OS
+syscall dispatch'inde YOK, grafik `gpu_display_stack`'te" diyordu. Gerçekte
+`SYS_WM_*`/`SYS_GX_*` (200-219, 275, 278 numaralı) hâlâ **aktif, üretimde kullanılan** ve
+yukarıdaki tüm usermode app'lerin üzerine kurulu olduğu tek çalışan grafik ABI'si.
+`userspace/sdk/reed` ve `userspace/sdk/kilim` yalnızca 12-13 satırlık stub (`-1` dönüyor);
+`userspace/window-manager/main.cpp` kendi yorumunda bunu itiraf ediyor: *"compositor still
+kernel mkdx for now; gpu_display_stack will replace the body."* Bu OS planı artık bu gerçeği
+varsaymalı: grafik ABI değişene kadar `**SYS_WM_*`/`SYS_GX_*` silinmez**, yeni OS syscall'ları
+(fd/ipc, fs, execve) bu numara aralığıyla (200-286 dolu) çakışmayacak şekilde eklenir.
 - **Kırık referans:** Hem bu plan hem `gpu_display_stack` planı `xmake_userspace_boot_a3be45ab.plan.md`
-  dosyasına link veriyor; bu dosya artık `.cursor/plans/` altında **yok**. Hedeflediği build/init→systemd
-  ayrımı zaten `userspace/systemd` + `userspace/init` + xmake ile fiilen tamamlanmış durumda — link
-  kaldırılmalı, referans yerine doğrudan bu iki dizine işaret edilmeli.
+dosyasına link veriyor; bu dosya artık `.cursor/plans/` altında **yok**. Hedeflediği build/init→systemd
+ayrımı zaten `userspace/systemd` + `userspace/init` + xmake ile fiilen tamamlanmış durumda — link
+kaldırılmalı, referans yerine doğrudan bu iki dizine işaret edilmeli.
 - **SMP/locking kuralları:** `.cursor/rules/kernel-asm-locking.mdc` ve `kernel-smp-state.mdc` bu
-  konuşmadan sonra eklendi (bkz. `docs/playbook-smp-state.md`, `docs/smp-scan-report.md`).
-  `process.c`/`sync.c`/`cpu.c` zaten bu kurallara göre `g_proc_lock`/`g_sched_lock`/`g_cpu_table_lock`
-  ile sertleştirildi. **Bundan sonra process/service/env/socket alanına dokunan her yeni syscall
-  (Wave B execve/fork, Wave C pipe, Wave P env) bu lock order'a uymak zorunda**: `g_sched_lock` →
-  `g_proc_lock` → `g_heap_lock`; `g_sync_lock` asla `g_proc`'tan sonra alınmaz. `vfs_core.c` /
-  `socket.c` (`g_socks`/`g_ephemeral`) / `netstack.c` (`g_arp`/`g_ip_id`) / `env.c` (`g_global`) /
-  `service.c` (`g_services`) hâlâ `docs/smp-scan-report.md`'de "open" (kilitsiz) olarak işaretli —
-  bu dosyalara Wave C/D/P kapsamında dokunulduğunda kilit eklemek zorunlu, atlanamaz.
+konuşmadan sonra eklendi (bkz. `docs/playbook-smp-state.md`, `docs/smp-scan-report.md`).
+`process.c`/`sync.c`/`cpu.c` zaten bu kurallara göre `g_proc_lock`/`g_sched_lock`/`g_cpu_table_lock`
+ile sertleştirildi. **Bundan sonra process/service/env/socket alanına dokunan her yeni syscall
+(Wave B execve/fork, Wave C pipe, Wave P env) bu lock order'a uymak zorunda**: `g_sched_lock` →
+`g_proc_lock` → `g_heap_lock`; `g_sync_lock` asla `g_proc`'tan sonra alınmaz. `vfs_core.c` /
+`socket.c` (`g_socks`/`g_ephemeral`) / `netstack.c` (`g_arp`/`g_ip_id`) / `env.c` (`g_global`) /
+`service.c` (`g_services`) hâlâ `docs/smp-scan-report.md`'de "open" (kilitsiz) olarak işaretli —
+bu dosyalara Wave C/D/P kapsamında dokunulduğunda kilit eklemek zorunlu, atlanamaz.
 
 ## Grafik / build — bu dosyada YOK
+
 
 | Konu                                               | Plan                                                                           |
 | -------------------------------------------------- | ------------------------------------------------------------------------------ |
 | Reed/Kilim/WM/GPU/display                          | [gpu_display_stack_bc5f6172.plan.md](gpu_display_stack_bc5f6172.plan.md)       |
 | xmake, `userspace/`, init→systemd, `__old_shits__` | [xmake_userspace_boot_a3be45ab.plan.md](xmake_userspace_boot_a3be45ab.plan.md) |
+
 
 Bu dosyada grafik ABI veya Makefile/xmake build yeniden tanımlanmaz.
 
@@ -166,7 +168,7 @@ Bu dosyada grafik ABI veya Makefile/xmake build yeniden tanımlanmaz.
 - **Networking full-ready** — virtio-net / e1000 + IPv4 TCP/UDP.
 - **System Settings** — usermode `os-settings`; deep-link zorunlu; UI çizimi grafik plan (Kilim/Reed).
 - **Dock pin kuralları** — Settings’ten pin; **çalışan app dock’ta zorunlu**; çizim/hibrit chrome grafik plan.
-- **Menubar** — sahte File/Edit yok; Settings / System Information deep-link; chrome hibrit grafik plan.
+- **Menubar** — sahtte File/Edit yok; Settings / System Information deep-link; chrome hibrit grafik plan.
 - **Image decode + wallpaper asset** — Wave J; present/compose grafik plan.
 - **Input** — PS/2 + virtio-input + layout API (H5); event routing grafik plandaki WM.
 - **Apps & launch** — `/applications`; Explorer; `run` / `./`.
@@ -175,14 +177,16 @@ Bu dosyada grafik ABI veya Makefile/xmake build yeniden tanımlanmaz.
 
 ## Split workstream
 
+
 | Workstream                  | Dalgalar               | Odak                                                    |
 | --------------------------- | ---------------------- | ------------------------------------------------------- |
-| **WS-1 Build**              | _xmake_userspace_boot_ | xmake, userspace/, init→systemd                         |
-| **WS0 Graphics**            | _gpu_display_stack_    | Reed/Kilim/WM/GPU/display                               |
+| **WS-1 Build**              | *xmake_userspace_boot* | xmake, userspace/, init→systemd                         |
+| **WS0 Graphics**            | *gpu_display_stack*    | Reed/Kilim/WM/GPU/display                               |
 | **WS2 Apps & Files**        | B, D, H7, H10, L, O, Q | `/applications`, Explorer, run, console kuralları, PATH |
 | **WS3 Services**            | B, M                   | systemd units (build plan); process spawn B             |
 | **WS4 Observe & Env**       | E, N, P                | Activity Monitor, env                                   |
 | **WS5 Settings & Shell UX** | I, J, H9, H13, K       | Settings, deep-link, dock pin, wallpaper prefs          |
+
 
 Bağımlılık: WS-1 önce/paralel; WS0 masaüstü çizimi; L/Q için B; Settings UI için WS0 SDK.
 
@@ -208,13 +212,16 @@ flowchart TB
   Svc --> Apps
 ```
 
+
+
 ---
 
 # WAVE B — Process (Linux + Windows CreateProcess hissi)
 
-Mevcut: `exit`, `getpid`, `yield`; **`fork` = -1 stub**.
+Mevcut: `exit`, `getpid`, `yield`; `**fork` = -1 stub**.
 
 Eklenecek syscalls:
+
 
 | Linux-like            | Anlam                                                            |
 | --------------------- | ---------------------------------------------------------------- |
@@ -226,13 +233,15 @@ Eklenecek syscalls:
 | `SYS_EXIT_GROUP`      | alias exit                                                       |
 | `SYS_SPAWN` (private) | atomik spawn `.mke` path + args (Windows CreateProcess)          |
 
-SDK [`process.hpp`](include/user/sdk/process.hpp): `spawn`, `wait`, `kill`, `getpid`, `getppid`, `exit`.
 
-Kernel: [`process.c`](src/kernel/process.c) / [`mke.c`](src/kernel/mke.c) spawn path genişlet; zombie + wait kuyruğu.
+SDK `[process.hpp](include/user/sdk/process.hpp)`: `spawn`, `wait`, `kill`, `getpid`, `getppid`, `exit`.
+
+Kernel: `[process.c](src/kernel/process.c)` / `[mke.c](src/kernel/mke.c)` spawn path genişlet; zombie + wait kuyruğu.
 
 ---
 
 # WAVE C — FD / IPC / multiplex
+
 
 | Call                                | Anlam                                                              |
 | ----------------------------------- | ------------------------------------------------------------------ |
@@ -243,6 +252,7 @@ Kernel: [`process.c`](src/kernel/process.c) / [`mke.c`](src/kernel/mke.c) spawn 
 | `SYS_POLL`                          | fd + timeout (socket/file/pipe hazır)                              |
 | `SYS_SELECT`                        | lite (veya poll üzerine SDK emülasyonu — kernel’de `POLL` zorunlu) |
 
+
 Pipe VFS inode veya process-local ring. Terminal/console stdin buna bağlanabilir.
 
 ---
@@ -252,6 +262,7 @@ Pipe VFS inode veya process-local ring. Terminal/console stdin buna bağlanabili
 Mevcut: open/close/read/write/lseek/chdir/getcwd/mkdir/unlink/rmdir/rename/mount/getdents/xattr/flock/aio/mmap…
 
 Eksik → ekle:
+
 
 | Call                                          | Anlam                                       |
 | --------------------------------------------- | ------------------------------------------- |
@@ -267,14 +278,16 @@ Eksik → ekle:
 | `SYS_SYNC`                                    | global                                      |
 | `SYS_STATFS` / `SYS_FSTATFS`                  | fs bilgi                                    |
 | `SYS_GETDENTS64`                              | 64-bit dent (veya mevcut getdents genişlet) |
-| `SYS_OPENAT` / `SYS_MKDIRAT` / `SYS_UNLINKAT` | \*at ailesi                                 |
+| `SYS_OPENAT` / `SYS_MKDIRAT` / `SYS_UNLINKAT` | at ailesi                                   |
 | `SYS_READLINKAT`                              |                                             |
 
-SDK [`fs.hpp`](include/user/sdk/fs.hpp) genişlet: `stat`, `access`, `chmod`, `readlink`, `truncate`, `sync`.
+
+SDK `[fs.hpp](include/user/sdk/fs.hpp)` genişlet: `stat`, `access`, `chmod`, `readlink`, `truncate`, `sync`.
 
 ---
 
 # WAVE E — Time + memory
+
 
 | Call                   | Anlam                      |
 | ---------------------- | -------------------------- |
@@ -287,15 +300,16 @@ SDK [`fs.hpp`](include/user/sdk/fs.hpp) genişlet: `stat`, `access`, `chmod`, `r
 | `SYS_MPROTECT`         | prot değiş                 |
 | `SYS_MINCORE`          | opsiyonel lite             |
 
+
 Mevcut `mmap/munmap/msync` kalır; brk userspace allocator için.
 
-SDK [`time.hpp`](include/user/sdk/time.hpp): `sleep_ms`, `monotonic_ns`, `wall_time`.
+SDK `[time.hpp](include/user/sdk/time.hpp)`: `sleep_ms`, `monotonic_ns`, `wall_time`.
 
 ---
 
 # WAVE F — Full-ready Networking (driver + stack + sockets + SDK)
 
-Hedef: **QEMU’dan paket çıkıp gerçek IP’ye (SLIRP üzerinden host/internet) UDP ve TCP ile bağlanabilmek.** Socket API Linux-benzeri; SDK Windows `connect`/`send` hissi. Mevcut omurga korunup genişletilir: [`virtio_net.c`](src/drivers/net/virtio_net/virtio_net.c), [`netstack.c`](src/kernel/netstack.c), [`socket.c`](src/kernel/socket.c), [`netif.h`](include/kernel/netif.h).
+Hedef: **QEMU’dan paket çıkıp gerçek IP’ye (SLIRP üzerinden host/internet) UDP ve TCP ile bağlanabilmek.** Socket API Linux-benzeri; SDK Windows `connect`/`send` hissi. Mevcut omurga korunup genişletilir: `[virtio_net.c](src/drivers/net/virtio_net/virtio_net.c)`, `[netstack.c](src/kernel/netstack.c)`, `[socket.c](src/kernel/socket.c)`, `[netif.h](include/kernel/netif.h)`.
 
 ```mermaid
 flowchart LR
@@ -311,33 +325,34 @@ flowchart LR
   Qemu --> Drv --> Nif --> Stack --> Sock --> App
 ```
 
+
+
 ## F0) Bugünkü durum (başlangıç noktası — silinmez, üzerine inşa)
 
 - Makefile zaten: `-netdev user,id=n0 -device virtio-net-pci,netdev=n0,disable-legacy=on`
 - Driver: virtio-net **modern** PCI (`1AF4:1041`), static `10.0.2.15/24` gw `10.0.2.2`
 - Stack: Ethernet demux, ARP, IPv4 TX, ICMP echo reply, UDP → `sock_input_udp`
-- Sockets: sadece `AF_INET` + `SOCK_DGRAM` (UDP) + `SOCK_RAW` (ICMP); **`SOCK_STREAM`/TCP yok**
+- Sockets: sadece `AF_INET` + `SOCK_DGRAM` (UDP) + `SOCK_RAW` (ICMP); `**SOCK_STREAM`/TCP yok**
 - Syscalls: socket/bind/connect/sendto/recvfrom (TCP listen/accept/send/recv yok)
 
 ## F1) NIC driver — QEMU PCI’den al, eksikse yaz
 
 1. **virtio-net-pci (birincil)**
-   - PCI enumerate + modern capability map doğrula
-   - RX/TX virtqueue: paket kaybı, notify, feature bits (`VIRTIO_NET_F_MAC`, checksum offload opsiyonel)
-   - `netif_register` + `poll` path; IRQ varsa kullan, yoksa poll (mevcut `DRIVER_FLAG_POLL`)
-   - Link up log: MAC, IP, gateway
-   - Stress: sürekli `net_poll` altında TX/RX
-
+  - PCI enumerate + modern capability map doğrula
+  - RX/TX virtqueue: paket kaybı, notify, feature bits (`VIRTIO_NET_F_MAC`, checksum offload opsiyonel)
+  - `netif_register` + `poll` path; IRQ varsa kullan, yoksa poll (mevcut `DRIVER_FLAG_POLL`)
+  - Link up log: MAC, IP, gateway
+  - Stress: sürekli `net_poll` altında TX/RX
 2. **Fallback: e1000 PCI** (`8086:100E` — QEMU `-device e1000`)
-   - virtio bulunamazsa veya test için
-   - MMIO/PIO register init, RX/TX ring, `netif_t` aynı arayüz
-   - Makefile’a opsiyonel `QEMU_NET=e1000` target; default virtio kalır
-
+  - virtio bulunamazsa veya test için
+  - MMIO/PIO register init, RX/TX ring, `netif_t` aynı arayüz
+  - Makefile’a opsiyonel `QEMU_NET=e1000` target; default virtio kalır
 3. **Ortak netif sözleşmesi** (zaten var, sıkılaştır):
-   - `tx(frame)`, `poll()`, MAC, MTU, up
-   - Tüm IP/TCP sadece `netif_*` üzerinden — driver bağımsız
+  - `tx(frame)`, `poll()`, MAC, MTU, up
+  - Tüm IP/TCP sadece `netif_*` üzerinden — driver bağımsız
 
 ## F2) L2/L3 stack — IP conn çalışsın
+
 
 | Parça    | Yapılacak                                                                                                |
 | -------- | -------------------------------------------------------------------------------------------------------- |
@@ -348,7 +363,9 @@ flowchart LR
 | DHCP     | client: DISCOVER/OFFER/REQUEST/ACK → IP/mask/gw/DNS doldur; fail olursa QEMU static `10.0.2.15` fallback |
 | DNS lite | `getaddrinfo` / `gethostbyname` SDK: önce inet_aton, sonra UDP DNS query (gw/DNS 10.0.2.3 QEMU)          |
 
+
 Yeni / geniş syscalls (config):
+
 
 | Call                               | Anlam                               |
 | ---------------------------------- | ----------------------------------- |
@@ -357,9 +374,10 @@ Yeni / geniş syscalls (config):
 | `SYS_NETIF_UP` / `DOWN`            | link admin                          |
 | `SYS_DHCP_START`                   | DHCP yenile (veya boot’ta otomatik) |
 
+
 ## F3) Socket yapısı — UDP + TCP full
 
-[`socket.c`](src/kernel/socket.c) yeniden yapılandır (ABI break OK):
+`[socket.c](src/kernel/socket.c)` yeniden yapılandır (ABI break OK):
 
 ```c
 /* SOCK_STREAM + IPPROTO_TCP desteklenir */
@@ -381,6 +399,7 @@ sock_create(AF_INET, SOCK_DGRAM, 0)  → UDP
 
 **Syscalls (Wave F net listesi — önceki listen/accept maddeleri burada, genişletilmiş):**
 
+
 | Call                                        | Anlam                                                               |
 | ------------------------------------------- | ------------------------------------------------------------------- |
 | `SYS_SOCKET`                                | + SOCK_STREAM                                                       |
@@ -393,11 +412,12 @@ sock_create(AF_INET, SOCK_DGRAM, 0)  → UDP
 | `SYS_SETSOCKOPT` / `SYS_GETSOCKOPT`         | SO_REUSEADDR, SO_RCVBUF/SNDBUF, SO_KEEPALIVE lite, TCP_NODELAY lite |
 | `SYS_IOCTL` (sock)                          | FIONBIO nonblock                                                    |
 
+
 `poll` (Wave C) socket fd’lerini de kapsar: readable/writable/connected/err.
 
 ## F4) Net SDK + errno + genel SDK glue
 
-[`include/user/sdk/net.hpp`](include/user/sdk/net.hpp) genişlet:
+`[include/user/sdk/net.hpp](include/user/sdk/net.hpp)` genişlet:
 
 ```cpp
 socket / bind / connect / listen / accept
@@ -411,7 +431,7 @@ UdpSocket { bind; sendto; recvfrom; }
 netif_info / dhcp_renew
 ```
 
-**errno:** userspace `errno` + negatif syscall return Linux uyumu. Ortak [`include/user/errno.h`](include/user/errno.h) / [`sys.h`](include/user/sys.h).
+**errno:** userspace `errno` + negatif syscall return Linux uyumu. Ortak `[include/user/errno.h](include/user/errno.h)` / `[sys.h](include/user/sys.h)`.
 
 Windows-benzeri C++ isimleri (aynı syscall üstü) — önceki liste + net:
 
@@ -461,7 +481,7 @@ Doğrulama checklist (net):
 - Settings: OS menü → System Settings (yönetim masası) → Keyboard → layout; Prefs aynı hub; persist
 - Input: PS/2 ve/veya PCI virtio-input device list’te görünür
 - Wallpaper: 4K default cover; menubar/dock ~%70 blur glass; text/icon opak siyah veya beyaz
-- Grafik smoke: gpu*display_stack kabul kriterleri; repoda `ugx`/`mkdx_api`/`UGX_STYLE*` kalmaz
+- Grafik smoke: gpu*display_stack kabul kriterleri; repoda `ugx`/`mkdx_api`/`UGX_STYLE`* kalmaz
 
 ---
 
@@ -492,21 +512,21 @@ v1’de **app yazarken ihtiyaç duyulan** call’lar + **IPv4 TCP/UDP over Ether
 > (execve/gerçek fork) → gpu_display_stack Stage 1-5**. Numaralı liste tarihsel referans
 > için korunuyor; gerçek durum için her Wave/Phase'in yukarıdaki todo satırına bak.
 
-0. **gpu_display_stack** end-to-end (Reed/Kilim/WM/GPU/display/shell çizim) — grafik kaynak plan; **stub aşamasında**
-1. Phase H5 input (PS/2 + virtio-input + layout) — Settings’ten önce; feed usermode WM; **PS/2 tamam, virtio-input/layout yok**
-2. Wave B process → Phase H2 process/mke; **spawn/wait/kill tamam, execve/fork eksik**
-3. Wave C pipe/poll → Phase H2 + H7; **hiç başlamadı**
-4. Wave D FS → Phase H7; **hiç başlamadı**
-5. Wave E time/mem → Phase H2; **time tamam, brk/mprotect eksik**
-6. Wave F networking → Phase H6 + H2 net + H8 net SDK + H10 terminal net; **çoğunlukla tamam**
-7. Phase H8 SDK (fs/process/net/time/settings) — gfx SDK diğer planda; **çoğunlukla tamam**
-8. Phase H13 os-settings + H9 deep-link/dock pin + Wave I; **TAMAM**
-9. Wave J image decode + wallpaper assets (present diğer plan); **wallpaper var, tam format matrisi doğrulanmadı**
-10. Wave K/L/M/N/O/P/Q shell UX + Explorer + services + monitor + console kuralları + env; **çoğunlukla TAMAM**
-11. Phase H11 Makefile/boot (window-manager + os-shell + settings.mke); **TAMAM (xmake ile)**
-12. Wave G verify; **checklist gerçek mimariye göre yeniden yazılmalı**
+1. **gpu_display_stack** end-to-end (Reed/Kilim/WM/GPU/display/shell çizim) — grafik kaynak plan; **stub aşamasında**
+2. Phase H5 input (PS/2 + virtio-input + layout) — Settings’ten önce; feed usermode WM; **PS/2 tamam, virtio-input/layout yok**
+3. Wave B process → Phase H2 process/mke; **spawn/wait/kill tamam, execve/fork eksik**
+4. Wave C pipe/poll → Phase H2 + H7; **hiç başlamadı**
+5. Wave D FS → Phase H7; **hiç başlamadı**
+6. Wave E time/mem → Phase H2; **time tamam, brk/mprotect eksik**
+7. Wave F networking → Phase H6 + H2 net + H8 net SDK + H10 terminal net; **çoğunlukla tamam**
+8. Phase H8 SDK (fs/process/net/time/settings) — gfx SDK diğer planda; **çoğunlukla tamam**
+9. Phase H13 os-settings + H9 deep-link/dock pin + Wave I; **TAMAM**
+10. Wave J image decode + wallpaper assets (present diğer plan); **wallpaper var, tam format matrisi doğrulanmadı**
+11. Wave K/L/M/N/O/P/Q shell UX + Explorer + services + monitor + console kuralları + env; **çoğunlukla TAMAM**
+12. Phase H11 Makefile/boot (window-manager + os-shell + settings.mke); **TAMAM (xmake ile)**
+13. Wave G verify; **checklist gerçek mimariye göre yeniden yazılmalı**
 
-**Kural:** OS Phase H\* kendi listesini bitirmeden sonrakine geçilmez. Grafik işi bu dosyada yeniden açılmaz.
+**Kural:** OS Phase H kendi listesini bitirmeden sonrakine geçilmez. Grafik işi bu dosyada yeniden açılmaz.
 
 ---
 
@@ -520,17 +540,17 @@ Bu bölüm **kasıtlı olarak uzun**. ABI kırılınca dokunulması gereken her 
 
 **Dosyalar (zorunlu düzenleme):**
 
-- [`include/kernel/syscall.h`](include/kernel/syscall.h) — OS `SYS_*` (NET/FS/PROCESS/TIME/INPUT/SERVICE); grafik `SYS_DISP_*` diğer plan; ölü `SYS_WM_*`/`SYS_GX_*` **sil**
-- [`include/user/sys.h`](include/user/sys.h) — userspace syscall numaraları (`syscall.h` ile senkron)
-- [`include/user/errno.h`](include/user/errno.h) — Linux-benzeri errno
+- `[include/kernel/syscall.h](include/kernel/syscall.h)` — OS `SYS_*` (NET/FS/PROCESS/TIME/INPUT/SERVICE); grafik `SYS_DISP_*` diğer plan; ölü `SYS_WM_*`/`SYS_GX_*` **sil**
+- `[include/user/sys.h](include/user/sys.h)` — userspace syscall numaraları (`syscall.h` ile senkron)
+- `[include/user/errno.h](include/user/errno.h)` — Linux-benzeri errno
 - Grafik headers (`reed.h`/`kilim.h`) — **gpu_display_stack**; `gx.h`/`mkdx_api.h` **silinir**
-- [`include/kernel/socket.h`](include/kernel/socket.h) — `SOCK_STREAM`, `IPPROTO_TCP`, `sockaddr` helpers, `send`/`recv`/`listen`/`accept` deklarasyonları
-- [`include/kernel/netif.h`](include/kernel/netif.h) — netif get/set info struct’ları (userspace kopyası `user/net.h` olabilir)
-- [`include/kernel/process.h`](include/kernel/process.h) — wait/zombie/ppid alanları
-- [`include/kernel/types.h`](include/kernel/types.h) — `stat`, `timespec`, `pollfd` gibi eksik tipler burada veya ayrı `stat.h`/`poll.h`
-- [`include/drivers/keyboard.h`](include/drivers/keyboard.h) — layout get/set/list API
-- [`include/user/input.h`](include/user/input.h) — **yeni**: userspace layout + `input_device_info` struct’ları
-- [`include/user/sdk/input.hpp`](include/user/sdk/input.hpp) — **yeni** SDK (H8’de impl)
+- `[include/kernel/socket.h](include/kernel/socket.h)` — `SOCK_STREAM`, `IPPROTO_TCP`, `sockaddr` helpers, `send`/`recv`/`listen`/`accept` deklarasyonları
+- `[include/kernel/netif.h](include/kernel/netif.h)` — netif get/set info struct’ları (userspace kopyası `user/net.h` olabilir)
+- `[include/kernel/process.h](include/kernel/process.h)` — wait/zombie/ppid alanları
+- `[include/kernel/types.h](include/kernel/types.h)` — `stat`, `timespec`, `pollfd` gibi eksik tipler burada veya ayrı `stat.h`/`poll.h`
+- `[include/drivers/keyboard.h](include/drivers/keyboard.h)` — layout get/set/list API
+- `[include/user/input.h](include/user/input.h)` — **yeni**: userspace layout + `input_device_info` struct’ları
+- `[include/user/sdk/input.hpp](include/user/sdk/input.hpp)` — **yeni** SDK (H8’de impl)
 
 **Yapılacaklar:**
 
@@ -550,15 +570,15 @@ Bu bölüm **kasıtlı olarak uzun**. ABI kırılınca dokunulması gereken her 
 
 **Dosyalar:**
 
-- [`src/kernel/syscall.c`](src/kernel/syscall.c) — OS `case SYS_*`; `do_net_*`, `do_stat_*`, `do_pipe_*`, `do_clock_*`, `do_exec_*` …; `do_wm_*`/`mkdx` **yok**
-- [`src/kernel/process.c`](src/kernel/process.c) / [`include/kernel/process.h`](include/kernel/process.h) — fork/spawn/wait/zombie/exit; ölümde usermode WM cleanup (grafik plan)
-- [`src/kernel/mke.c`](src/kernel/mke.c) — `execve`/`spawn` path; argv taşıma
-- [`src/kernel/main.c`](src/kernel/main.c) — boot: netstack/socket; gpu/display kmods grafik plan; DHCP kick
-- [`src/kernel/ksym.c`](src/kernel/ksym.c) — export’lar (`tcp_*`, `dhcp_*`, …); `wm_apply_opts` yok
-- [`src/kernel/netstack.c`](src/kernel/netstack.c) / [`include/kernel/netstack.h`](include/kernel/netstack.h) — TCP/DHCP/DNS lite / route
-- [`src/kernel/netif.c`](src/kernel/netif.c) — netif_get/set, list
-- [`src/kernel/socket.c`](src/kernel/socket.c) — UDP sertleştir + TCP PCB + listen/accept/send/recv
-- [`src/kernel/mm.c`](src/kernel/mm.c) — brk/mprotect (Wave E)
+- `[src/kernel/syscall.c](src/kernel/syscall.c)` — OS `case SYS_*`; `do_net_*`, `do_stat_*`, `do_pipe_*`, `do_clock_*`, `do_exec_*` …; `do_wm_*`/`mkdx` **yok**
+- `[src/kernel/process.c](src/kernel/process.c)` / `[include/kernel/process.h](include/kernel/process.h)` — fork/spawn/wait/zombie/exit; ölümde usermode WM cleanup (grafik plan)
+- `[src/kernel/mke.c](src/kernel/mke.c)` — `execve`/`spawn` path; argv taşıma
+- `[src/kernel/main.c](src/kernel/main.c)` — boot: netstack/socket; gpu/display kmods grafik plan; DHCP kick
+- `[src/kernel/ksym.c](src/kernel/ksym.c)` — export’lar (`tcp_*`, `dhcp_*`, …); `wm_apply_opts` yok
+- `[src/kernel/netstack.c](src/kernel/netstack.c)` / `[include/kernel/netstack.h](include/kernel/netstack.h)` — TCP/DHCP/DNS lite / route
+- `[src/kernel/netif.c](src/kernel/netif.c)` — netif_get/set, list
+- `[src/kernel/socket.c](src/kernel/socket.c)` — UDP sertleştir + TCP PCB + listen/accept/send/recv
+- `[src/kernel/mm.c](src/kernel/mm.c)` — brk/mprotect (Wave E)
 - Yeni dosyalar (gerekirse): `src/kernel/tcp.c`, `src/kernel/dhcp.c`, `src/kernel/pipe.c`, `src/kernel/clock.c`
 
 **Yapılacaklar (detay):**
@@ -572,7 +592,7 @@ Bu bölüm **kasıtlı olarak uzun**. ABI kırılınca dokunulması gereken her 
 
 **Kabul kriteri:**
 
-- Bilinmeyen SYS\_\* → `-ENOSYS`
+- Bilinmeyen SYS → `-ENOSYS`
 - Boot sonrası `SYS_NETIF_GET` çalışır; ekran bilgisi grafik plan üzerinden
 - Process kill → pencereler kaybolur (WM cleanup)
 
@@ -586,7 +606,7 @@ Grafik driver + display + usermode WM entegrasyonu yalnızca [gpu_display_stack_
 
 ## Phase H5 — Input stack: PS/2 (mevcut) + PCI cihaz keşfi + layout API
 
-**Amaç:** Klavye/mouse çalışır olsun; cihaz **keşifle** bağlansın. Bugün PS/2 (`i8042`) üzerinden [`keyboard.c`](src/drivers/keyboard.c) / [`mouse.c`](src/drivers/mouse.c) / [`ps2.c`](src/drivers/ps2.c) var — **silinmez, birincil fallback**. Üzerine PCI’den `virtio-input` algılanırsa o path tercih edilir (QEMU `-device virtio-keyboard-pci` / `virtio-tablet-pci` veya `virtio-mouse-pci`). Ham input → layout → **usermode WM** event feed ([gpu_display_stack](gpu_display_stack_bc5f6172.plan.md)). Dil/layout **OS Settings**’ten değişir (Wave I).
+**Amaç:** Klavye/mouse çalışır olsun; cihaz **keşifle** bağlansın. Bugün PS/2 (`i8042`) üzerinden `[keyboard.c](src/drivers/keyboard.c)` / `[mouse.c](src/drivers/mouse.c)` / `[ps2.c](src/drivers/ps2.c)` var — **silinmez, birincil fallback**. Üzerine PCI’den `virtio-input` algılanırsa o path tercih edilir (QEMU `-device virtio-keyboard-pci` / `virtio-tablet-pci` veya `virtio-mouse-pci`). Ham input → layout → **usermode WM** event feed ([gpu_display_stack](gpu_display_stack_bc5f6172.plan.md)). Dil/layout **OS Settings**’ten değişir (Wave I).
 
 **Not (donanım gerçeği):** Klasik PS/2 PCI değil, IO port `0x60/0x64`. Kullanıcı isteği “PCI’den device algıla” → **PCI virtio-input** ek keşif + PS/2 self-test keşfi. İkisi de `input_device` tablosuna yazılır; Settings’te “bagli cihazlar” listelenir.
 
@@ -594,15 +614,15 @@ Grafik driver + display + usermode WM entegrasyonu yalnızca [gpu_display_stack_
 
 **Dosyalar:**
 
-- [`src/drivers/ps2.c`](src/drivers/ps2.c) / [`include/drivers/ps2.h`](include/drivers/ps2.h)
+- `[src/drivers/ps2.c](src/drivers/ps2.c)` / `[include/drivers/ps2.h](include/drivers/ps2.h)`
   - Controller self-test; keyboard channel / mouse channel detect
   - Yoksa log: `ps2: no keyboard` / `ps2: no mouse` — panic yok
-- [`src/drivers/keyboard.c`](src/drivers/keyboard.c) / [`include/drivers/keyboard.h`](include/drivers/keyboard.h)
+- `[src/drivers/keyboard.c](src/drivers/keyboard.c)` / `[include/drivers/keyboard.h](include/drivers/keyboard.h)`
   - Scancode → **aktif layout tablosu** (şu an sabit TRQ; layout API ile değiştirilebilir)
   - Layout’lar: en az `tr_q` (ISO-8859-9, mevcut), `us_qwerty`, `tr_f` (opsiyonel)
   - `keyboard_set_layout(const char *id)` / `keyboard_get_layout(char *out, len)`
   - KEY_DOWN/UP + CHAR üretimi; mods
-- [`src/drivers/mouse.c`](src/drivers/mouse.c) / [`include/drivers/mouse.h`](include/drivers/mouse.h)
+- `[src/drivers/mouse.c](src/drivers/mouse.c)` / `[include/drivers/mouse.h](include/drivers/mouse.h)`
   - move/button/wheel; bounds; warp
   - `mouse_device_present()` flag
 
@@ -628,6 +648,7 @@ Grafik driver + display + usermode WM entegrasyonu yalnızca [gpu_display_stack_
 
 ### H5.3 Ortak input + layout syscalls
 
+
 | Call                    | Rol                                                       |
 | ----------------------- | --------------------------------------------------------- |
 | `SYS_INPUT_DEVICE_LIST` | bağlı cihazlar: name, type (kbd/mouse), bus (ps2/pci), id |
@@ -635,6 +656,7 @@ Grafik driver + display + usermode WM entegrasyonu yalnızca [gpu_display_stack_
 | `SYS_KBD_SET_LAYOUT`    | layout değiştir (hemen uygulanır)                         |
 | `SYS_KBD_LIST_LAYOUTS`  | desteklenen layout listesi                                |
 | `SYS_INPUT_STATE`       | (mevcut) snapshot                                         |
+
 
 Persist yolu (Wave I ile): Settings `/etc/os-settings.ini` veya `/var/lib/os/keyboard.layout` yazar; boot’ta `main`/settingsd lite veya ilk Settings açılışı / `os-ui` init dosyayı okuyup `SYS_KBD_SET_LAYOUT` çağırır.
 
@@ -659,13 +681,13 @@ Persist yolu (Wave I ile): Settings `/etc/os-settings.ini` veya `/var/lib/os/key
 
 **Dosyalar:**
 
-- [`src/drivers/net/virtio_net/virtio_net.c`](src/drivers/net/virtio_net/virtio_net.c)
+- `[src/drivers/net/virtio_net/virtio_net.c](src/drivers/net/virtio_net/virtio_net.c)`
   - modern virtio-net PCI stabilize: RX refill, TX notify, MAC feature, hata log
   - DHCP sonrası `netif_set_addr` veya static `10.0.2.15/24` gw `10.0.2.2` (fallback)
   - `poll` path; mümkünse MSI/IRQ
 - **Yeni:** `src/drivers/net/e1000/e1000.c` (+ header)
   - PCI `8086:100E` init, RX/TX ring, aynı `netif_t` kaydı
-- [`Makefile`](Makefile)
+- `[Makefile](Makefile)`
   - `KMOD_E1000`, `KMODS` sırası
   - QEMU: default virtio-net; `QEMU_NET=e1000` alternate
   - `hostfwd=tcp::8080-:80` test için
@@ -690,14 +712,14 @@ Persist yolu (Wave I ile): Settings `/etc/os-settings.ini` veya `/var/lib/os/key
 
 **Doğrudan etkilenen:**
 
-- [`src/drivers/vfs/vfs_core.c`](src/drivers/vfs/vfs_core.c) + vfs\_\* — `stat`/`fstat`, `chmod`, `symlink`/`readlink`, `truncate`, `utimens`, `fsync`, pipe inode, `openat` path
-- [`src/drivers/vfs/vfs_flock.c`](src/drivers/vfs/vfs_flock.c) — fcntl ile etkileşim
-- [`src/drivers/fs/ramfs/ramfs.c`](src/drivers/fs/ramfs/ramfs.c) — symlink/chmod/truncate implement (birincil test FS)
-- [`src/drivers/fs/tmpfs/tmpfs.c`](src/drivers/fs/tmpfs/tmpfs.c) — aynı
-- [`src/drivers/fs/devtmpfs/devtmpfs.c`](src/drivers/fs/devtmpfs/devtmpfs.c) — `/dev` node’ları; ileride net/tun yok ama console/null kalır
-- [`src/drivers/fs/procfs/procfs.c`](src/drivers/fs/procfs/procfs.c) — `/proc/net`, `/proc/self` lite (pid, fd list) — process wave ile
-- [`src/drivers/fs/sysfs/sysfs.c`](src/drivers/fs/sysfs/sysfs.c) — netif sysfs lite opsiyonel
-- [`src/drivers/fs/initrdfs/initrdfs.c`](src/drivers/fs/initrdfs/initrdfs.c) — kırılmadan kalır
+- `[src/drivers/vfs/vfs_core.c](src/drivers/vfs/vfs_core.c)` + vfs — `stat`/`fstat`, `chmod`, `symlink`/`readlink`, `truncate`, `utimens`, `fsync`, pipe inode, `openat` path
+- `[src/drivers/vfs/vfs_flock.c](src/drivers/vfs/vfs_flock.c)` — fcntl ile etkileşim
+- `[src/drivers/fs/ramfs/ramfs.c](src/drivers/fs/ramfs/ramfs.c)` — symlink/chmod/truncate implement (birincil test FS)
+- `[src/drivers/fs/tmpfs/tmpfs.c](src/drivers/fs/tmpfs/tmpfs.c)` — aynı
+- `[src/drivers/fs/devtmpfs/devtmpfs.c](src/drivers/fs/devtmpfs/devtmpfs.c)` — `/dev` node’ları; ileride net/tun yok ama console/null kalır
+- `[src/drivers/fs/procfs/procfs.c](src/drivers/fs/procfs/procfs.c)` — `/proc/net`, `/proc/self` lite (pid, fd list) — process wave ile
+- `[src/drivers/fs/sysfs/sysfs.c](src/drivers/fs/sysfs/sysfs.c)` — netif sysfs lite opsiyonel
+- `[src/drivers/fs/initrdfs/initrdfs.c](src/drivers/fs/initrdfs/initrdfs.c)` — kırılmadan kalır
 - Fat/ext/exfat/ntfs/iso/udf — **en azından** `stat`/`lookup` path’leri yeni `stat` syscall ile uyumlu inode ops; eksik ops → net errno
 
 **Block (dolaylı — bozma, smoke):**
@@ -725,14 +747,14 @@ Persist yolu (Wave I ile): Settings `/etc/os-settings.ini` veya `/var/lib/os/key
 
 **Dosyalar:**
 
-- [`include/user/sdk/gfx.hpp`](include/user/sdk/gfx.hpp) / [`src/user/sdk/gfx.cpp`](src/user/sdk/gfx.cpp) — Window/Surface/Console/Event/Clipboard/Screen; eski style create **sil**
-- [`include/user/sdk/syscall.hpp`](include/user/sdk/syscall.hpp) / [`src/user/sdk/syscall.cpp`](src/user/sdk/syscall.cpp) — syscall0..6; errno set
-- [`include/user/sdk/net.hpp`](include/user/sdk/net.hpp) — TcpClient/Server, UdpSocket, inet\_\*, netif
+- `[include/user/sdk/gfx.hpp](include/user/sdk/gfx.hpp)` / `[src/user/sdk/gfx.cpp](src/user/sdk/gfx.cpp)` — Window/Surface/Console/Event/Clipboard/Screen; eski style create **sil**
+- `[include/user/sdk/syscall.hpp](include/user/sdk/syscall.hpp)` / `[src/user/sdk/syscall.cpp](src/user/sdk/syscall.cpp)` — syscall0..6; errno set
+- `[include/user/sdk/net.hpp](include/user/sdk/net.hpp)` — TcpClient/Server, UdpSocket, inet, netif
 - **Yeni:** `include/user/sdk/process.hpp` + `src/user/sdk/process.cpp`
 - **Yeni:** `include/user/sdk/time.hpp` + `src/user/sdk/time.cpp`
-- [`include/user/sdk/fs.hpp`](include/user/sdk/fs.hpp) (+ cpp varsa) — stat/access/chmod/…
-- [`include/user/sdk/color.hpp`](include/user/sdk/color.hpp) — kalır
-- [`include/user/mke.h`](include/user/mke.h) — gerekirse
+- `[include/user/sdk/fs.hpp](include/user/sdk/fs.hpp)` (+ cpp varsa) — stat/access/chmod/…
+- `[include/user/sdk/color.hpp](include/user/sdk/color.hpp)` — kalır
+- `[include/user/mke.h](include/user/mke.h)` — gerekirse
 - Makefile user app link satırlarına yeni `.cpp` ekle
 
 **Yapılacaklar:**
@@ -753,7 +775,7 @@ Persist yolu (Wave I ile): Settings `/etc/os-settings.ini` veya `/var/lib/os/key
 
 **Process:** `os-ui` / `.mke` (menubar + **OS system menu** + dock + watermark)
 
-**Dosya:** [`src/user/apps/os-ui.cpp`](src/user/apps/os-ui.cpp)
+**Dosya:** `[src/user/apps/os-ui.cpp](src/user/apps/os-ui.cpp)`
 
 **Yapılacaklar (satır satır migrasyon):**
 
@@ -769,7 +791,7 @@ Persist yolu (Wave I ile): Settings `/etc/os-settings.ini` veya `/var/lib/os/key
 **Wallpaper + frosted chrome (Wave J — zorunlu görsel):**
 
 8a. Boot’ta default **4K wallpaper** yükle (initrd/asset) → image decode → ekran `cover` scale → compositor `set_wallpaper` (düz renk sadece fallback)
-8b. Menubar + dock pencereleri: **arka plan** `acrylic` / blur-behind, opacity ~**70%** saydam + blur (wallpaper’ı arkadan yumuşak göster). Mevcut `GX_LAYER_ACRYLIC` / `gx_blur_*` güçlendirilir; blur radius menubar/dock yüksekliğine uygun (görsel %70 frosted hissi)
+8b. Menubar + dock pencereleri: **arka plan** `acrylic` / blur-behind, opacity ~**70%** saydam + blur (wallpaper’ı arkadan yumuşak göster). Mevcut `GX_LAYER_ACRYLIC` / `gx_blur_`* güçlendirilir; blur radius menubar/dock yüksekliğine uygun (görsel %70 frosted hissi)
 8c. Menubar/dock **üzerine çizilen** OS ikonu, “Settings”, “System Information”, dock app ikonları ve etiketler: **tamamen opak** — `#000000` veya `#FFFFFF` (kontrasta göre; v1 menubar koyu yazı / dock açık yazı veya tersi, tek net seçim: menubar text **siyah veya beyaz solid**, alpha=255). Blur/glass **sadece BG layer**; content pass ayrı opak blit
 8d. Eski düz `kMenubarBg` / `kDockBg` solid fill kaldırılır veya sadece fallback; asıl görünüm wallpaper + glass
 8e. Wallpaper değişince (Settings) menubar/dock dirty → yeniden compose
@@ -778,33 +800,33 @@ Persist yolu (Wave I ile): Settings `/etc/os-settings.ini` veya `/var/lib/os/key
 
 Şu an menubar’da `File Edit View Window Help` çiziliyor ama **hiçbir işe yaramıyor**. Bu kaldırılır / değiştirilir.
 
-9. **Focus modeli**
-   - `focus_id` bir kullanıcı app penceresine aitse (Terminal, Settings, …): menubar solunda o app adı (opsiyonel v1) **veya** yine OS bar kalır — v1 kararı: **global OS menubar** (basit)
-   - **Hiçbir app focus’ta değilken** (desktop/wallpaper/menubar/dock chrome focus, `focus_id < 0`, veya sadece background pencereler): menubar şunu gösterir:
-     - Sol: **OS logo / HSRC ikonu**
-     - Yanında tıklanabilir metin öğeleri (sahte File/Edit **yok**):
-       - **Settings** → deep-link `settings://general` veya hub root
-       - **System Information** → deep-link `settings://about` (About / system info sayfası)
-       - (opsiyonel) **Desktop & Dock** → `settings://dock`
-     - Sağ taraf: saat vb. sonra eklenebilir
-10. Logo tıklanınca küçük OS menü (ek):
-    - System Settings…
+1. **Focus modeli**
+  - `focus_id` bir kullanıcı app penceresine aitse (Terminal, Settings, …): menubar solunda o app adı (opsiyonel v1) **veya** yine OS bar kalır — v1 kararı: **global OS menubar** (basit)
+  - **Hiçbir app focus’ta değilken** (desktop/wallpaper/menubar/dock chrome focus, `focus_id < 0`, veya sadece background pencereler): menubar şunu gösterir:
+    - Sol: **OS logo / HSRC ikonu**
+    - Yanında tıklanabilir metin öğeleri (sahte File/Edit **yok**):
+      - **Settings** → deep-link `settings://general` veya hub root
+      - **System Information** → deep-link `settings://about` (About / system info sayfası)
+      - (opsiyonel) **Desktop & Dock** → `settings://dock`
+    - Sağ taraf: saat vb. sonra eklenebilir
+2. Logo tıklanınca küçük OS menü (ek):
+  - System Settings…
     - System Information… (= about deep-link)
     - About HSRC OS… (= about)
     - ayırıcı / Sleep stub
-11. Dock **Prefs** → `settings://` (hub) veya `settings://dock`
-12. Hit-test: menubar üzerinde Settings / System Information satırları; tıklayınca deep-link API
+3. Dock **Prefs** → `settings://` (hub) veya `settings://dock`
+4. Hit-test: menubar üzerinde Settings / System Information satırları; tıklayınca deep-link API
 
 **Deep-link (zorunlu implementasyon — H13.5 ile aynı mekanizma):**
 
-13. `settings::open_category("about")` / `open_deeplink("settings://about")` — sadece yorum değil, **kodlanır**
-14. Taşıma: `/run/settings.deeplink` dosyasına kategori yaz + Settings’i show/focus; Settings her loop başında dosyayı okuyup `g_category` set eder ve dosyayı siler
-15. Alternatif/ek: window title geçici `"System Settings#about"` — v1’de **dosya IPC** tercih (basit, usermode)
+1. `settings::open_category("about")` / `open_deeplink("settings://about")` — sadece yorum değil, **kodlanır**
+2. Taşıma: `/run/settings.deeplink` dosyasına kategori yaz + Settings’i show/focus; Settings her loop başında dosyayı okuyup `g_category` set eder ve dosyayı siler
+3. Alternatif/ek: window title geçici `"System Settings#about"` — v1’de **dosya IPC** tercih (basit, usermode)
 
 **Dock model:**
 
-16. sabit `kDockItems[]` yerine ini `pins` ∪ **running**; paint/hit-test dinamik
-17. Running set güncelle; Settings `[dock]` reload
+1. sabit `kDockItems[]` yerine ini `pins` ∪ **running**; paint/hit-test dinamik
+2. Running set güncelle; Settings `[dock]` reload
 
 **Kabul kriteri:**
 
@@ -823,7 +845,7 @@ Persist yolu (Wave I ile): Settings `/etc/os-settings.ini` veya `/var/lib/os/key
 
 **Process:** `terminal` / `.mke`
 
-**Dosya:** [`src/user/apps/terminal.cpp`](src/user/apps/terminal.cpp)
+**Dosya:** `[src/user/apps/terminal.cpp](src/user/apps/terminal.cpp)`
 
 **Yapılacaklar:**
 
@@ -849,14 +871,14 @@ Persist yolu (Wave I ile): Settings `/etc/os-settings.ini` veya `/var/lib/os/key
 
 **Dosyalar:**
 
-- [`Makefile`](Makefile) — kmod list, e1000, virtio_input, user sdk objs, QEMU net/gpu/input args, hostfwd
+- `[Makefile](Makefile)` — kmod list, e1000, virtio_input, user sdk objs, QEMU net/gpu/input args, hostfwd
 - initrd / mke pack kuralları (mevcut target’lar)
-- [`src/kernel/main.c`](src/kernel/main.c) — load: block/vfs → gpu/display (grafik plan) → input/net → mke spawn; `/etc/keyboard.layout`
-- [`src/drivers/driver.c`](src/drivers/driver.c) — poll: net+input (+ display grafik plan)
+- `[src/kernel/main.c](src/kernel/main.c)` — load: block/vfs → gpu/display (grafik plan) → input/net → mke spawn; `/etc/keyboard.layout`
+- `[src/drivers/driver.c](src/drivers/driver.c)` — poll: net+input (+ display grafik plan)
 
 **Yapılacaklar:**
 
-1. `KMODS` sırası: FS/block → **gpu\_\*** / **display** (grafik plan) → **virtio_input** → **virtio_net** (+ e1000) → …
+1. `KMODS` sırası: FS/block → **gpu** / **display** (grafik plan) → **virtio_input** → **virtio_net** (+ e1000) → …
 2. initrd `.mke`: **os-ui**, **terminal**, **os-settings**
 3. QEMU net: `virtio-net-pci` + `hostfwd`
 4. QEMU input (opsiyonel flag): `virtio-keyboard-pci` + `virtio-tablet-pci` (PS/2 default kalır)
@@ -874,6 +896,7 @@ Persist yolu (Wave I ile): Settings `/etc/os-settings.ini` veya `/var/lib/os/key
 
 Bunlar ABI’nin merkezinde değil; yine de **ayrı phase olarak smoke** edilir (atlamadan):
 
+
 | Bileşen                           | Path                     | Ne yapılır                                  |
 | --------------------------------- | ------------------------ | ------------------------------------------- |
 | serial                            | `src/drivers/serial.c`   | klog hâlâ çalışır                           |
@@ -885,6 +908,7 @@ Bunlar ABI’nin merkezinde değil; yine de **ayrı phase olarak smoke** edilir 
 | part_gpt/mbr                      | partition                | smoke                                       |
 | fat/ext/exfat/ntfs/iso9660/udf    | fs                       | mount veya `-ENOTSUP` temiz                 |
 | (silinen mkdx)                    | —                        | mkdx yok; Reed grafik plan                  |
+
 
 **Kabul kriteri:** Hepsi derlenir; boot’ta daha önce çalışan mount/display regress olmaz.
 
@@ -913,7 +937,7 @@ Bunlar ABI’nin merkezinde değil; yine de **ayrı phase olarak smoke** edilir 
 
 ### H13.1 Process / dosya
 
-- **Yeni:** [`src/user/apps/os-settings.cpp`](src/user/apps/os-settings.cpp)
+- **Yeni:** `[src/user/apps/os-settings.cpp](src/user/apps/os-settings.cpp)`
 - Build: Makefile user app + initrd `.mke` (terminal/os-ui gibi)
 - Entry: `mke_main` — window create → event loop → paint sidebar/content
 
@@ -1098,6 +1122,7 @@ Deep-link **opsiyonel değil**; os-ui menubar (**Settings** / **System Informati
 
 **URL şeması:**
 
+
 | Deeplink                             | Hedef                      |
 | ------------------------------------ | -------------------------- |
 | `settings://` / `settings://general` | General                    |
@@ -1111,6 +1136,7 @@ Deep-link **opsiyonel değil**; os-ui menubar (**Settings** / **System Informati
 | `settings://datetime`                | Date & Time                |
 | `settings://sound`                   | Sound                      |
 
+
 **Akış (kodlanır):**
 
 1. os-ui: `hsrc::sdk::settings::open_deeplink("settings://about")`
@@ -1119,7 +1145,7 @@ Deep-link **opsiyonel değil**; os-ui menubar (**Settings** / **System Informati
 4. os-settings her loop: deeplink dosyası varsa oku → `g_category` → dosyayı sil → paint About (system info)
 5. App zaten açıksa sadece kategori değişir ve öne gelir
 
-**Yeni SDK:** [`include/user/sdk/settings.hpp`](include/user/sdk/settings.hpp) + `settings.cpp`
+**Yeni SDK:** `[include/user/sdk/settings.hpp](include/user/sdk/settings.hpp)` + `settings.cpp`
 
 ```cpp
 namespace hsrc::sdk::settings {
@@ -1199,6 +1225,8 @@ flowchart TB
   App --> Ini
 ```
 
+
+
 Keyboard layout tabloları + PCI input (H5) ve net (F) geldikçe **aynı app** sayfaları doldurur; app yeniden yazılmaz.
 
 **Layout id’ler:** `tr_q`, `us_qwerty`
@@ -1223,6 +1251,7 @@ Keyboard layout tabloları + PCI input (H5) ve net (F) geldikçe **aynı app** s
 
 **Zorunlu desteklenen formatlar (v1 hepsi):**
 
+
 | Format | Ext            | Not                                                 |
 | ------ | -------------- | --------------------------------------------------- |
 | PNG    | `.png`         | zorunlu; zlib; 8-bit RGBA/RGB/gray                  |
@@ -1234,6 +1263,7 @@ Keyboard layout tabloları + PCI input (H5) ve net (F) geldikçe **aynı app** s
 | QOI    | `.qoi`         | zorunlu; küçük/hızlı (kolay impl)                   |
 | ICO    | `.ico`         | zorunlu lite; en büyük PNG/BMP frame (dock ikon)    |
 
+
 **İsteğe bağlı / v1.1 (plana açık kapı, “diğer tüm tipler” hedefi):**
 
 - TIFF (lite), PNM/PPM/PGM, SVG **rasterize yok** v1 (vektör sonra), HEIC/AVIF (büyük codec — sadece stub `-ENOTSUP` + listede “unsupported” değilse ertele)
@@ -1241,7 +1271,7 @@ Keyboard layout tabloları + PCI input (H5) ve net (F) geldikçe **aynı app** s
 
 **Implementasyon stratejisi (sabit seçim):**
 
-- Usermode + isteğe bağlı kernel: **`stb_image.h`** (veya eşdeğeri) tek translation unit — PNG/JPEG/BMP/TGA/GIF (+ define ile PSD kapalı)
+- Usermode + isteğe bağlı kernel: `**stb_image.h**` (veya eşdeğeri) tek translation unit — PNG/JPEG/BMP/TGA/GIF (+ define ile PSD kapalı)
 - **WebP:** `libwebp` decode-only statically linked **veya** küçük `webp_decode` subset; QEMU/host build’de `-lwebp` yoksa vendor `third_party/webp` / single-file webp decoder
 - Ortak wrapper:
 
@@ -1312,6 +1342,7 @@ compose order (chrome):
 
 ## J4) Phase dokunuşları
 
+
 | Phase             | İş                                                                   |
 | ----------------- | -------------------------------------------------------------------- |
 | gpu_display_stack | wallpaper present; frosted menubar/dock (Kilim/Reed)                 |
@@ -1319,6 +1350,7 @@ compose order (chrome):
 | H9 os-ui          | load default 4K; glass chrome; opaque labels; remove flat gray fills |
 | H11               | pack wallpaper asset into initrd                                     |
 | H13 Display       | wallpaper picker + default image                                     |
+
 
 ## J5) Kabul kriteri
 
@@ -1333,6 +1365,7 @@ compose order (chrome):
 ---
 
 ## Etkilenen bileşen özet matrisi
+
 
 | Phase | Bileşen                                                 | Tip              | Ana dalga         |
 | ----- | ------------------------------------------------------- | ---------------- | ----------------- |
@@ -1357,6 +1390,7 @@ compose order (chrome):
 | P     | global/process env                                      | kernel+SDK       | P                 |
 | Q     | terminal PATH/tools                                     | terminal+env     | Q                 |
 
+
 ---
 
 # WAVE K — os-ui profesyonel shell (madde 1 — öncekiyle birleşik)
@@ -1373,6 +1407,7 @@ compose order (chrome):
 
 os-ui veya küçük `window-manager` policy usermode’da (kernel WM hâlâ create/focus/close):
 
+
 | Aksiyon                       | Nasıl                                                                |
 | ----------------------------- | -------------------------------------------------------------------- |
 | Focus window                  | dock / click / Alt-Tab lite                                          |
@@ -1382,6 +1417,7 @@ os-ui veya küçük `window-manager` policy usermode’da (kernel WM hâlâ crea
 | Close Terminal                | find Terminal → close; process exit                                  |
 | Open Settings                 | deep-link (mevcut)                                                   |
 | Show all windows              | enum + raise list (opsiyonel lite)                                   |
+
 
 Menü örneği (focus yokken OS bar): Settings | System Information | **Terminal** (aç/kapa toggle)
 
@@ -1411,7 +1447,7 @@ Menü örneği (focus yokken OS bar): Settings | System Information | **Terminal
 /run/                     # deeplink, service runtime
 ```
 
-Boot/build (H11): initrd veya disk image’a `.mke` dosyalarını **`/applications`** altına kopyala (sadece multiboot module spawn değil).
+Boot/build (H11): initrd veya disk image’a `.mke` dosyalarını `**/applications**` altına kopyala (sadece multiboot module spawn değil).
 
 ## L2) File Explorer (`files.mke`)
 
@@ -1493,12 +1529,14 @@ Windows Task Manager benzeri UI:
 
 ## N2) Kernel API
 
+
 | Syscall         | Çıktı                                  |
 | --------------- | -------------------------------------- |
 | `SYS_PROC_LIST` | pid, name, state, parent               |
 | `SYS_PROC_STAT` | per-pid: cpu_ticks, mem_bytes, threads |
 | `SYS_SYSINFO`   | total/used ram, uptime, load lite      |
 | `SYS_PROC_KILL` | alias kill                             |
+
 
 CPU: scheduler tick sayacı per-process; userspace yüzde = delta ticks / wall.
 
@@ -1512,12 +1550,14 @@ CPU: scheduler tick sayacı per-process; userspace yüzde = delta ticks / wall.
 
 Her process doğuştan **console** sahibi (AllocConsole; UI grafik plan):
 
+
 | Launch yolu                             | Görünür konsol?                                         | Arkada console var?                       |
 | --------------------------------------- | ------------------------------------------------------- | ----------------------------------------- |
 | Terminal `./` veya `run`                | **Evet** (parent terminal veya attached console window) | Evet                                      |
 | Explorer double-click / dock GUI launch | **Hayır** (gizli)                                       | **Evet** (gizli console; log yazılabilir) |
 | GUI app `ShowConsole(false)`            | Gizli                                                   | Evet                                      |
 | GUI app debug                           | `ShowConsole(true)`                                     | Görünür                                   |
+
 
 Kurallar:
 
@@ -1570,7 +1610,7 @@ Kurallar:
 
 # Uygulama sırası (güncel — split uyumlu)
 
-1. WS1: A → H\* gfx → I Settings → J wallpaper → **K shell**
+1. WS1: A → H gfx → I Settings → J wallpaper → **K shell**
 2. WS2: B process → D/H7 fs → **L** Explorer/applications → **O** console → H10/**Q** terminal PATH
 3. WS3: **M** services + respawn (K sonrası os-ui critical)
 4. WS4: E time → **P** env → **N** Activity Monitor
@@ -1581,7 +1621,7 @@ Kurallar:
 
 ## AI uygulama disiplini
 
-1. Bir Phase H\* / Wave bitmeden bağımlı sonrakine geçme.
+1. Bir Phase H / Wave bitmeden bağımlı sonrakine geçme.
 2. Her phase sonunda: compile + ilgili kabul kriteri.
 3. Plan maddesini “kısaltarak atlama” yok.
 4. Usermode apps SDK olmadan migrate edilmez.
@@ -1592,3 +1632,4 @@ Kurallar:
 9. Wave K, önceki menubar/deep-link/dock maddelerini **geçersiz kılmaz** — birleştirir.
 10. `/applications` + services install H11/Makefile zorunlu.
 11. Split workstream’ler aynı repo planına bağlı; çakışan ABI tek H1’den geçer.
+
