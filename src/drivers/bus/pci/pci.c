@@ -1,4 +1,4 @@
-#include <drivers/pci.h>
+#include <drivers/bus/pci.h>
 #include <arch/x86/io.h>
 
 #define PCI_CONFIG_ADDR 0xCF8

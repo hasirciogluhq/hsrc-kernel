@@ -10,7 +10,7 @@
  *   spinlock_t     — XCHG + PAUSE test-and-test-and-spin
  *   ticketlock_t   — fair LOCK XADD ticket
  *   klock_t        — reentrant + irqsave wrapper over spinlock
- *   klock_gfx      — DX + PS2 drivers_poll big-lock
+ *   klock_disp      — disp_api + drivers_poll serialize
  *
  * Waiting / events: <kernel/sync.h>
  */
@@ -105,7 +105,7 @@ void klock_acquire(klock_t *l);
 void klock_release(klock_t *l);
 int  klock_held(const klock_t *l);
 
-extern klock_t klock_gfx;
+extern klock_t klock_disp;
 
 void klock_subsystem_init(void);
 

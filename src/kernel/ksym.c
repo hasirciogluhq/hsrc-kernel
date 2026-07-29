@@ -14,15 +14,15 @@
 #include <kernel/scheduler.h>
 #include <arch/x86/irq.h>
 #include <drivers/driver.h>
-#include <drivers/pci.h>
-#include <drivers/display.h>
-#include <drivers/gpu.h>
-#include <drivers/vga.h>
-#include <drivers/serial.h>
-#include <drivers/mouse.h>
-#include <drivers/keyboard.h>
-#include <drivers/ps2.h>
-#include <drivers/console.h>
+#include <drivers/bus/pci.h>
+#include <drivers/display/display.h>
+#include <drivers/display/gpu.h>
+#include <drivers/console/vga.h>
+#include <drivers/console/serial.h>
+#include <drivers/input/mouse.h>
+#include <drivers/input/keyboard.h>
+#include <drivers/input/ps2.h>
+#include <drivers/console/console.h>
 
 uint64_t __udivdi3(uint64_t n, uint64_t d);
 uint64_t __umoddi3(uint64_t n, uint64_t d);

@@ -1,5 +1,5 @@
-#include <drivers/display.h>
-#include <drivers/gpu.h>
+#include <drivers/display/display.h>
+#include <drivers/display/gpu.h>
 
 static display_ops_t *g_active;
 static int            g_priority = -1;

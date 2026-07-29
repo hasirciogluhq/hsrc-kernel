@@ -3,7 +3,7 @@
 #include <kernel/heap.h>
 #include <kernel/string.h>
 #include <drivers/driver.h>
-#include <drivers/vga.h>
+#include <drivers/console/vga.h>
 
 typedef struct {
     char     sig[8];

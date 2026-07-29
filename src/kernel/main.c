@@ -1,10 +1,10 @@
 #include <multiboot.h>
-#include <drivers/vga.h>
-#include <drivers/serial.h>
+#include <drivers/console/vga.h>
+#include <drivers/console/serial.h>
 #include <drivers/driver.h>
-#include <drivers/pci.h>
-#include <drivers/display.h>
-#include <drivers/gpu.h>
+#include <drivers/bus/pci.h>
+#include <drivers/display/display.h>
+#include <drivers/display/gpu.h>
 #include <kernel/heap.h>
 #include <kernel/bootmem.h>
 #include <kernel/errno.h>

@@ -176,8 +176,8 @@ int drivers_load_all(void *ctx)
 
 void drivers_poll(void)
 {
-    /* Serialize PS/2 (+ any POLL drivers) with DX via klock_gfx. */
-    klock_acquire(&klock_gfx);
+    /* Serialize POLL drivers (PS/2) with disp_api via klock_disp. */
+    klock_acquire(&klock_disp);
     for (size_t i = 0; i < DRIVER_MAX; i++) {
         if (!g_slots[i].used)
             continue;
@@ -188,7 +188,7 @@ void drivers_poll(void)
         if (g_slots[i].drv.poll)
             g_slots[i].drv.poll(&g_slots[i].drv);
     }
-    klock_release(&klock_gfx);
+    klock_release(&klock_disp);
 }
 
 driver_t *driver_find(const char *name)

@@ -2,8 +2,8 @@
 #include <kernel/heap.h>
 #include <kernel/types.h>
 #include <kernel/time.h>
-#include <drivers/display.h>
-#include <drivers/serial.h>
+#include <drivers/display/display.h>
+#include <drivers/console/serial.h>
 
 /*
  * Minimal boot loader: white progress arc on solid black.

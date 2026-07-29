@@ -1,4 +1,4 @@
-#include <drivers/gpu.h>
+#include <drivers/display/gpu.h>
 #include <kernel/string.h>
 
 /*

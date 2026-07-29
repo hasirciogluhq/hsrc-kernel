@@ -3,7 +3,7 @@
 #include <kernel/errno.h>
 #include <kernel/string.h>
 #include <kernel/time.h>
-#include <drivers/vga.h>
+#include <drivers/console/vga.h>
 
 #define DHCP_CLIENT_PORT 68
 #define DHCP_SERVER_PORT 67

@@ -1,4 +1,4 @@
-#include <drivers/serial.h>
+#include <drivers/console/serial.h>
 #include <kernel/process.h>
 #include <kernel/types.h>
 

@@ -3,9 +3,9 @@
 #include <kernel/heap.h>
 #include <kernel/initrd.h>
 #include <kernel/string.h>
-#include <drivers/vfs_fs.h>
+#include <drivers/vfs/fs.h>
 #include <drivers/driver.h>
-#include <drivers/vga.h>
+#include <drivers/console/vga.h>
 
 extern void *ksym_lookup(const char *name);
 typedef const void *(*initrd_get_t)(size_t *);

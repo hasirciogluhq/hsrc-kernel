@@ -6,9 +6,9 @@
 #include <kernel/initrd_store.h>
 #include <kernel/string.h>
 #include <kernel/disp_api.h>
-#include <drivers/serial.h>
-#include <drivers/vga.h>
-#include <drivers/display.h>
+#include <drivers/console/serial.h>
+#include <drivers/console/vga.h>
+#include <drivers/display/display.h>
 
 #define USERSPACE_INIT_PATH "/init"
 

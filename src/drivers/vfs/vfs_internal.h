@@ -1,7 +1,7 @@
 #ifndef MYKERNEL_VFS_INTERNAL_H
 #define MYKERNEL_VFS_INTERNAL_H
 
-#include <drivers/vfs_fs.h>
+#include <drivers/vfs/fs.h>
 
 void vfs_dcache_init(void);
 dentry_t *vfs_dcache_lookup(dentry_t *parent, const char *name);

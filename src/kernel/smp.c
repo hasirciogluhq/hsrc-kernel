@@ -8,7 +8,7 @@
 #include <arch/x86/gdt.h>
 #include <arch/x86/idt.h>
 #include <arch/x86/io.h>
-#include <drivers/serial.h>
+#include <drivers/console/serial.h>
 
 #define SMP_TRAMPOLINE_ADDR 0x8000u
 #define SMP_INFO_ADDR       0x7000u

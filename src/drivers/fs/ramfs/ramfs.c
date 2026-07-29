@@ -19,9 +19,9 @@
 #include <kernel/errno.h>
 #include <kernel/heap.h>
 #include <kernel/string.h>
-#include <drivers/vfs_fs.h>
+#include <drivers/vfs/fs.h>
 #include <drivers/driver.h>
-#include <drivers/vga.h>
+#include <drivers/console/vga.h>
 
 #define RAMFS_MAX_CHILDREN 64
 #define RAMFS_MAX_NAME     64

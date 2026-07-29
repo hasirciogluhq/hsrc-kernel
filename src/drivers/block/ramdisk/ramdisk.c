@@ -3,7 +3,7 @@
 #include <kernel/heap.h>
 #include <kernel/string.h>
 #include <drivers/driver.h>
-#include <drivers/vga.h>
+#include <drivers/console/vga.h>
 
 #define RAMDISK_SECTORS  2048u /* 1 MiB */
 #define RAMDISK_SECT     512u

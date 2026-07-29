@@ -1,6 +1,6 @@
-#include <drivers/ps2.h>
-#include <drivers/keyboard.h>
-#include <drivers/mouse.h>
+#include <drivers/input/ps2.h>
+#include <drivers/input/keyboard.h>
+#include <drivers/input/mouse.h>
 #include <arch/x86/io.h>
 
 static int wait_write(void)

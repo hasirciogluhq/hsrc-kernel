@@ -5,7 +5,7 @@
 #include <kernel/initrd.h>
 #include <kernel/initrd_store.h>
 #include <kernel/vfs_api.h>
-#include <drivers/vga.h>
+#include <drivers/console/vga.h>
 
 #define EI_NIDENT 16
 #define ET_REL    1

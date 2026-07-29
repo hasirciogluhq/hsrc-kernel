@@ -1,6 +1,6 @@
 #include <kernel/bootmem.h>
 #include <kernel/exec.h>
-#include <drivers/serial.h>
+#include <drivers/console/serial.h>
 
 /*
  * Identity-mapped boot memory planner.

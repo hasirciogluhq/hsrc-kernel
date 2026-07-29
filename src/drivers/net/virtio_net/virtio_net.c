@@ -3,8 +3,8 @@
 #include <kernel/heap.h>
 #include <kernel/string.h>
 #include <drivers/driver.h>
-#include <drivers/vga.h>
-#include <drivers/pci.h>
+#include <drivers/console/vga.h>
+#include <drivers/bus/pci.h>
 
 #define PCI_VENDOR_VIRTIO     0x1AF4
 #define PCI_DEVICE_NET_MODERN 0x1041

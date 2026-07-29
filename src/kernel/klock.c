@@ -1,7 +1,7 @@
 #include <kernel/klock.h>
 #include <arch/x86/cpu.h>
 
-klock_t klock_gfx;
+klock_t klock_disp;
 
 void klock_init(klock_t *l, const char *name)
 {
@@ -60,5 +60,5 @@ int klock_held(const klock_t *l)
 
 void klock_subsystem_init(void)
 {
-    klock_init(&klock_gfx, "gfx");
+    klock_init(&klock_disp, "disp");
 }

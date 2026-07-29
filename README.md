@@ -64,7 +64,7 @@ Stuff that actually exists in the tree - no LinkedIn buzzwords:
 ┌─────────────────────────────────────────────────────────┐
 │  usermode .hxe apps                                     │
 │  init → systemd → window-manager · os-shell · …         │
-│  C++ SDK: gfx / reed / kilim / thread / fs / net        │
+│  C++ SDK: reed / kilim / thread / fs / net        │
 └──────────────────────────┬──────────────────────────────┘
                            │ syscalls
 ┌──────────────────────────▼──────────────────────────────┐
@@ -74,11 +74,11 @@ Stuff that actually exists in the tree - no LinkedIn buzzwords:
                            │ .kmod / initrd
 ┌──────────────────────────▼──────────────────────────────┐
 │  drivers                                                │
-│  DX compositor · virtio · block/fs · input · display  │
+│  display.kmod · GpuProvider · virtio · block/fs · input  │
 └─────────────────────────────────────────────────────────┘
 ```
 
-Graphics rule of thumb: **kernel owns windows & present; apps own pixels.** DX composes; SDK commits. Present is BGA/LFB (software) **or** VirtIO-GPU scanout - PCI/`display_ops` picks, apps don't. Chrome on the kernel. Client paint on DX/ugx. No "draw a button in ring 0" nonsense.
+Graphics rule of thumb: **kernel owns scanout & present; apps own pixels.** `display.kmod` + GpuProvider (BGA / virtio); Reed/Kilim paint in usermode; WM composites. No "draw a button in ring 0".
 
 ---
 

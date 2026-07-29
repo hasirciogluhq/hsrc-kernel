@@ -1,8 +1,8 @@
 #include "virtio_gpu.h"
 #include "virtio_pci.h"
-#include <drivers/display.h>
+#include <drivers/display/display.h>
 #include <drivers/driver.h>
-#include <drivers/vga.h>
+#include <drivers/console/vga.h>
 #include <kernel/heap.h>
 #include <kernel/string.h>
 

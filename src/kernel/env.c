@@ -6,7 +6,7 @@
 #include <kernel/process.h>
 #include <kernel/string.h>
 #include <kernel/vfs.h>
-#include <drivers/serial.h>
+#include <drivers/console/serial.h>
 
 static env_entry_t g_global[ENV_GLOBAL_MAX];
 static int         g_global_count;

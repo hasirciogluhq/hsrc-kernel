@@ -25,9 +25,9 @@
 #include <kernel/errno.h>
 #include <kernel/heap.h>
 #include <kernel/string.h>
-#include <drivers/vfs_fs.h>
+#include <drivers/vfs/fs.h>
 #include <drivers/driver.h>
-#include <drivers/vga.h>
+#include <drivers/console/vga.h>
 
 #define UDF_LB_SIZE          2048u
 #define UDF_LB_TO_SECT       (UDF_LB_SIZE / 512u)

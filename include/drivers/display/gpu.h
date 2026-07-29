@@ -2,16 +2,16 @@
 #define DRIVERS_GPU_H
 
 #include <kernel/types.h>
-#include <drivers/display.h>
+#include <drivers/display/display.h>
 
 /*
  * GpuProvider — scanout / present abstraction under display.kmod.
- * Display kmods (virtio / vga-LFB) register here; UI never talks to them.
+ * Display providers (bga / virtio) register here; UI never talks to them.
  *
  * Ownership: BSP register at kmod init; runtime readers via gpu_provider_active().
  */
 
-#define GPU_PRIO_VGA     10
+#define GPU_PRIO_BGA     10
 #define GPU_PRIO_VIRTIO  20
 
 #define GPU_CAP_SCANOUT       (1u << 0)

@@ -1,7 +1,7 @@
 #ifndef MYKERNEL_VIRTIO_PCI_H
 #define MYKERNEL_VIRTIO_PCI_H
 
-#include <drivers/pci.h>
+#include <drivers/bus/pci.h>
 #include <kernel/types.h>
 
 #define VIRTIO_PCI_CAP_COMMON_CFG 1

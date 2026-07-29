@@ -29,9 +29,9 @@
 #include <kernel/errno.h>
 #include <kernel/heap.h>
 #include <kernel/string.h>
-#include <drivers/vfs_fs.h>
+#include <drivers/vfs/fs.h>
 #include <drivers/driver.h>
-#include <drivers/vga.h>
+#include <drivers/console/vga.h>
 
 static dentry_t *(*alloc_dentry)(const char *, dentry_t *, inode_t *);
 static inode_t  *(*alloc_inode)(super_block_t *, uint32_t);

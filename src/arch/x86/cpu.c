@@ -3,7 +3,7 @@
 #include <kernel/string.h>
 #include <kernel/process.h>
 #include <kernel/klock.h>
-#include <drivers/serial.h>
+#include <drivers/console/serial.h>
 
 /*
  * Ownership (SMP playbook):

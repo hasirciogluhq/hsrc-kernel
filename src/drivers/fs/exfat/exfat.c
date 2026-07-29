@@ -21,9 +21,9 @@
 #include <kernel/errno.h>
 #include <kernel/heap.h>
 #include <kernel/string.h>
-#include <drivers/vfs_fs.h>
+#include <drivers/vfs/fs.h>
 #include <drivers/driver.h>
-#include <drivers/vga.h>
+#include <drivers/console/vga.h>
 
 #define EXFAT_ENTRY_FILE   0x85u
 #define EXFAT_ENTRY_STREAM 0xC0u

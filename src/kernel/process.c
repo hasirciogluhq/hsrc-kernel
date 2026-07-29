@@ -13,7 +13,7 @@
 #include <kernel/disp_api.h>
 #include <kernel/smp.h>
 #include <kernel/klock.h>
-#include <drivers/serial.h>
+#include <drivers/console/serial.h>
 #include <arch/x86/gdt.h>
 #include <arch/x86/cpu.h>
 #include <arch/x86/lapic.h>
@@ -772,10 +772,10 @@ pid_t process_create_user(const char *name, void (*entry)(void))
     p->is_user = 1;
     p->user_entry = entry;
     /*
-     * Pin user/GUI to BSP. klock_gfx serializes DX *syscalls*, but apps write
-     * mapped surfaces from userspace without that lock. An AP doing GX while
-     * BSP runs drivers_poll/compose races → #GP/#UD with a garbage EIP
-     * (settings spawn was dying as eip=0x263). Revisit when DX is SMP-safe.
+     * Pin user/GUI to BSP. klock_disp serializes disp_api + drivers_poll, but
+     * apps write mapped surfaces from userspace without that lock. An AP doing
+     * present while BSP polls input races → #GP/#UD. Revisit when display is
+     * SMP-safe.
      */
     p->cpu_affinity = 0;
     setup_kstack(p, user_trampoline, entry);

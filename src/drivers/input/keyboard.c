@@ -1,5 +1,5 @@
-#include <drivers/keyboard.h>
-#include <drivers/ps2.h>
+#include <drivers/input/keyboard.h>
+#include <drivers/input/ps2.h>
 
 #define KBD_QSIZE 128
 

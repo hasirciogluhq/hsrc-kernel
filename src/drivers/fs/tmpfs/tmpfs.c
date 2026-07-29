@@ -2,9 +2,9 @@
 #include <kernel/errno.h>
 #include <kernel/heap.h>
 #include <kernel/string.h>
-#include <drivers/vfs_fs.h>
+#include <drivers/vfs/fs.h>
 #include <drivers/driver.h>
-#include <drivers/vga.h>
+#include <drivers/console/vga.h>
 
 #define TMPFS_DEFAULT_LIMIT (4u * 1024u * 1024u)
 #define TMPFS_MAX_CHILDREN  128

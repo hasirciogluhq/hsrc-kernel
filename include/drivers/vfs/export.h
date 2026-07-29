@@ -1,7 +1,7 @@
 #ifndef DRIVERS_VFS_EXPORT_H
 #define DRIVERS_VFS_EXPORT_H
 
-#include <drivers/vfs_fs.h>
+#include <drivers/vfs/fs.h>
 
 /* Exported from vfs.kmod via ksym for other filesystem drivers. */
 inode_t  *vfs_alloc_inode(super_block_t *sb, uint32_t mode);

@@ -1,4 +1,4 @@
-#include <drivers/serial.h>
+#include <drivers/console/serial.h>
 #include <arch/x86/io.h>
 #include <kernel/spinlock.h>
 

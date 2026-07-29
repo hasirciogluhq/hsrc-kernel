@@ -1,6 +1,6 @@
-#include <drivers/console.h>
-#include <drivers/keyboard.h>
-#include <drivers/vga.h>
+#include <drivers/console/console.h>
+#include <drivers/input/keyboard.h>
+#include <drivers/console/vga.h>
 #include <kernel/scheduler.h>
 
 void console_init(void)

@@ -2,10 +2,10 @@
 #include <kernel/errno.h>
 #include <kernel/heap.h>
 #include <kernel/string.h>
-#include <drivers/vfs_fs.h>
+#include <drivers/vfs/fs.h>
 #include <drivers/driver.h>
-#include <drivers/vga.h>
-#include <drivers/console.h>
+#include <drivers/console/vga.h>
+#include <drivers/console/console.h>
 
 extern void *ksym_lookup(const char *name);
 

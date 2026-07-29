@@ -1,4 +1,4 @@
-#include <drivers/vfs_fs.h>
+#include <drivers/vfs/fs.h>
 #include <kernel/string.h>
 #include <kernel/errno.h>
 #include <kernel/types.h>

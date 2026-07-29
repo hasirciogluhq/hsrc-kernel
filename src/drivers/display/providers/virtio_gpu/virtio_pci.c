@@ -1,7 +1,7 @@
 #include "virtio_pci.h"
 #include <kernel/heap.h>
 #include <kernel/string.h>
-#include <drivers/vga.h>
+#include <drivers/console/vga.h>
 
 #define VIRTIO_MSI_NO_VECTOR 0xFFFF
 

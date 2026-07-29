@@ -3,7 +3,7 @@
 #include <kernel/heap.h>
 #include <kernel/string.h>
 #include <drivers/driver.h>
-#include <drivers/vga.h>
+#include <drivers/console/vga.h>
 
 #define BLOCK_MAX_DISKS   32
 #define BLOCK_MAX_PARTDRV 8

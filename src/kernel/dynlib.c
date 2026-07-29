@@ -3,8 +3,8 @@
 #include <kernel/heap.h>
 #include <kernel/string.h>
 #include <kernel/vfs.h>
-#include <drivers/vga.h>
-#include <drivers/serial.h>
+#include <drivers/console/vga.h>
+#include <drivers/console/serial.h>
 
 #define EI_NIDENT 16
 #define ET_REL    1

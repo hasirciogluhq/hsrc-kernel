@@ -1,5 +1,5 @@
-#include <drivers/vga.h>
-#include <drivers/serial.h>
+#include <drivers/console/vga.h>
+#include <drivers/console/serial.h>
 
 static volatile uint16_t *const VGA = (volatile uint16_t *)0xB8000;
 static unsigned cursor_row;

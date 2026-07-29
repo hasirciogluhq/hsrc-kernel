@@ -4,7 +4,7 @@
 #include <kernel/process.h>
 #include <kernel/string.h>
 #include <kernel/uaccess.h>
-#include <drivers/serial.h>
+#include <drivers/console/serial.h>
 
 typedef struct service_entry {
     service_info_t info;

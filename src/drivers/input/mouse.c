@@ -1,5 +1,5 @@
-#include <drivers/mouse.h>
-#include <drivers/ps2.h>
+#include <drivers/input/mouse.h>
+#include <drivers/input/ps2.h>
 
 #define MOUSE_EVQ 64
 

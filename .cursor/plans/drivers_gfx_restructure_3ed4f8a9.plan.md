@@ -4,22 +4,22 @@ overview: GFX kalıntılarını temizle (`klock_disp`), ASM klock’u doğrula, 
 todos:
   - id: rename-klock-disp
     content: klock_gfx → klock_disp + yorum/README GFX temizliği
-    status: pending
+    status: completed
   - id: move-drivers-tree
     content: src/drivers domain klasörlerine taşı (core/bus/console/input/display/providers)
-    status: pending
+    status: completed
   - id: move-headers
     content: "include/drivers nested headers + tüm #include güncelle"
-    status: pending
+    status: completed
   - id: restore-bga-kmod
     content: vga_lfb → providers/bga, display_bga kmod, prio/isim
-    status: pending
+    status: completed
   - id: xmake-paths
     content: kernel.lua / drivers.lua / layout.lua path güncelle
-    status: pending
+    status: completed
   - id: plan-sync
     content: "gpu_display_stack plan: BGA provider + tree notu"
-    status: pending
+    status: completed
 isProject: false
 ---
 

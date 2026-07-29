@@ -9,9 +9,9 @@
 #include <kernel/scheduler.h>
 #include <kernel/sync.h>
 #include <arch/x86/irq.h>
-#include <drivers/vfs_fs.h>
+#include <drivers/vfs/fs.h>
 #include <drivers/driver.h>
-#include <drivers/vga.h>
+#include <drivers/console/vga.h>
 #include "vfs_internal.h"
 
 #define VFS_MAX_MOUNTS   16

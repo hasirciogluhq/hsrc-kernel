@@ -4,7 +4,7 @@
 #include <kernel/heap.h>
 #include <kernel/string.h>
 #include <drivers/driver.h>
-#include <drivers/vga.h>
+#include <drivers/console/vga.h>
 
 #define LOOP_MAX 4
 #define LOOP_SECT 512

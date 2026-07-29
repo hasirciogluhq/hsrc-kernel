@@ -33,7 +33,7 @@ todos:
     content: "PARTIAL — display_virtio + GpuProvider bridge; rename gpu_virtio optional"
     status: pending
   - id: gpu-vga-fb
-    content: "DONE — display_vga (vga_lfb Bochs/QEMU -vga std) + initrd order; QEMU -device virtio-gpu-pci; kshell çift serial fix"
+    content: "DONE — display_bga under providers/bga; drivers tree restructured; klock_disp; QEMU -vga std + virtio-gpu-pci"
     status: completed
   - id: docs-reed-kilim
     content: docs/graphics-reed-kilim.tr.md + .en.md
@@ -51,7 +51,7 @@ isProject: false
 - **Backward compat yok.** Shim yok. Eski ABI silindi.
 - Her oturumda bu dosyanın `todos` + “İlerleme” güncellenir.
 
-## İlerleme (2026-07-29 — boot fix)
+## İlerleme (2026-07-29 — drivers restructure)
 
 | Adım | Durum |
 |------|-------|
@@ -61,21 +61,32 @@ isProject: false
 | Kilim full (batch/text/3D/widgets/acrylic) | **DONE** |
 | Usermode WM + sdk-wm | **DONE** |
 | Input dx'siz | **DONE** |
-| break-legacy (dx/gfx/BGA/SYS_WM_GX/mkdx) | **DONE** |
+| break-legacy (dx/gfx/SYS_WM_GX/mkdx) | **DONE** |
 | Apps → wm+kilim stubs | **DONE** (UX stub; parity NEXT) |
-| display_vga LFB + QEMU virtio-gpu | **DONE** (BGA yok; vga_lfb provider) |
+| `display_bga` provider + tree (`core/bus/console/input/display/providers`) | **DONE** |
+| `klock_disp` (ex-gfx) + nested `include/drivers/*` | **DONE** |
 | kshell çift `kernel>` (console+klog) | **DONE** |
 | Full shell/app UX restore | **NEXT** |
 | Docs | pending |
 
+## Drivers layout
+
+```text
+src/drivers/
+  core/ bus/pci/ console/ input/
+  display/{display.c,gpu.c,display_mod.c,providers/{bga,virtio_gpu}}
+  block/ fs/ vfs/ part/ net/
+```
+
 ## Silinen legacy (kabul)
 
-- `src/drivers/dx/*`, `src/drivers/mkdx/*`, `src/drivers/display/bga/*`
+- `src/drivers/dx/*`, `src/drivers/mkdx/*` (eski compositor)
 - `dx_api.*`, `gfx.hpp`, `gx.h`, `gfx.cpp`, `ugx_font.inc`, `bake_ugx_font`
 - Tüm `SYS_WM_*` / `SYS_GX_*`
 - `gui_stack_ready` = `display_active() && disp_api_get()`
+- `klock_gfx` → `klock_disp`
 
-`rg SYS_WM_|SYS_GX_|gfx\.hpp|dx_api` aktif path’te → **yok** (ölü `src/user` mirror’lar da temizlendi).
+`rg SYS_WM_|SYS_GX_|gfx\.hpp|dx_api|klock_gfx` aktif path’te → **yok**.
 
 ## Aktif stack
 
@@ -84,7 +95,7 @@ Apps (stub) → wm::Window + kilim::Context + reed::Device
                 ↓ file IPC /tmp/wm/
          window-manager (compositor, present)
                 ↓ SYS_DISP_CALL
-         display.kmod → GpuProvider ← display_virtio
+         display.kmod → GpuProvider ← display_bga / display_virtio
 ```
 
 ## Sonraki iş (restore-app-ux)

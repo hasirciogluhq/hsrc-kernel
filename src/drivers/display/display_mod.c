@@ -1,7 +1,7 @@
 #include <drivers/driver.h>
-#include <drivers/display.h>
-#include <drivers/gpu.h>
-#include <drivers/serial.h>
+#include <drivers/display/display.h>
+#include <drivers/display/gpu.h>
+#include <drivers/console/serial.h>
 #include <kernel/disp_api.h>
 #include <kernel/heap.h>
 #include <kernel/klock.h>
@@ -13,7 +13,7 @@
 /*
  * display.kmod — resource/fence/scanout orchestrator for Reed.
  *
- * Lock: callers enter via disp_api (klock_gfx). Tables are single-threaded
+ * Lock: callers enter via disp_api (klock_disp). Tables are single-threaded
  * under that lock; no extra spinlock needed for table mutations.
  *
  * Handles: (generation << 16) | index ; generation starts at 1.

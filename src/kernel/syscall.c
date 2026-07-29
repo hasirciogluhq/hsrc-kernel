@@ -18,15 +18,15 @@
 #include <kernel/epoll.h>
 #include <kernel/uaccess.h>
 #include <kernel/string.h>
-#include <drivers/serial.h>
+#include <drivers/console/serial.h>
 #include <drivers/driver.h>
-#include <drivers/vfs_fs.h>
+#include <drivers/vfs/fs.h>
 #include <arch/x86/cpu.h>
 #include <user/input.h>
 #include <user/disp.h>
 #include <kernel/heap.h>
-#include <drivers/mouse.h>
-#include <drivers/keyboard.h>
+#include <drivers/input/mouse.h>
+#include <drivers/input/keyboard.h>
 
 typedef struct {
     uint32_t edi, esi, ebp, esp, ebx, edx, ecx, eax;

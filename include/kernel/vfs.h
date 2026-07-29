@@ -25,12 +25,12 @@
 #define MS_BIND   0x1000
 #define MNT_FORCE 1
 
-/* Must match drivers/vfs_fs.h vfs_dirent_t layout. */
+/* Must match drivers/vfs/fs.h vfs_dirent_t layout. */
 #ifndef VFS_DIRENT_DEFINED
 #define VFS_DIRENT_DEFINED
 typedef struct vfs_dirent {
     uint32_t ino;
-    uint32_t type; /* S_IF* from drivers/vfs_fs.h */
+    uint32_t type; /* S_IF* from drivers/vfs/fs.h */
     char     name[64];
 } vfs_dirent_t;
 #endif

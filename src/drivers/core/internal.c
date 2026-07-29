@@ -1,9 +1,9 @@
 #include <drivers/driver.h>
-#include <drivers/vga.h>
-#include <drivers/ps2.h>
-#include <drivers/keyboard.h>
-#include <drivers/mouse.h>
-#include <drivers/console.h>
+#include <drivers/console/vga.h>
+#include <drivers/input/ps2.h>
+#include <drivers/input/keyboard.h>
+#include <drivers/input/mouse.h>
+#include <drivers/console/console.h>
 #include <kernel/string.h>
 
 /* ---- VGA (early, already running before framework) ---- */

@@ -1,8 +1,8 @@
-#include "vga_lfb.h"
-#include <drivers/display.h>
+#include "bga.h"
+#include <drivers/display/display.h>
 #include <drivers/driver.h>
-#include <drivers/pci.h>
-#include <drivers/serial.h>
+#include <drivers/bus/pci.h>
+#include <drivers/console/serial.h>
 #include <arch/x86/io.h>
 #include <kernel/string.h>
 
@@ -107,7 +107,7 @@ static int bga_set_mode(uint32_t width, uint32_t height, uint32_t bpp)
     virt_h = bga_read(VBE_DISPI_INDEX_VIRT_HEIGHT);
     g_flip_ok = (bpp == 32 && virt_h >= (uint16_t)(height * 2u)) ? 1 : 0;
 
-    klog("[vga_lfb] mode ");
+    klog("[bga] mode ");
     serial_print_uint(width);
     klog("x");
     serial_print_uint(height);
@@ -305,20 +305,20 @@ static int bga_drv_init(driver_t *drv, void *ctx)
         return -1;
 
     memset(&g_ops, 0, sizeof(g_ops));
-    g_ops.name = "vga_lfb";
+    g_ops.name = "bga";
     g_ops.get_mode = bga_get_mode;
     g_ops.present = bga_present;
     g_ops.present_rect = bga_present_rect;
     g_ops.present_rects = bga_present_rects;
     g_ops.gpu_submit = NULL;
-    return display_register(&g_ops, DISPLAY_PRIO_VGA);
+    return display_register(&g_ops, DISPLAY_PRIO_BGA);
 }
 
 int kmod_init(void)
 {
     driver_t d;
     memset(&d, 0, sizeof(d));
-    strncpy(d.name, "display_vga", DRIVER_NAME_MAX - 1);
+    strncpy(d.name, "display_bga", DRIVER_NAME_MAX - 1);
     strncpy(d.version, "1.0", DRIVER_VERSION_MAX - 1);
     d.kind = DRIVER_KIND_CUSTOM;
     d.class = DRIVER_CLASS_DISPLAY;
@@ -330,7 +330,7 @@ int kmod_init(void)
     if (driver_register(&d) < 0)
         return -1;
     /* Soft-fail when Bochs/QEMU -vga std is absent (virtio-only boots). */
-    if (driver_load("display_vga", NULL) < 0)
-        klog("[vga_lfb] not present (ok)\n");
+    if (driver_load("display_bga", NULL) < 0)
+        klog("[bga] not present (ok)\n");
     return 0;
 }

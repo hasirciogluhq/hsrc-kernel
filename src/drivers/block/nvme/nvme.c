@@ -3,8 +3,8 @@
 #include <kernel/heap.h>
 #include <kernel/string.h>
 #include <drivers/driver.h>
-#include <drivers/vga.h>
-#include <drivers/pci.h>
+#include <drivers/console/vga.h>
+#include <drivers/bus/pci.h>
 
 #define NVME_MAX_CONTROLLERS 4
 #define NVME_MAX_NAMESPACES  16

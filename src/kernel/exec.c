@@ -9,8 +9,8 @@
 #include <kernel/initrd_store.h>
 #include <kernel/vfs.h>
 #include <kernel/syscall.h>
-#include <drivers/vga.h>
-#include <drivers/serial.h>
+#include <drivers/console/vga.h>
+#include <drivers/console/serial.h>
 #include <multiboot.h>
 
 static int name_ends_with_exec(const char *name)
