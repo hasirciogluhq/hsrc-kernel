@@ -1,0 +1,140 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e..g. 0.2.0) — tag v<version> must exist or will be created from HEAD"
+        required: true
+        type: string
+      prerelease:
+        description: "Mark as pre-release"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build + publish GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            V="${{ inputs.version }}"
+          else
+            V="${GITHUB_REF_NAME}"
+          fi
+          V="${V#v}"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "tag=v$V" >> "$GITHUB_OUTPUT"
+          if [[ "$V" == *-* ]] || [[ "${{ inputs.prerelease }}" == "true" ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install toolchain
+        run: bash scripts/ci-install-deps.sh
+
+      - name: Configure + build
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          xmake f -y -p cross -a i386 --cross=i686-elf-
+          DISK_SIZE_MB=32 xmake -j"$(nproc)"
+
+      - name: Smoke boot
+        run: bash scripts/smoke-boot.sh 40
+
+      - name: Pack release
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          DISK_SIZE_MB=32 bash scripts/pack-release.sh --skip-build "${{ steps.ver.outputs.version }}"
+
+      - name: Ensure tag exists
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          TAG="${{ steps.ver.outputs.tag }}"
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.ver.outputs.tag }}"
+          VER="${{ steps.ver.outputs.version }}"
+          PRE="${{ steps.ver.outputs.prerelease }}"
+          NAME="hsrc-kernel-${VER}"
+          NOTES="$(mktemp)"
+          cat >"$NOTES" <<EOF
+          ## hsrc-kernel ${VER}
+
+          Production-ready package: Multiboot **kernel**, **initrd**, userspace **.exec** binaries, and a compact mountable FAT **disk.img**.
+
+          ### Quick start
+          \`\`\`bash
+          tar -xzf ${NAME}.tar.gz
+          cd ${NAME}
+          ./run.sh
+          \`\`\`
+
+          ### Mount the disk (host)
+          \`\`\`bash
+          sudo mount -o loop disk.img /mnt
+          ls /mnt/system /mnt/applications
+          sudo umount /mnt
+          \`\`\`
+
+          ### Artifacts
+          | File | Contents |
+          |---|---|
+          | \`${NAME}.tar.gz\` | Full runnable tree (\`boot/\`, \`disk.img\`, \`executables/\`, \`run.sh\`) |
+          | \`${NAME}-image.tar.gz\` | Boot + disk + \`run.sh\` only |
+          | \`${NAME}-boot.tar.gz\` | \`kernel.bin\` + \`initrd.img\` |
+          | \`${NAME}-executables.tar.gz\` | Loose \`.exec\` / \`.dynlib\` copies |
+          | \`${NAME}.sha256\` | SHA-256 checksums |
+
+          Requires \`qemu-system-i386\`. Smoke-tested in CI before publish.
+          EOF
+
+          ARGS=(release create "$TAG" --title "hsrc-kernel ${VER}" --notes-file "$NOTES")
+          if [[ "$PRE" == "true" ]]; then
+            ARGS+=(--prerelease)
+          fi
+          # Replace notes if release already exists (re-run).
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              "dist/${NAME}.tar.gz" \
+              "dist/${NAME}-image.tar.gz" \
+              "dist/${NAME}-boot.tar.gz" \
+              "dist/${NAME}-executables.tar.gz" \
+              "dist/${NAME}.sha256" \
+              --clobber
+            gh release edit "$TAG" --notes-file "$NOTES"
+          else
+            gh "${ARGS[@]}" \
+              "dist/${NAME}.tar.gz" \
+              "dist/${NAME}-image.tar.gz" \
+              "dist/${NAME}-boot.tar.gz" \
+              "dist/${NAME}-executables.tar.gz" \
+              "dist/${NAME}.sha256"
+          fi

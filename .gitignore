@@ -1,6 +1,7 @@
 build
 output
 outputs
+dist
 disk.img
 tools/bake_ugx_font
 .xmake

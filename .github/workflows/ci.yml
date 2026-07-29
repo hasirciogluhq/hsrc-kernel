@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+    branches: [main, development]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build + smoke boot
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: bash scripts/ci-install-deps.sh
+
+      - name: Configure
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          xmake f -y -p cross -a i386 --cross=i686-elf-
+
+      - name: Build
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          xmake -j"$(nproc)"
+
+      - name: Smoke boot (QEMU)
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          bash scripts/smoke-boot.sh 35
+
+      - name: Pack release preview
+        if: github.event_name != 'pull_request'
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          bash scripts/pack-release.sh --skip-build "ci-${GITHUB_SHA::7}"
+
+      - name: Upload CI artifacts
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: hsrc-kernel-ci-${{ github.sha }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+            build/smoke-boot.log
+          retention-days: 14
+
+      - name: Upload smoke log (PR)
+        if: failure() || github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-boot-${{ github.sha }}
+          path: build/smoke-boot.log
+          if-no-files-found: ignore
+          retention-days: 7
