@@ -13,6 +13,7 @@
 #include <kernel/proc_mem.h>
 #include <kernel/sync.h>
 #include <kernel/scheduler.h>
+#include <kernel/vmm.h>
 #include <arch/x86/irq.h>
 #include <drivers/driver.h>
 #include <drivers/bus/pci.h>
@@ -35,6 +36,8 @@ static const ksym_t g_ksyms[] = {
     { "kfree",              (void *)kfree },
     { "heap_used",          (void *)heap_used },
     { "heap_free",          (void *)heap_free },
+
+    { "vmm_identity_map_range", (void *)vmm_identity_map_range },
 
     { "memcpy",             (void *)memcpy },
     { "memset",             (void *)memset },

@@ -2,6 +2,7 @@
 #include <kernel/errno.h>
 #include <kernel/heap.h>
 #include <kernel/string.h>
+#include <kernel/vmm.h>
 #include <drivers/driver.h>
 #include <drivers/console/vga.h>
 #include <drivers/bus/pci.h>
@@ -402,6 +403,7 @@ static int ahci_init_controller(const pci_device_t *pci, const block_api_t *api,
     ctrl->abar = (volatile uint8_t *)(uintptr_t)pci_bar_phys(pci, 5);
     if (!ctrl->abar || pci_enable_bus_master(pci) < 0)
         return -EIO;
+    (void)vmm_identity_map_range((uint32_t)(uintptr_t)ctrl->abar, 0x10000u);
     mmio_w32(ctrl->abar, HBA_GHC, mmio_r32(ctrl->abar, HBA_GHC) | HBA_GHC_AE | HBA_GHC_HR);
     for (spin = 0; spin < 1000000; spin++) {
         if (!(mmio_r32(ctrl->abar, HBA_GHC) & HBA_GHC_HR))

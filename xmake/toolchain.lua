@@ -70,6 +70,10 @@ rule("nasm")
         depend.on_changed(function ()
             os.execv("nasm", {"-f", "elf32", sourcefile, "-o", objectfile})
         end, {files = sourcefile, values = objectfile})
+        -- Stale depend cache can skip nasm after objs were deleted (common with -j).
+        if not os.isfile(objectfile) then
+            os.execv("nasm", {"-f", "elf32", sourcefile, "-o", objectfile})
+        end
         local objs = target:objectfiles()
         for _, o in ipairs(objs) do
             if o == objectfile then return end

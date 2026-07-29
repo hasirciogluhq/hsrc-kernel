@@ -2,6 +2,7 @@
 #include <kernel/errno.h>
 #include <kernel/heap.h>
 #include <kernel/string.h>
+#include <kernel/vmm.h>
 #include <drivers/driver.h>
 #include <drivers/console/vga.h>
 #include <drivers/bus/pci.h>
@@ -113,6 +114,8 @@ static volatile uint8_t *map_bar(const pci_device_t *pci, uint8_t bar, uint32_t 
     uint32_t base = pci_bar_phys(pci, (int)bar);
     if (!base)
         return NULL;
+    /* PCI MMIO is above identity_end; map before touch. */
+    (void)vmm_identity_map_range(base, 0x10000u);
     return (volatile uint8_t *)(uintptr_t)(base + off);
 }
 

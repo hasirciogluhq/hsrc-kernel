@@ -402,19 +402,29 @@ int modules_load_initrd(const void *data, size_t size)
             return -1;
         blob = (const uint8_t *)data + f->offset;
 
-        /* .exec apps are spawned later by exec_spawn_* */
+        /*
+         * Initrd may carry userspace payloads (PID1 "init" ELF, legacy .exec).
+         * Only ET_REL kmods are loadable here — skip the rest silently.
+         */
         if (f->size >= 4) {
             magic = blob[0] | ((uint32_t)blob[1] << 8) |
                     ((uint32_t)blob[2] << 16) | ((uint32_t)blob[3] << 24);
             if (magic == 0x43455845u) /* EXEC */
                 continue;
+            if (magic == 0x464C457Fu) { /* ELF */
+                uint16_t etype = 0;
+                if (f->size >= 18)
+                    etype = (uint16_t)(blob[16] | ((uint16_t)blob[17] << 8));
+                if (etype != ET_REL)
+                    continue;
+            }
         }
 
         vga_print("load ");
         vga_print(f->name);
         vga_print("\n");
         if (modules_load_blob(f->name, blob, f->size) < 0) {
-            /* Soft-fail one kmod so BGA/DX can still boot without virtio. */
+            /* Soft-fail one kmod so other providers can still boot. */
             vga_print("kmod load skipped: ");
             vga_print(f->name);
             vga_print("\n");

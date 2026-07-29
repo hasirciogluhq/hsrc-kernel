@@ -2,6 +2,7 @@
 #include <kernel/errno.h>
 #include <kernel/heap.h>
 #include <kernel/string.h>
+#include <kernel/vmm.h>
 #include <drivers/driver.h>
 #include <drivers/console/vga.h>
 #include <drivers/bus/pci.h>
@@ -394,6 +395,7 @@ static int nvme_init_controller(const pci_device_t *pci, const block_api_t *api,
     ctrl->regs = (volatile uint8_t *)(uintptr_t)pci_bar_phys(pci, 0);
     if (!ctrl->regs || pci_enable_bus_master(pci) < 0)
         return -EIO;
+    (void)vmm_identity_map_range((uint32_t)(uintptr_t)ctrl->regs, 0x10000u);
     cap = mmio_r64(ctrl->regs, NVME_REG_CAP);
     if (((cap >> 48) & 0xFu) != 0)
         return -ENOTSUP;

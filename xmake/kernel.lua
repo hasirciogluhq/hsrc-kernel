@@ -46,6 +46,7 @@ target("kernel")
         os.mkdir(path.directory(out))
         local args = {"-m", "elf_i386", "-n", "-T", path.join(ROOT, "ld/linker.ld"), "-nostdlib", "-o", out}
         for _, o in ipairs(target:objectfiles()) do
+            assert(os.isfile(o), "kernel link: missing object " .. tostring(o))
             table.insert(args, o)
         end
         os.execv("i686-elf-ld", args)

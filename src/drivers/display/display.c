@@ -233,6 +233,8 @@ void display_boot_log(void)
             klog(" present_rect");
         if (gpu->caps & GPU_CAP_PRESENT_RECTS)
             klog(" present_rects");
+        if (gpu->caps & GPU_CAP_SUBMIT)
+            klog(" submit");
         if (gpu->caps & GPU_CAP_HW_SUBMIT)
             klog(" hw_submit");
         klog("\n");
