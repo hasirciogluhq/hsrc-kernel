@@ -8,19 +8,26 @@ function kmod_order()
     }
 end
 
--- Initrd: kmods only (no userspace binaries in RAM).
+-- Initrd: kmods + PID1 as bare name "init" (installed to VFS /init at boot).
 function initrd_mke_names()
-    return {}
+    return { "init" }
 end
 
--- Disk FAT: /init (+ apps). Dev installs defaults here; prod ISO does the same.
+-- Disk FAT → /applications (apps only; not PID1).
 function disk_mke_names()
     return {
-        "init", "window-manager", "os-shell", "os-settings",
+        "window-manager", "os-shell", "os-settings",
         "terminal", "files", "activity-monitor", "minesweeper", "imgui-demo",
     }
 end
 
 function app_mke_names()
-    return disk_mke_names()
+    local t = {}
+    for _, n in ipairs(initrd_mke_names()) do
+        table.insert(t, n)
+    end
+    for _, n in ipairs(disk_mke_names()) do
+        table.insert(t, n)
+    end
+    return t
 end

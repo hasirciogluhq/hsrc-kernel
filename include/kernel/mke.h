@@ -40,7 +40,7 @@ int mke_spawn_path_flags(const char *path, uint32_t spawn_flags,
  * Resolve a command to an on-disk .mke path (Linux-like PATH).
  * - absolute / relative paths used as-is (optional .mke suffix tried)
  * - bare names searched in $PATH (default /applications:/usr/bin)
- * - `/init` also tries `/applications/init` (+ .mke)
+ * - PID1 is conventional `/init` (not under /applications)
  * Accepts both `hello` and `hello.mke`.
  */
 int exe_resolve(const char *in, char *out, size_t outsz);

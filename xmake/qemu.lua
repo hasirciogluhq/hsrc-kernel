@@ -17,24 +17,33 @@ for _, t in ipairs({
         set_filename(t[1])
 end
 
--- Initrd: kmods only.
+-- Initrd: kmods + PID1 ("init" — conventional /init, not under /applications).
 target("initrd")
     set_kind("phony")
     set_default(true)
-    add_deps("drivers", "pack_initrd")
+    add_deps("drivers", "pack_initrd", "userspace")
     after_build(function (target)
         import("mykernel.layout")
         local packer = path.join(BUILD, "tools", "pack_initrd")
         local out = path.join(BUILD, "drivers", "initrd.img")
+        local stagedir = path.join(BUILD, "initrd-root")
         os.mkdir(path.directory(out))
+        os.mkdir(stagedir)
         local args = {out}
         for _, n in ipairs(layout.kmod_order()) do
             table.insert(args, path.join(BUILD, "drivers", n .. ".kmod"))
         end
+        -- Stage as bare name "init" so VFS path /init matches initrd basename.
+        for _, n in ipairs(layout.initrd_mke_names()) do
+            local src = path.join(BUILD, "userspace", n, n .. ".mke")
+            local staged = path.join(stagedir, n)
+            os.cp(src, staged)
+            table.insert(args, staged)
+        end
         os.execv(packer, args)
     end)
 
--- Disk: FAT with /applications/init.mke (+ apps). Kernel execs /init.
+-- Disk: FAT apps under /applications. Kernel execs /init (from initrd → rootfs).
 target("disk")
     set_kind("phony")
     set_default(true)

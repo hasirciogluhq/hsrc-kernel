@@ -92,15 +92,6 @@ int exe_resolve(const char *in, char *out, size_t outsz)
     if (!in || !in[0] || !out || outsz < 2)
         return -EINVAL;
 
-    /* Conventional PID1 path: /init may live under /applications on the disk FS. */
-    if (strcmp(in, "/init") == 0) {
-        if (exe_try_path("/init", out, outsz) == 0)
-            return 0;
-        if (exe_try_path("/applications/init", out, outsz) == 0)
-            return 0;
-        return -ENOENT;
-    }
-
     /* Absolute or relative path: try as-is, then with .mke */
     if (in[0] == '/' || exe_path_has_slash(in)) {
         if (in[0] == '/') {
