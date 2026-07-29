@@ -17,7 +17,8 @@
 #define GPU_CAP_SCANOUT       (1u << 0)
 #define GPU_CAP_PRESENT_RECT  (1u << 1)
 #define GPU_CAP_PRESENT_RECTS (1u << 2)
-#define GPU_CAP_HW_SUBMIT     (1u << 3) /* virtio-gpu 3D / virgl — v1.1 */
+#define GPU_CAP_SUBMIT        (1u << 3) /* Reed cmd stream via gpu_submit */
+#define GPU_CAP_HW_SUBMIT     (1u << 4) /* real VirGL / 3D HW */
 
 typedef struct gpu_provider_ops {
     const char *name;

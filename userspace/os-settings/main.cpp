@@ -7,13 +7,6 @@
 /* System Settings — Fluent hub (sidebar + content). */
 
 namespace {
-
-[[noreturn]] void hang(void)
-{
-    for (;;)
-        hsrc::sdk::syscall0(SYS_YIELD);
-}
-
 static const char *kNav[] = {
     "System", "Display", "Sound", "Network", "Personalization", "Apps", "About",
 };
@@ -26,8 +19,8 @@ extern "C" void exec_main(void)
     static reed::Device dev;
     static kilim::Context k;
 
-    if (dev.init() < 0 || k.init(&dev) < 0)
-        hang();
+    while (dev.init() < 0 || k.init(&dev) < 0)
+        hsrc::sdk::sleep(100);
 
     wm::WindowOptions opts;
     opts.x = 160;
@@ -41,7 +34,7 @@ extern "C" void exec_main(void)
 
     wm::Window win;
     if (!win.create(opts))
-        hang();
+        hsrc::sdk::exit(1);
 
     int sel = 0;
     bool mapped = false;
@@ -58,10 +51,8 @@ extern "C" void exec_main(void)
                 sel = row;
         }
 
-        if (k.begin_frame() < 0) {
-            hsrc::sdk::sleep_ticks(1);
+        if (k.begin_frame() < 0)
             continue;
-        }
 
         int w = opts.w;
         int h = opts.h;
@@ -104,6 +95,5 @@ extern "C" void exec_main(void)
             (void)win.damage();
             prev_sel = sel;
         }
-        hsrc::sdk::sleep_ticks(2);
     }
 }

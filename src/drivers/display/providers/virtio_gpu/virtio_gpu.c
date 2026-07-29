@@ -1,6 +1,7 @@
 #include "virtio_gpu.h"
 #include "virtio_pci.h"
 #include <drivers/display/display.h>
+#include <drivers/display/gpu_soft.h>
 #include <drivers/driver.h>
 #include <drivers/console/vga.h>
 #include <kernel/heap.h>
@@ -376,10 +377,10 @@ static int virtio_present_rects(const uint32_t *src, uint32_t src_stride_px,
 
 static int virtio_gpu_submit(const void *cmd, uint32_t size)
 {
-    /* 3D/VirGL path reserved - 2D scanout uses present() */
-    (void)cmd;
-    (void)size;
-    return g_ready ? 0 : -1;
+    /* Softpipe until VirGL; raster into Reed FBOs then present() scanout. */
+    if (!g_ready)
+        return -1;
+    return (int)gpu_soft_submit(cmd, size);
 }
 
 static int virtio_gpu_bringup(void)

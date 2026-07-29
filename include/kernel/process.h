@@ -9,6 +9,8 @@
 #include <kernel/proc_abi.h>
 #include <arch/x86/cpu_context.h>
 
+struct addrspace;
+
 /* Hard ceiling - slots are pointers only; structs/stacks grow on demand. */
 #define PROC_MAX         8192
 #define PROC_KSTACK_SIZE 8192
@@ -135,8 +137,11 @@ typedef struct process {
     int          input_wait_win;    /* -1 = any window; else filter */
     int          wait_event;   /* kevent id while waiting, or -1 */
     struct process *wait_next; /* kevent waiter list link */
-    uint32_t     image_bytes; /* .hxe image+bss at load_addr (0 for kernel threads) */
-    uint32_t     load_addr;   /* fixed exec load base (0 for kernel threads); [load_addr, load_addr+image_bytes) */
+    uint32_t     image_bytes; /* .exec image+bss size (0 for kernel threads) */
+    uint32_t     load_addr;   /* user VA base of image (USER_IMAGE_BASE) */
+    void        *image_pages; /* physical backing for image+bss */
+    size_t       image_npages;
+    struct addrspace *as;     /* per-process page directory (leader only) */
     int          fds[VFS_MAX_FD];
     vma_t        vmas[VMA_MAX];
     proc_env_t   env;

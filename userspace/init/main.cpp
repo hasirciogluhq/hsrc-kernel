@@ -6,6 +6,10 @@
  * /init — PID1.
  * Starts the GUI session package from /system/bin when present.
  * Kernel stays usable without these binaries (console / no-GUI).
+ *
+ * Spawn window-manager first, then os-shell. Clients wait on /tmp/wm/pid
+ * inside wm::Connection (do not block here — a long wait + CPU-hog compose
+ * starved init and prevented os-shell from ever starting).
  */
 
 namespace {
@@ -35,7 +39,9 @@ void start_unit(Unit *u)
 
 void start_all(void)
 {
-    for (int i = 0; i < kUnitCount; i++)
+    /* WM first so its setup_dirs races ahead of client Create. */
+    start_unit(&g_units[0]);
+    for (int i = 1; i < kUnitCount; i++)
         start_unit(&g_units[i]);
 }
 
@@ -45,8 +51,9 @@ void on_child_exit(pid_t pid)
         if (g_units[i].pid != pid)
             continue;
         g_units[i].pid = 0;
-        if (g_units[i].respawn)
-            start_unit(&g_units[i]);
+        if (!g_units[i].respawn)
+            return;
+        start_unit(&g_units[i]);
         return;
     }
 }
@@ -62,7 +69,5 @@ extern "C" void exec_main(void)
         long rc = hsrc::sdk::process::waitpid(-1, &status, 0);
         if (rc > 0)
             on_child_exit((pid_t)rc);
-        else
-            hsrc::sdk::syscall0(SYS_YIELD);
     }
 }

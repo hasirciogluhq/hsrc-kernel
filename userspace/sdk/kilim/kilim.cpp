@@ -224,7 +224,8 @@ int Font::line_height(int size) const
 Context::Context()
     : dev_(nullptr), nbatches_(0), alive_(false), frame_open_(false), ptr_x_(0), ptr_y_(0),
       ptr_buttons_(0), wheel_(0), scissor_x_(0), scissor_y_(0), scissor_w_(0), scissor_h_(0),
-      scroll_y_ptr_(0), dyn_aw_(0), dyn_ah_(0), shelf_x_(0), shelf_y_(0), shelf_h_(0)
+      scroll_y_ptr_(0), dyn_aw_(0), dyn_ah_(0), shelf_x_(0), shelf_y_(0), shelf_h_(0),
+      nframe_bufs_(0)
 {
     memset(glyphs_, 0, sizeof(glyphs_));
 }
@@ -246,7 +247,7 @@ int Context::init(reed::Device *dev)
     pd.shade = reed::ShadeMode::VertexLit;
     pd.cull = reed::CullMode::Back;
     pipe_lit_ = dev_->create_pipeline(pd);
-    cmd_ = dev_->create_command_list();
+    cmd_.set_device(dev_);
     (void)font_.load(nullptr);
     alive_ = true;
     return 0;
@@ -551,6 +552,24 @@ void Context::emit_quad(Batch *b, float x0, float y0, float x1, float y1, float 
     b->vcount_ += 6;
 }
 
+void Context::retain_buf(reed::Buffer &b)
+{
+    if (!b.valid() || nframe_bufs_ >= kMaxFrameBufs) {
+        b.destroy();
+        return;
+    }
+    frame_bufs_[nframe_bufs_++] = b;
+    /* Steal: caller must not destroy; we own until release_frame_bufs. */
+    b = reed::Buffer();
+}
+
+void Context::release_frame_bufs()
+{
+    for (int i = 0; i < nframe_bufs_; i++)
+        frame_bufs_[i].destroy();
+    nframe_bufs_ = 0;
+}
+
 void Context::flush_batch(Batch *b)
 {
     if (!b || b->vcount_ == 0 || !dev_)
@@ -568,6 +587,11 @@ void Context::flush_batch(Batch *b)
         s.set(reed::WrapMode::Clamp, reed::FilterMode::Nearest);
         reed::Texture2D tex = dyn_atlas_.valid() ? dyn_atlas_ : font_.atlas_;
         cmd_.bind_texture(0, tex, s);
+    } else if (b->pipe_key_ == 3 && b->tex_.valid()) {
+        cmd_.bind_pipeline(pipe_tex_);
+        reed::Sampler s;
+        s.set(reed::WrapMode::Clamp, reed::FilterMode::Nearest);
+        cmd_.bind_texture(0, b->tex_, s);
     } else if (b->pipe_key_ == 2) {
         cmd_.bind_pipeline(pipe_lit_);
     } else {
@@ -576,7 +600,7 @@ void Context::flush_batch(Batch *b)
     cmd_.set_uniform(ortho_u(0xffffffffu));
     cmd_.bind_vertex_buffer(vb);
     cmd_.draw(b->vcount_, 0);
-    vb.destroy();
+    retain_buf(vb);
     b->vcount_ = 0;
     b->icount_ = 0;
 }
@@ -602,7 +626,7 @@ int Context::begin_frame()
             return -1;
     }
     ensure_font_atlas();
-    cmd_ = dev_->create_command_list();
+    release_frame_bufs();
     cmd_.begin();
     cmd_.bind_pipeline(pipe_color_);
     cmd_.bind_render_target(target_);
@@ -629,7 +653,7 @@ int Context::begin_frame_region(int x, int y, int w, int h)
             return -1;
     }
     ensure_font_atlas();
-    cmd_ = dev_->create_command_list();
+    release_frame_bufs();
     cmd_.begin();
     cmd_.bind_pipeline(pipe_color_);
     cmd_.bind_render_target(target_);
@@ -637,9 +661,6 @@ int Context::begin_frame_region(int x, int y, int w, int h)
     cmd_.set_viewport(vp);
     reed::Rect sc = {x, y, w, h};
     cmd_.set_scissor(sc);
-    /* No clear() here: caller repaints every pixel of the region (blit
-     * whatever sits under it, then draw chrome) instead of paying for a
-     * full-screen clear + full-screen re-blit for a tiny dirty rect. */
     nbatches_ = 0;
     text_batch_.vcount_ = 0;
     text_batch_.pipe_key_ = 1;
@@ -655,6 +676,7 @@ int Context::commit_frame()
     flush();
     cmd_.end();
     int rc = cmd_.submit(nullptr);
+    release_frame_bufs();
     frame_open_ = false;
     return rc;
 }
@@ -666,6 +688,7 @@ int Context::end_frame()
     flush();
     cmd_.end();
     (void)cmd_.submit(nullptr);
+    release_frame_bufs();
     int rc = cmd_.present(target_, nullptr);
     frame_open_ = false;
     return rc;
@@ -677,6 +700,55 @@ void Context::fill_rect(int x, int y, int w, int h, uint32_t color)
         return;
     Batch *b = get_batch(0, 0);
     emit_quad(b, (float)x, (float)y, (float)(x + w), (float)(y + h), 0, 0, 1, 1, color);
+}
+
+void Context::image(reed::Texture2D &tex, int x, int y, int w, int h, uint32_t tint)
+{
+    if (!frame_open_ || !tex.valid())
+        return;
+    if (w <= 0)
+        w = (int)tex.width();
+    if (h <= 0)
+        h = (int)tex.height();
+    if (w <= 0 || h <= 0)
+        return;
+    Batch *b = get_batch(3, tex.handle());
+    if (!b)
+        return;
+    b->tex_ = tex;
+    emit_quad(b, (float)x, (float)y, (float)(x + w), (float)(y + h), 0, 0, 1, 1, tint);
+}
+
+void Context::blit(reed::Texture2D &src, int x, int y, int w, int h, int alpha_blend)
+{
+    if (!frame_open_ || !src.valid() || !target_.valid())
+        return;
+    /* Prior batched draws must be recorded before blit cmd. */
+    flush();
+    if (w <= 0)
+        w = (int)src.width();
+    if (h <= 0)
+        h = (int)src.height();
+    if (w <= 0 || h <= 0)
+        return;
+    reed::Rect src_r = {0, 0, w, h};
+    if (src_r.w > (int32_t)src.width())
+        src_r.w = (int32_t)src.width();
+    if (src_r.h > (int32_t)src.height())
+        src_r.h = (int32_t)src.height();
+    reed::BlendMode blend =
+        alpha_blend ? reed::BlendMode::Alpha : reed::BlendMode::Opaque;
+    cmd_.blit(src, target_, x, y, &src_r, blend);
+}
+
+int Context::acrylic(int x, int y, int w, int h, int radius, uint32_t tint, uint8_t alpha)
+{
+    /* No CPU blur — tinted translucent panel via GPU drawlist until blur cmds exist. */
+    (void)radius;
+    uint32_t a = alpha;
+    uint32_t c = (tint & 0x00ffffffu) | (a << 24);
+    fill_round_rect(x, y, w, h, 8, c);
+    return 0;
 }
 
 void Context::fill_round_rect(int x, int y, int w, int h, int radius, uint32_t color)
@@ -783,73 +855,6 @@ void Context::polygon(const int *xy, int npoints, uint32_t color, int filled)
     }
 }
 
-int Context::acrylic(int x, int y, int w, int h, int radius, uint32_t tint, uint8_t alpha)
-{
-    if (!frame_open_ || w <= 0 || h <= 0)
-        return -1;
-    flush();
-    /* v1: separable box blur via CPU on mapped RT region + tint (Reed blur modes
-     * available for full-screen passes; region blur here for latency). */
-    uint32_t *fb = (uint32_t *)target_.color().map();
-    if (!fb)
-        return -1;
-    uint32_t fw = target_.color().width();
-    uint32_t fh = target_.color().height();
-    uint32_t stride = target_.color().stride() / 4u;
-    int r = radius > 0 ? radius : 8;
-    if (r > 32)
-        r = 32;
-    int x0 = x < 0 ? 0 : x;
-    int y0 = y < 0 ? 0 : y;
-    int x1 = x + w;
-    int y1 = y + h;
-    if (x1 > (int)fw)
-        x1 = (int)fw;
-    if (y1 > (int)fh)
-        y1 = (int)fh;
-    /* Horizontal then vertical box blur into place (two passes, scratch on stack rows). */
-    static uint32_t row[4096];
-    for (int pass = 0; pass < 2; pass++) {
-        for (int yy = y0; yy < y1; yy++) {
-            for (int xx = x0; xx < x1; xx++) {
-                uint32_t sum_r = 0, sum_g = 0, sum_b = 0, sum_a = 0, n = 0;
-                for (int k = -r; k <= r; k++) {
-                    int sx = pass == 0 ? xx + k : xx;
-                    int sy = pass == 0 ? yy : yy + k;
-                    if (sx < x0 || sx >= x1 || sy < y0 || sy >= y1)
-                        continue;
-                    uint32_t c = fb[(uint32_t)sy * stride + (uint32_t)sx];
-                    sum_a += (c >> 24) & 0xffu;
-                    sum_r += (c >> 16) & 0xffu;
-                    sum_g += (c >> 8) & 0xffu;
-                    sum_b += c & 0xffu;
-                    n++;
-                }
-                if (n == 0)
-                    n = 1;
-                row[xx - x0] = ((sum_a / n) << 24) | ((sum_r / n) << 16) |
-                               ((sum_g / n) << 8) | (sum_b / n);
-            }
-            for (int xx = x0; xx < x1; xx++)
-                fb[(uint32_t)yy * stride + (uint32_t)xx] = row[xx - x0];
-        }
-    }
-    uint8_t tr = (uint8_t)((tint >> 16) & 0xff), tg = (uint8_t)((tint >> 8) & 0xff),
-            tb = (uint8_t)(tint & 0xff);
-    for (int yy = y0; yy < y1; yy++) {
-        for (int xx = x0; xx < x1; xx++) {
-            uint32_t c = fb[(uint32_t)yy * stride + (uint32_t)xx];
-            uint8_t cr = (uint8_t)((c >> 16) & 0xff), cg = (uint8_t)((c >> 8) & 0xff),
-                    cb = (uint8_t)(c & 0xff);
-            uint8_t nr = (uint8_t)(((uint32_t)cr * (255 - alpha) + (uint32_t)tr * alpha) / 255);
-            uint8_t ng = (uint8_t)(((uint32_t)cg * (255 - alpha) + (uint32_t)tg * alpha) / 255);
-            uint8_t nb = (uint8_t)(((uint32_t)cb * (255 - alpha) + (uint32_t)tb * alpha) / 255);
-            fb[(uint32_t)yy * stride + (uint32_t)xx] = rgba(nr, ng, nb, 255);
-        }
-    }
-    return 0;
-}
-
 void Context::draw_mesh(const Mesh &mesh, const Material &mat, const Transform &xf,
                         const Camera &cam)
 {
@@ -886,12 +891,12 @@ void Context::draw_mesh(const Mesh &mesh, const Material &mat, const Transform &
         if (ib.valid()) {
             cmd_.bind_index_buffer(ib);
             cmd_.draw_indexed(mesh.index_count, 0, 0);
-            ib.destroy();
+            retain_buf(ib);
         }
     } else {
         cmd_.draw(mesh.vert_count, 0);
     }
-    vb.destroy();
+    retain_buf(vb);
 }
 
 static void draw_node(Context *ctx, SceneNode *n, const Camera &cam)

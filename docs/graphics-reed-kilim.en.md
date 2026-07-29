@@ -2,37 +2,53 @@
 
 Active graphics architecture for mykernel. Legacy `dx` / `mkdx` / `gfx.hpp` / `SYS_WM_*` / `SYS_GX_*` are **gone**.
 
+## Mental model
+
+| Layer | Analogy | Role |
+|-------|---------|------|
+| **Reed** | OpenGL / D3D device | FBO/backbuffer, command buffer, submit, present |
+| **Kilim** | ImGui DrawList | High-level quads/text/widgets → Reed cmds |
+| **WM** | Compositor | Import app FBOs, compose via Reed blit, sole scanout |
+| **GpuProvider** | GPU driver | **All** raster / blit / compose pixel work |
+
+**Hard rule:** userspace (Reed / Kilim / apps) **never** writes framebuffer pixels. CPU may upload textures/buffers only.
+
 ## Stack
 
 ```text
 Application
-  wm::Window          — window + /tmp/wm file IPC
-  kilim::Context      — 2D/text/3D/widgets (batched)
-  reed::Device        — buffers/textures/RTs/commands/present
+  kilim::Context      — drawlist (fill_rect / text / …)
+  reed::Device        — create FBO, record cmds, submit
         │
-        ▼  SYS_DISP_CALL (296)
-display.kmod          — orchestrator (disp_api)
+        ▼  SYS_DISP_CALL (296)  DISP_OP_SUBMIT / SCANOUT
+display.kmod          — handles + resolve → GpuProvider
         │
-        ▼  GpuProvider
-display_bga | display_virtio
+        ▼  gpu_submit / present
+display_bga | display_virtio   (softpipe today; VirGL later)
 ```
 
-- **WM** (`userspace/window-manager`) is the sole present owner (`kilim::end_frame` / Reed present).
+- **WM** is the sole present owner (`kilim::end_frame` / Reed present).
 - **Client apps** only `kilim::commit_frame` (export + attach); they **must not** scanout.
-- **os-shell** owns the wallpaper (background surface); menubar/dock v1 is drawn as WM chrome.
+- **os-shell** owns the wallpaper (background surface); menubar/dock v1 is WM chrome.
 
-`gui_stack_ready()` = `display_active() && disp_api_get()`. Without GUI the kernel falls back to **kshell**; it does not halt.
+`gui_stack_ready()` = `display_active() && disp_api_get()`. Without GUI → **kshell**.
+
+## Frame flow (DX11-ish)
+
+1. Reed opens / binds an FBO (`create_render_target` / swapchain target).
+2. Kilim `begin_frame` → clear + drawlist open.
+3. App/Kilim emit draws (`fill_rect` → Reed `draw`); cmds go into Reed command buffer.
+4. `commit_frame` / `end_frame` → `DISP_OP_SUBMIT` → **GpuProvider::gpu_submit** writes the FBO.
+5. WM imports app surface tokens, `blit` into its FBO (also via submit), then `present` / scanout.
 
 ## Kernel / display
 
 | Piece | Location | Role |
 |-------|----------|------|
-| Bridge | `src/drivers/display/display.c`, `gpu.c` | provider pick, mode, LFB/scanout |
-| Orchestrator | `display_mod.c` | `SYS_DISP_CALL` opcodes |
-| BGA | `providers/bga/` | Bochs/QEMU std VGA LFB |
-| Virtio | `providers/virtio_gpu/` | virtio-gpu 2D scanout |
-| ABI | `include/user/disp.h` | `DISP_OP_*` |
-| Lock | `klock_disp` | `disp_api` + `drivers_poll` (asm spinlock) |
+| Softpipe | `gpu_soft.c` (kernel) | Provider `gpu_submit` backend for BGA/virtio-2D |
+| Bridge | `display.c`, `gpu.c` | provider pick, mode, LFB/scanout |
+| Orchestrator | `display_mod.c` | `SYS_DISP_CALL` — **no** pixel loops |
+| BGA / Virtio | `providers/*` | `gpu_submit` + `present*` |
 
 ### QEMU (one primary)
 
@@ -41,28 +57,20 @@ display_bga | display_virtio
 | BGA | `-vga std` | `display_bga` |
 | Virtio | `-vga virtio` **or** `-vga none` + `-device virtio-gpu-pci` | `display_virtio` |
 
-**Forbidden:** default/std VGA together with `virtio-gpu-pci` — present goes to virtio while the window shows std → black screen.
+**Forbidden:** std VGA + `virtio-gpu-pci` together → black screen.
 
 Default resolution: **1920×1080**.
 
 ## Reed (`reed::`)
 
-- Header: `include/user/sdk/reed.hpp`
-- Source: `userspace/sdk/reed/`
-- Low level: Device, Buffer, Texture2D, RenderTarget, CommandBuffer, Fence, Pipeline.
-- v1 backend: **software rasterizer**; `hw_accel_available` is capability only.
-- Talks to the kernel via `SYS_DISP_CALL` for buffer/texture/RT/export/import/scanout.
-
-Key opcodes: `DISP_OP_BUFFER_*`, `TEXTURE_*`, `RT_*`, `EXPORT` / `IMPORT`, `SCANOUT`, `STATS`.
-
-**Import rule:** imported textures **share** exporter backing (no steal-and-free); destroy frees on last ref.
+- Records `DISP_CMD_*` only; `submit()` → `DISP_OP_SUBMIT`.
+- Key opcodes: `BUFFER_*`, `TEXTURE_*`, `RT_*`, `SUBMIT`, `SCANOUT`, `EXPORT`/`IMPORT`.
+- **Import rule:** share exporter backing (no steal-and-free).
 
 ## Kilim (`kilim::`)
 
-- Header: `include/user/sdk/kilim.hpp`
-- Source: `userspace/sdk/kilim/`
-- High level on Reed only: batching, Font/Text atlas, 2D, Acrylic blur, Mesh/Material/Transform/Camera/Scene, `.kmesh`, widgets.
-- Does not call `SYS_DISP_*` directly.
+- Drawlist on Reed only (no `SYS_DISP_*`).
+- Vertex buffers retained until after submit (GPU needs them live).
 
 ### Frame API
 
@@ -72,38 +80,9 @@ Key opcodes: `DISP_OP_BUFFER_*`, `TEXTURE_*`, `RT_*`, `EXPORT` / `IMPORT`, `SCAN
 | `commit_frame` | **client** | flush + submit; **no present** |
 | `end_frame` | **WM only** | submit + **scanout/present** |
 
-### Context size (critical)
+### Context size
 
-`kilim::Context` holds large batch arrays (~**3 MiB**).
-
-- **MUST:** `static` / BSS / heap
-- **MUST NOT:** process ustack (default **1 MiB**; Context ~3 MiB)
-
-Otherwise stack smash / `#GP` (frozen window-manager).
-
-## WM (`wm::`)
-
-- Client: `include/user/sdk/wm.hpp`
-- Server: `userspace/window-manager/main.cpp`
-- IPC: `/tmp/wm` file request/response (`WMRq` / `WMRs`)
-- No kernel `SYS_WM_*`
-
-Owns: create/show/focus/move/resize/damage, z-order, hit-test (focus ≠ hover), surface import + compose, window chrome, system menubar/dock (v1), arrow cursor, single present.
-
-## Input
-
-- `SYS_INPUT_STATE` — from mouse/keyboard drivers; no DX dependency.
-- Focus routing lives in usermode WM.
-- No `ps2_poll` / heavy polling inside the present hot path.
-
-## Application status
-
-| Component | Status |
-|-----------|--------|
-| Pipeline (display→Reed→Kilim→WM) | Working |
-| Apps | wm+kilim **smoke stubs** |
-| Menubar/dock | WM v1 chrome (not full macOS UX) |
-| Settings/terminal/files/minesweeper/imgui | Feature parity **NEXT** (`restore-app-ux`) |
+`kilim::Context` (~3 MiB+) **MUST** be `static` / heap — **NOT** on the 1 MiB default ustack.
 
 ## Related rules
 

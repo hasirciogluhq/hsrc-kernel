@@ -1,8 +1,11 @@
 #include <kernel/dynlib.h>
 #include <kernel/errno.h>
 #include <kernel/heap.h>
+#include <kernel/mm.h>
+#include <kernel/process.h>
 #include <kernel/string.h>
 #include <kernel/vfs.h>
+#include <kernel/vmm.h>
 #include <drivers/console/vga.h>
 #include <drivers/console/serial.h>
 
@@ -527,12 +530,34 @@ int dynlib_ensure(const char *name)
     return dynlib_load_path(path);
 }
 
-int dynlib_bind_exec(const char needed[][DYNLIB_NAME_MAX], int needed_count,
-                 uint32_t load_addr, uint32_t imports_off)
+static int dynlib_map_into_as(addrspace_t *as, dynlib_t *m)
+{
+    uint32_t base, end, pa;
+    size_t npages;
+
+    if (!as || !m || !m->base || m->size == 0)
+        return -1;
+    base = (uint32_t)(uintptr_t)m->base & ~(PAGE_SIZE - 1u);
+    end = ((uint32_t)(uintptr_t)m->base + (uint32_t)m->size + PAGE_SIZE - 1u) &
+          ~(PAGE_SIZE - 1u);
+    npages = (end - base) / PAGE_SIZE;
+    pa = base; /* identity */
+    return vmm_map_pages(as, base, pa, npages, VMM_WRITE | VMM_USER);
+}
+
+int dynlib_bind_exec(process_t *proc, const char needed[][DYNLIB_NAME_MAX],
+                     int needed_count, uint32_t load_addr, uint32_t imports_off)
 {
     int i;
     const dynlib_import_t *imp;
     uint32_t guard = 0;
+    uint8_t *image_pa;
+    addrspace_t *as;
+
+    if (!proc || !proc->as || !proc->image_pages)
+        return -EINVAL;
+    as = proc->as;
+    image_pa = (uint8_t *)proc->image_pages;
 
     if (needed && needed_count > 0) {
         for (i = 0; i < needed_count; i++) {
@@ -547,13 +572,25 @@ int dynlib_bind_exec(const char needed[][DYNLIB_NAME_MAX], int needed_count,
         }
     }
 
+    /* Mark every loaded dynlib executable/readable from this process. */
+    for (i = 0; i < (int)g_dynlib_count; i++) {
+        if (!g_dynlib[i].loaded)
+            continue;
+        if (dynlib_map_into_as(as, &g_dynlib[i]) < 0) {
+            klog("[dynlib] map into AS failed\n");
+            return -ENOMEM;
+        }
+    }
+
     if (imports_off == 0)
         return 0;
 
-    imp = (const dynlib_import_t *)(uintptr_t)(load_addr + imports_off);
+    /* Import table lives in the image; resolve via physical backing. */
+    imp = (const dynlib_import_t *)(image_pa + imports_off);
     while (imp->lib[0] && guard < 64) {
         void *addr = dynlib_lookup(imp->sym);
         void **slot;
+        uint32_t slot_off;
 
         if (!addr) {
             klog("[dynlib] bind missing ");
@@ -565,7 +602,12 @@ int dynlib_bind_exec(const char needed[][DYNLIB_NAME_MAX], int needed_count,
             klog("[dynlib] bad import slot\n");
             return -EFAULT;
         }
-        slot = (void **)(uintptr_t)imp->slot_addr;
+        slot_off = imp->slot_addr - load_addr;
+        if (slot_off + sizeof(void *) > proc->image_bytes) {
+            klog("[dynlib] import slot OOB\n");
+            return -EFAULT;
+        }
+        slot = (void **)(image_pa + slot_off);
         *slot = addr;
         imp++;
         guard++;

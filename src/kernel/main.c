@@ -9,6 +9,7 @@
 #include <kernel/bootmem.h>
 #include <kernel/errno.h>
 #include <kernel/mm.h>
+#include <kernel/vmm.h>
 #include <kernel/syscall.h>
 #include <kernel/vfs.h>
 #include <kernel/netif.h>
@@ -74,6 +75,14 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
     klog_uint("[boot] heap_size=", mem.heap_size);
     klog_uint("[boot] total_ram=", mem.total_ram_bytes);
     mm_init();
+    {
+        uint32_t pend = mem.phys_end;
+        if (pend < mem.heap_phys + mem.heap_size)
+            pend = mem.heap_phys + mem.heap_size;
+        if (pend < mem.total_ram_bytes)
+            pend = mem.total_ram_bytes;
+        vmm_bootstrap(pend);
+    }
     gdt_init();
     idt_init();
     cpu_init_bsp();

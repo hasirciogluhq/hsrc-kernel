@@ -13,6 +13,4 @@ extern "C" void exec_main(void)
     (void)hsrc::sdk::libfs::print_listdir("/system/bin");
     (void)hsrc::sdk::libfs::print_listdir("/system/lib");
 
-    for (;;)
-        hsrc::sdk::sleep_ticks(10);
 }

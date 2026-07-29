@@ -427,11 +427,26 @@ static long do_getppid(void)
 }
 
 /*
- * Timed suspend helper (PROC_SUSPENDED). Cap ~350s at default 3.5ms tick
- * (matches SYS_PROC_WAIT). Timer IRQ already drivers_poll()'s — do not
- * re-poll here (BSP yield spam was a mouse-lag source).
+ * Timed suspend (PROC_SUSPENDED). SYS_SLEEP takes milliseconds; convert here
+ * via scheduler_tick_us() (no userspace round-trip). Cap 60s. Timer IRQ already
+ * drivers_poll()'s — do not re-poll here.
  */
-#define SLEEP_TICKS_MAX 100000u
+#define SLEEP_MS_MAX 60000u
+
+static uint64_t ms_to_sleep_ticks(uint32_t ms)
+{
+    uint32_t tick_us;
+    uint64_t us, ticks;
+
+    tick_us = scheduler_tick_us();
+    if (tick_us == 0)
+        tick_us = SCHED_TICK_US_DEFAULT;
+    us = (uint64_t)ms * 1000u;
+    ticks = (us + (uint64_t)tick_us - 1u) / (uint64_t)tick_us; /* round up */
+    if (ticks == 0)
+        ticks = 1;
+    return ticks;
+}
 
 static void do_sleep_ticks(uint64_t ticks)
 {
@@ -440,34 +455,29 @@ static void do_sleep_ticks(uint64_t ticks)
 
     if (!p || ticks == 0)
         return;
-    if (ticks > SLEEP_TICKS_MAX)
-        ticks = SLEEP_TICKS_MAX;
     now = scheduler_tick_count();
     process_suspend(now + ticks);
     schedule();
 }
 
-/* Coop reschedule (ticks==0). ticks>0 kept for compat → real suspend. */
-static long do_yield(long sleep_ticks)
+/* Pure cooperative reschedule — timed sleep belongs to SYS_SLEEP. */
+static long do_yield(long unused)
 {
-    if (sleep_ticks > 0) {
-        do_sleep_ticks((uint64_t)sleep_ticks);
-        return 0;
-    }
+    (void)unused;
     schedule();
     return 0;
 }
 
-/* Dedicated timed sleep — never a Ready spin. ticks==0 → coop yield. */
-static long do_sleep(long ticks)
+/* a1 = milliseconds. ms==0 → no-op (no yield). Cap SLEEP_MS_MAX. */
+static long do_sleep(long ms)
 {
-    if (ticks < 0)
+    if (ms < 0)
         return -EINVAL;
-    if (ticks == 0) {
-        schedule();
+    if (ms == 0)
         return 0;
-    }
-    do_sleep_ticks((uint64_t)ticks);
+    if ((uint32_t)ms > SLEEP_MS_MAX)
+        ms = (long)SLEEP_MS_MAX;
+    do_sleep_ticks(ms_to_sleep_ticks((uint32_t)ms));
     return 0;
 }
 
@@ -989,6 +999,7 @@ static size_t disp_arg_size(uint32_t op)
     case DISP_OP_EXPORT:          return sizeof(disp_export);
     case DISP_OP_IMPORT:          return sizeof(disp_import);
     case DISP_OP_STATS:           return sizeof(disp_stats);
+    case DISP_OP_SUBMIT:          return sizeof(disp_submit);
     default:                      return 0;
     }
 }
@@ -1025,7 +1036,7 @@ static long do_disp_call(long op, long argp)
 
     if (!api || !api->call || !p)
         return -1;
-    if (op <= 0 || (uint32_t)op > 20)
+    if (op <= 0 || (uint32_t)op > 21)
         return -1;
     sz = disp_arg_size((uint32_t)op);
     if (sz == 0 || sz > sizeof(karg))
@@ -1064,6 +1075,20 @@ static long do_disp_call(long op, long argp)
             return -1;
         }
         u->data = payload;
+    } else if ((uint32_t)op == DISP_OP_SUBMIT) {
+        disp_submit *u = (disp_submit *)karg;
+        user_payload = u->cmds;
+        payload_len = u->size;
+        if (!user_payload || payload_len == 0 || payload_len > DISP_MAX_SUBMIT_BYTES)
+            return -1;
+        payload = kmalloc(payload_len);
+        if (!payload)
+            return -1;
+        if (copy_from_user(payload, user_payload, payload_len) < 0) {
+            kfree(payload);
+            return -1;
+        }
+        u->cmds = payload;
     }
 
     rc = api->call((uint32_t)op, karg, (uint32_t)p->pid);

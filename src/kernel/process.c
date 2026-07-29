@@ -3,6 +3,8 @@
 #include <kernel/errno.h>
 #include <kernel/heap.h>
 #include <kernel/bootmem.h>
+#include <kernel/mm.h>
+#include <kernel/vmm.h>
 #include <kernel/string.h>
 #include <kernel/scheduler.h>
 #include <kernel/sync.h>
@@ -22,7 +24,7 @@
  * Process table ownership (SMP playbook):
  *   g_procs[] / freelist / graveyard / next_pid — compound updates under g_proc_lock.
  * Lock order (never reverse — AB-BA forbidden):
- *   g_sched_lock → g_proc_lock → g_heap_lock
+ *   g_sched_lock → g_proc_lock → g_vmm_lock → g_heap_lock
  *   g_sync_lock  → g_proc_lock
  * Never take g_sched_lock or g_sync_lock while holding g_proc_lock.
  */
@@ -96,31 +98,91 @@ static process_t *process_alloc_struct(void)
 }
 
 /*
- * Grow/replace user stack to at least `want` bytes (clamped).
+ * Grow/replace user stack physical backing to at least `want` bytes (clamped).
  * Freelist may already hold a larger stack — keep it (no shrink).
- * Contract: call before publishing READY / before enter_usermode.
+ * Canonical VA mapping is applied later via process_map_ustack().
  */
 static int process_ensure_ustack(process_t *p, uint32_t want)
 {
     uint32_t need;
-    uint32_t *nb;
+    void *nb;
+    size_t npages;
 
     if (!p)
         return -1;
     need = process_clamp_ustack(want);
     if (p->ustack_base && p->ustack_size >= need) {
-        p->ustack_top = (uint32_t)((uint8_t *)p->ustack_base + p->ustack_size);
+        p->ustack_top = USER_STACK_TOP;
         return 0;
     }
-    nb = (uint32_t *)kmalloc_aligned(need, 16);
+    npages = need / PAGE_SIZE;
+    nb = mm_alloc_pages(npages);
     if (!nb)
         return -1;
+    memset(nb, 0, need);
     if (p->ustack_base)
-        kfree(p->ustack_base);
-    p->ustack_base = nb;
+        mm_free_pages(p->ustack_base, p->ustack_size / PAGE_SIZE);
+    p->ustack_base = (uint32_t *)nb;
     p->ustack_size = need;
-    p->ustack_top = (uint32_t)((uint8_t *)nb + need);
+    p->ustack_top = USER_STACK_TOP;
     return 0;
+}
+
+static int process_map_ustack(process_t *p)
+{
+    uint32_t va;
+    size_t npages;
+
+    if (!p || !p->as || !p->ustack_base || p->ustack_size == 0)
+        return -1;
+    npages = p->ustack_size / PAGE_SIZE;
+    va = USER_STACK_TOP - p->ustack_size;
+    if (vmm_map_pages(p->as, va, (uint32_t)(uintptr_t)p->ustack_base, npages,
+                      VMM_WRITE | VMM_USER) < 0)
+        return -1;
+    p->ustack_top = USER_STACK_TOP;
+    return 0;
+}
+
+static void process_teardown_user_mem(process_t *p)
+{
+    int i;
+
+    if (!p || !p->is_user)
+        return;
+
+    /* Only the leader owns the address space / image. */
+    if (p->group)
+        return;
+
+    for (i = 0; i < VMA_MAX; i++) {
+        if (!p->vmas[i].used)
+            continue;
+        if (p->as)
+            vmm_unmap_pages(p->as, p->vmas[i].start, p->vmas[i].npages);
+        mm_free_pages(p->vmas[i].pages, p->vmas[i].npages);
+        memset(&p->vmas[i], 0, sizeof(p->vmas[i]));
+    }
+
+    if (p->as && p->image_pages && p->image_npages) {
+        vmm_unmap_pages(p->as, p->load_addr ? p->load_addr : USER_IMAGE_BASE,
+                        p->image_npages);
+        mm_free_pages(p->image_pages, p->image_npages);
+        p->image_pages = NULL;
+        p->image_npages = 0;
+        p->image_bytes = 0;
+        p->load_addr = 0;
+    }
+
+    if (p->as && p->ustack_base && p->ustack_size) {
+        vmm_unmap_pages(p->as, USER_STACK_TOP - p->ustack_size,
+                        p->ustack_size / PAGE_SIZE);
+    }
+
+    if (p->as) {
+        addrspace_destroy(p->as);
+        p->as = NULL;
+    }
 }
 
 uint32_t process_clamp_ustack(uint32_t stack_bytes)
@@ -502,9 +564,7 @@ static process_t *alloc_process(const char *name, int need_ustack, uint32_t usta
         p->last_run_tick = 0;
         strncpy(p->name, name, PROC_NAME_MAX - 1);
         p->kstack_top = (uint32_t)((uint8_t *)kbase + PROC_KSTACK_SIZE);
-        p->ustack_top = ubase
-            ? (uint32_t)((uint8_t *)ubase + usize)
-            : 0;
+        p->ustack_top = ubase ? USER_STACK_TOP : 0;
         p->start_ticks = scheduler_tick_count();
         for (int f = 0; f < VFS_MAX_FD; f++)
             p->fds[f] = -1;
@@ -574,48 +634,6 @@ static process_t *alloc_process(const char *name, int need_ustack, uint32_t usta
     return p;
 }
 
-/*
- * Soft home for a new app: least-loaded online logical CPU.
- * May be called while holding g_proc_lock; must NOT take g_sched_lock
- * (lock order: g_sched → g_proc).
- */
-static int process_pick_home_cpu(void)
-{
-    int ncpu = smp_cpu_count();
-    int best = 0;
-    int best_load = 0x7fffffff;
-    int load[CPU_MAX];
-    int i;
-
-    if (ncpu < 1)
-        ncpu = 1;
-    if (ncpu > CPU_MAX)
-        ncpu = CPU_MAX;
-    memset(load, 0, sizeof(load));
-
-    for (i = 0; i < PROC_MAX; i++) {
-        process_t *p = g_procs[i];
-        int c;
-
-        if (!p || p->is_idle)
-            continue;
-        if (p->state != PROC_READY && p->state != PROC_RUNNING)
-            continue;
-        c = p->home_cpu >= 0 ? p->home_cpu : p->cpu;
-        if (c < 0 || c >= ncpu)
-            continue;
-        load[c]++;
-    }
-
-    for (i = 0; i < ncpu; i++) {
-        if (load[i] < best_load) {
-            best_load = load[i];
-            best = i;
-        }
-    }
-    return best;
-}
-
 static void fpu_area_init(void *area)
 {
     memset(area, 0, CPU_FPU_AREA_SIZE);
@@ -624,15 +642,25 @@ static void fpu_area_init(void *area)
 
 void process_ctx_init(process_t *p)
 {
-    uint32_t cr3;
+    addrspace_t *as;
 
     if (!p)
         return;
     memset(&p->ctx, 0, sizeof(p->ctx));
     fpu_area_init(p->fpu_state);
     p->ctx.fpu_area = p->fpu_state;
-    __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
-    p->ctx.cr3 = cr3;
+    as = p->as;
+    if (!as && p->group)
+        as = p->group->as;
+    if (!as)
+        as = vmm_kernel_as();
+    if (as)
+        p->ctx.cr3 = as->pd_phys;
+    else {
+        uint32_t cr3;
+        __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
+        p->ctx.cr3 = cr3;
+    }
 }
 
 static void setup_kstack(process_t *p, void (*trampoline)(void (*)(void)), void (*entry)(void))
@@ -884,17 +912,31 @@ pid_t process_create_user_stack(const char *name, void (*entry)(void),
         return -1;
     p->is_user = 1;
     p->user_entry = entry;
+    p->as = addrspace_create();
+    if (!p->as || process_map_ustack(p) < 0) {
+        process_teardown_user_mem(p);
+        process_release_fds(p);
+        {
+            uint32_t flags = process_table_lock_irqsave();
+            int slot = p->slot;
+            if (slot >= 0 && slot < PROC_MAX && g_procs[slot] == p)
+                g_procs[slot] = NULL;
+            p->state = PROC_UNUSED;
+            p->slot = -1;
+            process_push_freelist(p);
+            process_table_unlock_irqrestore(flags);
+        }
+        return -1;
+    }
     /*
-     * Soft-pack onto the least-loaded online CPU; hard affinity stays -1
-     * (any logical CPU). disp_api wraps every call in klock_disp, so present
-     * vs drivers_poll is SMP-safe. Userspace surface reads/writes across
-     * CPUs may tear visually but must not #GP the kernel.
-     * (Former hard pin to CPU 0 starved APs when apps busy-looped.)
+     * Hard-pin user/GUI to BSP. Smoke-tested: affinity=-1 → intermittent
+     * #UD (vector 6) in window-manager during present/input. disp_api uses
+     * klock_disp, but provider/virtio paths are not fully SMP-safe yet.
+     * Revisit when display is proven multi-CPU. Soft home stays BSP.
      */
-    p->home_cpu = process_pick_home_cpu();
-    p->cpu_affinity = -1;
+    p->home_cpu = 0;
+    p->cpu_affinity = 0;
     setup_kstack(p, user_trampoline, entry);
-    smp_kick_idle_cpus();
     return p->pid;
 }
 
@@ -962,6 +1004,16 @@ pid_t process_thread_create(void (*entry)(void *), void *arg)
     t->tid = t->pid;
     t->ppid = lead->ppid;
     t->is_user = 1;
+    t->as = lead->as; /* share leader address space */
+    if (process_map_ustack(t) < 0) {
+        process_release_fds(t);
+        {
+            uint32_t flags = process_table_lock_irqsave();
+            process_push_freelist(t);
+            process_table_unlock_irqrestore(flags);
+        }
+        return (pid_t)-ENOMEM;
+    }
     t->user_entry = (void (*)(void))(uintptr_t)entry;
     t->thread_arg = arg;
     t->thread_detached = 0;
@@ -970,21 +1022,9 @@ pid_t process_thread_create(void (*entry)(void *), void *arg)
     idx = process_count_threads(lead) - 1;
     if (idx < 0)
         idx = 0;
-    /*
-     * No hard pin (affinity -1). Spread sibling soft homes across online
-     * CPUs so same-app workers can run truly in parallel; pick_score still
-     * prefers nearby cores when free.
-     */
-    t->cpu_affinity = -1;
-    {
-        int n = smp_cpu_count();
-        int base;
-
-        if (n < 1)
-            n = 1;
-        base = lead->home_cpu >= 0 ? lead->home_cpu : 0;
-        t->home_cpu = (base + idx) % n;
-    }
+    /* Inherit leader hard pin (BSP) until display is SMP-safe. */
+    t->cpu_affinity = lead->cpu_affinity;
+    t->home_cpu = lead->home_cpu >= 0 ? lead->home_cpu : 0;
     t->last_run_tick = (uint64_t)(idx % (smp_cpu_count() > 0 ? smp_cpu_count() : 1));
     t->uid = lead->uid;
     t->euid = lead->euid;
@@ -1163,6 +1203,7 @@ void process_exit(int code)
     process_release_fds(lead);
     process_free_windows(pid);
     process_free_console(pid);
+    process_teardown_user_mem(lead);
     lead->exit_code = code;
     lead->kill_pending = 0;
     cur->exit_code = code;
@@ -1237,6 +1278,7 @@ int process_kill(pid_t pid)
     process_release_fds(p);
     process_free_windows(p->pid);
     process_free_console(p->pid);
+    process_teardown_user_mem(p);
     p->exit_code = 137;
     if (p->ppid == 0) {
         uint32_t flags = process_table_lock_irqsave();

@@ -19,6 +19,7 @@ target("kernel")
     add_files(path.join(ROOT, "src/drivers/input/*.c"))
     add_files(path.join(ROOT, "src/drivers/display/display.c"))
     add_files(path.join(ROOT, "src/drivers/display/gpu.c"))
+    add_files(path.join(ROOT, "src/drivers/display/gpu_soft.c"))
     add_includedirs(INC,
         path.join(ROOT, "src/drivers/display/providers/virtio_gpu"))
     add_cflags(kernel_cflags(), {force = true})

@@ -11,7 +11,7 @@ alwaysApply: false
 - **S03** Her Kilim API çağrısı MUST NOT zorunlu syscall üretmek. — Gerekçe: userspace biriktirme.
 - **S04** Kernel MUST resource create/map/export ve scanout’ta haberdar edilmek. — Gerekçe: hot path sade.
 - **S05** Bir syscall MUST mümkün olan en kısa sürede tamamlanmak (`klock_disp` kısa tut). — Gerekçe: latency.
-- **S06** Bir syscall içinde uzun SW raster MUST NOT (Reed userspace). — Gerekçe: sistemi bloke etmez.
+- **S06** Userspace Reed içinde piksel loop / SW raster MUST NOT; submit → GpuProvider. — Gerekçe: mimari + isolation.
 - **S07** Context switch azaltmak MUST öncelikli. — Gerekçe: TLB/cache.
 - **S08** Aynı frame için birden fazla `DISP_OP_SCANOUT` MUST NOT (WM tek present). — Gerekçe: bandwidth.
 - **S09** `SYS_INPUT_STATE` ile present commit ayrı kanallar. — Gerekçe: back-pressure.

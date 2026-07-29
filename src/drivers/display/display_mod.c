@@ -1,17 +1,23 @@
 #include <drivers/driver.h>
 #include <drivers/display/display.h>
 #include <drivers/display/gpu.h>
+#include <drivers/display/gpu_soft.h>
 #include <drivers/console/serial.h>
 #include <kernel/disp_api.h>
 #include <kernel/heap.h>
 #include <kernel/klock.h>
 #include <kernel/mm.h>
+#include <kernel/process.h>
 #include <kernel/string.h>
 #include <kernel/types.h>
+#include <kernel/vmm.h>
 #include <user/disp.h>
 
 /*
  * display.kmod — resource/fence/scanout orchestrator for Reed.
+ *
+ * Reed → SYS_DISP_CALL → here → GpuProvider::gpu_submit / present.
+ * Pixel work lives ONLY in the GPU provider (never in Reed/Kilim).
  *
  * Lock: callers enter via disp_api (klock_disp). Tables are single-threaded
  * under that lock; no extra spinlock needed for table mutations.
@@ -26,7 +32,6 @@
 #define DISP_MAX_EXPORT 64
 
 #define DISP_MAX_TEX_DIM 4096u
-#define DISP_MAX_DRAW_PER_FRAME 4096u
 #define DISP_MAX_BUF_BYTES (16u * 1024u * 1024u)
 
 typedef struct disp_buf {
@@ -358,6 +363,14 @@ static long op_buffer_destroy(disp_handle_arg *a, uint32_t pid)
     return 0;
 }
 
+static int map_disp_buf_for_caller(void *ptr, size_t len)
+{
+    process_t *p = process_leader(process_current());
+    if (!p || !p->as || !ptr || len == 0)
+        return -1;
+    return vmm_map_buf_user(p->as, ptr, len);
+}
+
 static long op_buffer_map(disp_buffer_map *a, uint32_t pid)
 {
     disp_buf_t *b;
@@ -365,6 +378,8 @@ static long op_buffer_map(disp_buffer_map *a, uint32_t pid)
         return -1;
     b = buf_lookup(a->handle, pid);
     if (!b || !b->data)
+        return -1;
+    if (map_disp_buf_for_caller(b->data, b->size) < 0)
         return -1;
     b->mapped = 1;
     a->ptr = b->data;
@@ -489,6 +504,8 @@ static long op_texture_map(disp_texture_map *a, uint32_t pid)
         return -1;
     t = tex_lookup(a->handle, pid);
     if (!t || !t->data)
+        return -1;
+    if (map_disp_buf_for_caller(t->data, t->nbytes) < 0)
         return -1;
     t->mapped = 1;
     a->ptr = t->data;
@@ -839,6 +856,81 @@ static long op_stats(disp_stats *a, uint32_t pid)
     return 0;
 }
 
+static int submit_lookup_buf(uint32_t handle, uint32_t pid, void **data, uint32_t *size,
+                             void *ctx)
+{
+    disp_buf_t *b;
+    (void)ctx;
+    b = buf_lookup(handle, pid);
+    if (!b || !b->data)
+        return -1;
+    *data = b->data;
+    *size = b->size;
+    return 0;
+}
+
+static int submit_lookup_tex(uint32_t handle, uint32_t pid, gpu_tex_view_t *out, void *ctx)
+{
+    disp_tex_t *t;
+    (void)ctx;
+    if (!out)
+        return -1;
+    t = tex_lookup(handle, pid);
+    if (!t || !t->data)
+        return -1;
+    out->data = t->data;
+    out->width = t->width;
+    out->height = t->height;
+    out->stride = t->stride;
+    out->format = t->format;
+    return 0;
+}
+
+static int submit_lookup_rt_color(uint32_t handle, uint32_t pid, uint32_t *color_tex,
+                                  void *ctx)
+{
+    disp_rt_t *r;
+    (void)ctx;
+    r = rt_lookup(handle, pid);
+    if (!r || !r->color_tex)
+        return -1;
+    *color_tex = r->color_tex;
+    return 0;
+}
+
+static long op_submit(disp_submit *a, uint32_t pid)
+{
+    gpu_provider_ops_t *gpu;
+    gpu_submit_res_t res;
+    long rc;
+
+    if (!a || !a->cmds || a->size == 0 || a->size > DISP_MAX_SUBMIT_BYTES)
+        return -1;
+
+    gpu = gpu_provider_active();
+    if (!gpu || !gpu->gpu_submit)
+        return -1;
+
+    /* Resolve handles in display.kmod; raster runs in the provider. */
+    memset(&res, 0, sizeof(res));
+    res.lookup_buf = submit_lookup_buf;
+    res.lookup_tex = submit_lookup_tex;
+    res.lookup_rt_color = submit_lookup_rt_color;
+    res.ctx = NULL;
+    res.pid = pid;
+    gpu_submit_res_set(&res);
+    rc = gpu->gpu_submit(gpu, a->cmds, a->size);
+    gpu_submit_res_set(NULL);
+    if (rc < 0)
+        return rc;
+    if (a->fence) {
+        disp_handle_arg f;
+        f.handle = a->fence;
+        (void)op_fence_signal(&f, pid);
+    }
+    return 0;
+}
+
 static long disp_call(uint32_t op, void *arg, uint32_t owner_pid)
 {
     switch (op) {
@@ -882,6 +974,8 @@ static long disp_call(uint32_t op, void *arg, uint32_t owner_pid)
         return op_import((disp_import *)arg, owner_pid);
     case DISP_OP_STATS:
         return op_stats((disp_stats *)arg, owner_pid);
+    case DISP_OP_SUBMIT:
+        return op_submit((disp_submit *)arg, owner_pid);
     default:
         return -1;
     }

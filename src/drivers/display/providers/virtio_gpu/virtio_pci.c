@@ -1,6 +1,7 @@
 #include "virtio_pci.h"
 #include <kernel/heap.h>
 #include <kernel/string.h>
+#include <kernel/vmm.h>
 #include <drivers/console/vga.h>
 
 #define VIRTIO_MSI_NO_VECTOR 0xFFFF
@@ -52,6 +53,8 @@ static volatile uint8_t *map_cap(const pci_device_t *pci, uint8_t bar, uint32_t 
     uint32_t base = pci_bar_phys(pci, (int)bar);
     if (!base)
         return NULL;
+    /* BAR may sit above boot identity RAM — ensure kernel can touch it. */
+    (void)vmm_identity_map_range(base, 0x10000u);
     return (volatile uint8_t *)(uintptr_t)(base + offset);
 }
 

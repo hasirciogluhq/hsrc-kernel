@@ -32,7 +32,7 @@ typedef struct display_ops {
      */
     int (*present_rects)(const uint32_t *src, uint32_t src_stride_px,
                          const display_rect_t *rects, uint32_t n);
-    /* Optional GPU submit path (virtio). NULL = software only. */
+    /* GPU cmd submit (Reed → display.kmod → here). Required for draw/blit. */
     int (*gpu_submit)(const void *cmd, uint32_t size);
 } display_ops_t;
 

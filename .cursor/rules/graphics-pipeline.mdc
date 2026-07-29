@@ -6,7 +6,7 @@ alwaysApply: false
 
 # Draw / Damage / Present / Buffers
 
-- **P01** Draw işlemleri mümkün olduğunca userspace Reed/Kilim’de tamamlanmalı. — Gerekçe: kernel yalnızca commit/scanout görür.
+- **P01** Draw işlemleri Reed cmdbuf’a kaydedilip `DISP_OP_SUBMIT` → GpuProvider’da tamamlanmalı. — Gerekçe: userspace yalnızca komut üretir.
 - **P02** Bir frame için mümkün olan en fazla bir present MUST hedeflenmek (`Kilim::end_frame` / WM compose). — Gerekçe: display bandwidth sınırı.
 - **P03** Front buffer’a doğrudan yazmak MUST NOT (provider LFB hariç atomik present). — Gerekçe: tear-free.
 - **P04** Present MUST GpuProvider `present` / `present_rect(s)` üzerinden yapılmak. — Gerekçe: tek scanout yolu.

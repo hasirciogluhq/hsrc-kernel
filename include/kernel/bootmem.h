@@ -13,7 +13,7 @@ typedef struct bootmem_layout {
 
 /*
  * Parse Multiboot memory info and pick a heap region that does not collide
- * with the kernel, initrd modules, or the fixed .hxe load window.
+ * with the kernel, initrd modules, or the low USER_IMAGE_BASE hole.
  */
 int bootmem_init(const multiboot_info_t *mbi, bootmem_layout_t *out);
 

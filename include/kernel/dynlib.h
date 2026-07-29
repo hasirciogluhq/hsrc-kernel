@@ -43,8 +43,11 @@ typedef struct dynlib_import {
     uint32_t slot_addr;
 } __attribute__((packed, aligned(1))) dynlib_import_t;
 
-/* Ensure each needed dynlib, then bind import slots. */
-int dynlib_bind_exec(const char needed[][DYNLIB_NAME_MAX], int needed_count,
+struct process;
+
+/* Ensure each needed dynlib, map into process AS, then bind import slots. */
+int dynlib_bind_exec(struct process *proc,
+                     const char needed[][DYNLIB_NAME_MAX], int needed_count,
                      uint32_t load_addr, uint32_t imports_off);
 
 #endif

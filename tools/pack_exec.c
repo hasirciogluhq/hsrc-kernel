@@ -5,10 +5,11 @@
 #include <stdint.h>
 
 #define EXEC_MAGIC      0x43455845u /* 'EXEC' */
-#define EXEC_VERSION    2
+#define EXEC_VERSION    3
 #define EXEC_NAME_MAX   32
 #define EXEC_NEEDED_MAX 4
 #define DYNLIB_NAME_MAX   32
+#define USER_IMAGE_BASE 0x00400000u
 
 typedef struct exec_header {
     uint32_t magic;
@@ -44,22 +45,21 @@ int main(int argc, char **argv)
     FILE *in, *out;
     uint8_t *img;
     long file_sz;
-    uint32_t load_addr, entry_off, image_size, bss_size, stack_size, imports_off;
+    uint32_t entry_off, image_size, bss_size, stack_size, imports_off;
     int i, needed_i;
 
-    if (argc < 8) {
+    if (argc < 7) {
         fprintf(stderr,
-                "usage: %s <out.exec> <image.bin> <load_addr> <entry_off> "
+                "usage: %s <out.exec> <image.bin> <entry_off> "
                 "<image_size> <bss_size> <name> [stack_size] [imports_off] "
                 "[needed.dynlib...]\n",
                 argv[0]);
         return 1;
     }
 
-    if (parse_u32(argv[3], &load_addr) < 0 ||
-        parse_u32(argv[4], &entry_off) < 0 ||
-        parse_u32(argv[5], &image_size) < 0 ||
-        parse_u32(argv[6], &bss_size) < 0) {
+    if (parse_u32(argv[3], &entry_off) < 0 ||
+        parse_u32(argv[4], &image_size) < 0 ||
+        parse_u32(argv[5], &bss_size) < 0) {
         fprintf(stderr, "bad numeric argument\n");
         return 1;
     }
@@ -67,11 +67,11 @@ int main(int argc, char **argv)
     stack_size = 1048576; /* Windows-like default 1 MiB; override via argv */
     imports_off = 0;
     needed_i = 0;
-    if (argc >= 9 && parse_u32(argv[8], &stack_size) < 0) {
+    if (argc >= 8 && parse_u32(argv[7], &stack_size) < 0) {
         fprintf(stderr, "bad stack_size\n");
         return 1;
     }
-    if (argc >= 10 && parse_u32(argv[9], &imports_off) < 0) {
+    if (argc >= 9 && parse_u32(argv[8], &imports_off) < 0) {
         fprintf(stderr, "bad imports_off\n");
         return 1;
     }
@@ -116,15 +116,15 @@ int main(int argc, char **argv)
     hdr.magic = EXEC_MAGIC;
     hdr.version = EXEC_VERSION;
     hdr.header_size = (uint32_t)sizeof(hdr);
-    hdr.load_addr = load_addr;
+    hdr.load_addr = USER_IMAGE_BASE;
     hdr.entry_off = entry_off;
     hdr.image_size = image_size;
     hdr.bss_size = bss_size;
     hdr.stack_size = stack_size;
     hdr.imports_off = imports_off;
-    strncpy(hdr.name, argv[7], EXEC_NAME_MAX - 1);
+    strncpy(hdr.name, argv[6], EXEC_NAME_MAX - 1);
 
-    for (i = 10; i < argc && needed_i < EXEC_NEEDED_MAX; i++) {
+    for (i = 9; i < argc && needed_i < EXEC_NEEDED_MAX; i++) {
         strncpy(hdr.needed[needed_i], argv[i], DYNLIB_NAME_MAX - 1);
         needed_i++;
     }

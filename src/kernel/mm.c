@@ -4,6 +4,7 @@
 #include <kernel/vfs.h>
 #include <kernel/errno.h>
 #include <kernel/string.h>
+#include <kernel/vmm.h>
 
 /*
  * process_t::vmas[] is shared mutable state: the owning process can call
@@ -12,6 +13,9 @@
  * proc_mem.c). All find-slot / publish / clear sequences below run under
  * g_proc_lock (process_table_lock_irqsave) — never sleep while holding it;
  * file I/O and page alloc/free happen outside the critical section.
+ *
+ * Backing pages are physical (kmalloc_aligned); user VA is mapped through
+ * the process addrspace. Kernel accesses backing via the physical pointer.
  */
 
 void mm_init(void)
@@ -37,20 +41,49 @@ static vma_t *proc_vmas(process_t *p)
     return p ? p->vmas : NULL;
 }
 
+static uint32_t mm_pick_va(process_t *lead, size_t bytes)
+{
+    uint32_t cand = USER_HEAP_BASE;
+    size_t i;
+
+    /* First-fit above USER_HEAP_BASE, avoiding existing VMAs. */
+    for (;;) {
+        int clash = 0;
+        uint32_t end = cand + (uint32_t)bytes;
+
+        if (end < cand || end >= USER_STACK_TOP - (8u * 1024u * 1024u))
+            return 0;
+        for (i = 0; i < VMA_MAX; i++) {
+            if (!lead->vmas[i].used)
+                continue;
+            if (cand < lead->vmas[i].end && end > lead->vmas[i].start) {
+                cand = lead->vmas[i].end;
+                clash = 1;
+                break;
+            }
+        }
+        if (!clash)
+            return cand;
+    }
+}
+
 long mm_mmap(process_t *p, uint32_t addr, size_t len, int prot, int flags,
              int vfs_fd, off_t off)
 {
     vma_t *vmas;
+    process_t *lead;
     size_t npages, i;
     void *pages;
     uint32_t start;
+    uint32_t pa;
     int slot = -1;
+    uint32_t map_flags = VMM_USER;
 
-    (void)flags;
     if (!p || len == 0)
         return -EINVAL;
+    lead = process_leader(p);
     vmas = proc_vmas(p);
-    if (!vmas)
+    if (!vmas || !lead || !lead->as)
         return -ENOMEM;
 
     npages = (len + PAGE_SIZE - 1) / PAGE_SIZE;
@@ -77,12 +110,24 @@ long mm_mmap(process_t *p, uint32_t addr, size_t len, int prot, int flags,
         }
     }
 
-    /*
-     * Identity AS: VA == backing pointer. Ignore MAP_FIXED hints that cannot
-     * be honored without a real page table; always publish pages as start.
-     */
-    (void)addr;
-    start = (uint32_t)(uintptr_t)pages;
+    if ((flags & MAP_FIXED) && addr) {
+        start = addr & ~(PAGE_SIZE - 1u);
+    } else {
+        start = mm_pick_va(lead, npages * PAGE_SIZE);
+        if (!start) {
+            mm_free_pages(pages, npages);
+            return -ENOMEM;
+        }
+    }
+
+    if (prot & PROT_WRITE)
+        map_flags |= VMM_WRITE;
+
+    pa = (uint32_t)(uintptr_t)pages;
+    if (vmm_map_pages(lead->as, start, pa, npages, map_flags) < 0) {
+        mm_free_pages(pages, npages);
+        return -ENOMEM;
+    }
 
     {
         uint32_t irqf = process_table_lock_irqsave();
@@ -94,6 +139,7 @@ long mm_mmap(process_t *p, uint32_t addr, size_t len, int prot, int flags,
         }
         if (slot < 0) {
             process_table_unlock_irqrestore(irqf);
+            vmm_unmap_pages(lead->as, start, npages);
             mm_free_pages(pages, npages);
             return -ENOMEM;
         }
@@ -106,19 +152,17 @@ long mm_mmap(process_t *p, uint32_t addr, size_t len, int prot, int flags,
         vmas[slot].fd = vfs_fd;
         vmas[slot].pages = pages;
         vmas[slot].npages = npages;
-        /* Publish last: readers gate on `used` (release semantics on x86
-         * TSO — a plain store here is ordered after the field writes above
-         * because stores are not reordered with later stores). */
         vmas[slot].used = 1;
         process_table_unlock_irqrestore(irqf);
     }
 
-    return (long)(uintptr_t)pages;
+    return (long)start;
 }
 
 int mm_munmap(process_t *p, uint32_t addr, size_t len)
 {
     vma_t *vmas;
+    process_t *lead;
     vma_t snap;
     size_t i;
     int found = 0;
@@ -126,15 +170,16 @@ int mm_munmap(process_t *p, uint32_t addr, size_t len)
     (void)len;
     if (!p)
         return -EINVAL;
+    lead = process_leader(p);
     vmas = proc_vmas(p);
-    if (!vmas)
+    if (!vmas || !lead)
         return -ENOMEM;
 
     irqf = process_table_lock_irqsave();
     for (i = 0; i < VMA_MAX; i++) {
         if (!vmas[i].used)
             continue;
-        if ((uint32_t)(uintptr_t)vmas[i].pages == addr || vmas[i].start == addr) {
+        if (vmas[i].start == addr) {
             snap = vmas[i];
             memset(&vmas[i], 0, sizeof(vmas[i]));
             found = 1;
@@ -146,7 +191,9 @@ int mm_munmap(process_t *p, uint32_t addr, size_t len)
     if (!found)
         return -EINVAL;
 
-    /* Slot already unpublished; file I/O and free happen lock-free. */
+    if (lead->as)
+        vmm_unmap_pages(lead->as, snap.start, snap.npages);
+
     if ((snap.prot & PROT_WRITE) && snap.fd >= 0) {
         vfs_lseek(snap.fd, (off_t)snap.offset, SEEK_SET);
         vfs_write(snap.fd, snap.pages, snap.npages * PAGE_SIZE);
@@ -173,8 +220,7 @@ int mm_msync(process_t *p, uint32_t addr, size_t len, int flags)
     for (i = 0; i < VMA_MAX; i++) {
         if (!vmas[i].used)
             continue;
-        if ((uint32_t)(uintptr_t)vmas[i].pages == addr ||
-            (addr >= vmas[i].start && addr < vmas[i].end)) {
+        if (addr >= vmas[i].start && addr < vmas[i].end) {
             snap = vmas[i];
             found = 1;
             break;
@@ -185,12 +231,6 @@ int mm_msync(process_t *p, uint32_t addr, size_t len, int flags)
     if (!found)
         return -EINVAL;
 
-    /*
-     * Best-effort write-back below the lock: another CPU could munmap the
-     * same VMA concurrently and free snap.pages out from under us. This
-     * mirrors the original (already racy) behavior; a fully safe version
-     * would need per-VMA refcounting, tracked separately.
-     */
     if ((snap.prot & PROT_WRITE) && snap.fd >= 0) {
         size_t n = len ? len : (snap.npages * PAGE_SIZE);
         vfs_lseek(snap.fd, (off_t)snap.offset, SEEK_SET);

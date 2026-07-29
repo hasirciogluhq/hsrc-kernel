@@ -4,8 +4,9 @@
 #include <user/sdk/reed.hpp>
 
 /*
- * Kilim — game-engine-style renderer on Reed only (no SYS_DISP_*).
- * Batching/state-sort, Text, 2D, Acrylic, 3D Mesh/Scene, widgets.
+ * Kilim — game-engine-style drawlist on Reed (ImGui DrawList analogue).
+ * Emits quads/meshes into Reed; never writes framebuffer pixels itself.
+ * Reed → display.kmod → GpuProvider does all raster/blit/compose.
  */
 
 namespace kilim {
@@ -85,6 +86,7 @@ private:
     friend class Context;
     uint32_t pipe_key_;
     uint32_t tex_handle_;
+    reed::Texture2D tex_; /* pipe_key 3 — generic image texture */
     reed::Vertex verts_[2048];
     uint32_t indices_[4096];
     uint32_t vcount_, icount_;
@@ -123,13 +125,8 @@ public:
 
     int begin_frame();
     /*
-     * Partial-redraw variant: scissors all clear/fill/text to [x,y,w,h] and
-     * skips the full-screen clear (caller is responsible for repainting
-     * every pixel in the region, e.g. by re-blitting whatever sits under it
-     * before drawing chrome on top). Pair with commit_frame() +
-     * present_damage() instead of end_frame() — see graphics-pipeline P05/P06:
-     * full-screen redraw for a small dirty region (dock hover, tooltips) is
-     * the #1 cause of visible stalls on the software rasterizer.
+     * Partial-redraw: scissors to [x,y,w,h], skips full-screen clear.
+     * Pair with commit_frame() + present_damage() (WM).
      */
     int begin_frame_region(int x, int y, int w, int h);
     int end_frame(); /* flush batches + present to scanout */
@@ -146,6 +143,20 @@ public:
     void line(int x0, int y0, int x1, int y1, uint32_t color);
     void circle(int cx, int cy, int radius, uint32_t color, int filled = 1);
     void polygon(const int *xy, int npoints, uint32_t color, int filled = 1);
+
+    /*
+     * Textured quad (batched, UnlitTextured). w/h <= 0 → texture size.
+     * Good for icons/cursor; full window surfaces prefer blit() (row-copy).
+     */
+    void image(reed::Texture2D &tex, int x, int y, int w = -1, int h = -1,
+               uint32_t tint = 0xffffffffu);
+
+    /*
+     * Compositor surface copy via Reed blit cmd (GPU path).
+     * Flushes pending batches first so draw order stays correct.
+     */
+    void blit(reed::Texture2D &src, int x, int y, int w = -1, int h = -1,
+              int alpha_blend = 1);
 
     /* Text — glyph quads into textured batch; returns Batch& for .reed() access */
     Batch &text(const char *str, int x, int y, int size, uint32_t color);
@@ -205,9 +216,15 @@ private:
     void emit_quad(Batch *b, float x0, float y0, float x1, float y1,
                    float u0, float v0, float u1, float v1, uint32_t color);
     void flush_batch(Batch *b);
+    void retain_buf(reed::Buffer &b);
+    void release_frame_bufs();
     reed::Uniforms ortho_u(uint32_t color);
     void ensure_font_atlas();
     int cache_glyph(int code, int size, GlyphCache **out);
+
+    static constexpr int kMaxFrameBufs = 64;
+    reed::Buffer frame_bufs_[kMaxFrameBufs];
+    int nframe_bufs_;
 };
 
 /* One-shot smoke helper */

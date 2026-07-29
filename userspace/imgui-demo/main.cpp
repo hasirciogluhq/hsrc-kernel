@@ -16,12 +16,6 @@ namespace {
 constexpr int kWinW = 720;
 constexpr int kWinH = 480;
 
-[[noreturn]] void hang(void)
-{
-    for (;;)
-        hsrc::sdk::syscall0(SYS_YIELD);
-}
-
 } // namespace
 
 extern "C" void exec_main(void)
@@ -33,8 +27,8 @@ extern "C" void exec_main(void)
     static reed::Device dev;
     static kilim::Context k;
 
-    if (dev.init() < 0 || k.init(&dev) < 0)
-        hang();
+    while (dev.init() < 0 || k.init(&dev) < 0)
+        hsrc::sdk::sleep(100);
 
     wm::WindowOptions opts;
     opts.w = kWinW;
@@ -47,12 +41,12 @@ extern "C" void exec_main(void)
 
     wm::Window win;
     if (!win.create(opts))
-        hang();
+        hsrc::sdk::exit(1);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     if (!ImGui_ImplKilim_Init())
-        hang();
+        hsrc::sdk::exit(1);
 
     bool mapped = false;
     uint8_t prev_buttons = 0;
@@ -64,7 +58,6 @@ extern "C" void exec_main(void)
         (void)win.get_options(opts);
 
         if (k.begin_frame() < 0) {
-            hsrc::sdk::sleep_ticks(1);
             continue;
         }
 
@@ -96,6 +89,5 @@ extern "C" void exec_main(void)
             (void)win.damage();
         }
         prev_buttons = in.buttons;
-        hsrc::sdk::sleep_ticks(1);
     }
 }

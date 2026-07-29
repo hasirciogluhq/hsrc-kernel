@@ -29,6 +29,7 @@
 #define DISP_OP_EXPORT            18
 #define DISP_OP_IMPORT            19
 #define DISP_OP_STATS             20
+#define DISP_OP_SUBMIT            21  /* Reed command stream → display → GpuProvider */
 
 #define DISP_BUF_VERTEX    1
 #define DISP_BUF_INDEX     2
@@ -139,5 +140,130 @@ typedef struct disp_stats {
     uint32_t fences;
     uint32_t bytes_live;
 } disp_stats;
+
+/*
+ * DISP_OP_SUBMIT — Reed command stream.
+ * display.kmod resolves handles, then GpuProvider::gpu_submit executes
+ * (softpipe or HW). Userspace never rasterizes.
+ */
+typedef struct disp_submit {
+    const void *cmds;   /* packed disp_cmd_* packets */
+    uint32_t    size;   /* bytes */
+    uint32_t    fence;  /* optional fence handle; 0 = none */
+} disp_submit;
+
+#define DISP_MAX_SUBMIT_BYTES     (2u * 1024u * 1024u)
+#define DISP_MAX_DRAW_PER_FRAME   4096u
+
+#define DISP_CMD_BIND_PIPELINE  1
+#define DISP_CMD_BIND_VB        2
+#define DISP_CMD_BIND_IB        3
+#define DISP_CMD_BIND_TEX       4
+#define DISP_CMD_BIND_RT        5
+#define DISP_CMD_SET_UNIFORM    6
+#define DISP_CMD_SET_VIEWPORT   7
+#define DISP_CMD_SET_SCISSOR    8
+#define DISP_CMD_CLEAR          9
+#define DISP_CMD_DRAW           10
+#define DISP_CMD_DRAW_INDEXED   11
+#define DISP_CMD_BLIT           12
+
+typedef struct disp_cmd_hdr {
+    uint16_t op;
+    uint16_t size; /* total packet bytes incl. hdr; 4-aligned */
+} disp_cmd_hdr;
+
+typedef struct disp_cmd_bind_pipeline {
+    disp_cmd_hdr hdr;
+    uint32_t topology;
+    uint32_t cull;
+    uint32_t blend;
+    uint32_t shade;
+    uint8_t  depth_test;
+    uint8_t  depth_write;
+    uint8_t  _pad[2];
+} disp_cmd_bind_pipeline;
+
+typedef struct disp_cmd_bind_handle {
+    disp_cmd_hdr hdr;
+    uint32_t handle;
+} disp_cmd_bind_handle;
+
+typedef struct disp_cmd_bind_tex {
+    disp_cmd_hdr hdr;
+    uint32_t slot;
+    uint32_t handle;
+    uint32_t wrap;   /* 0=clamp 1=repeat */
+    uint32_t filter; /* 0=nearest 1=bilinear */
+} disp_cmd_bind_tex;
+
+typedef struct disp_light {
+    float    x, y, z;
+    float    intensity;
+    uint32_t color;
+    uint32_t directional;
+} disp_light;
+
+typedef struct disp_uniforms {
+    float     model[16];
+    float     view[16];
+    float     proj[16];
+    disp_light lights[4];
+    uint32_t  light_count;
+    uint32_t  color;
+    float     tint[4];
+    float     blur_radius;
+} disp_uniforms;
+
+typedef struct disp_cmd_set_uniform {
+    disp_cmd_hdr   hdr;
+    disp_uniforms  u;
+} disp_cmd_set_uniform;
+
+typedef struct disp_cmd_set_viewport {
+    disp_cmd_hdr hdr;
+    float x, y, w, h;
+    float min_depth, max_depth;
+} disp_cmd_set_viewport;
+
+typedef struct disp_cmd_set_scissor {
+    disp_cmd_hdr hdr;
+    int32_t x, y, w, h;
+} disp_cmd_set_scissor;
+
+typedef struct disp_cmd_clear {
+    disp_cmd_hdr hdr;
+    uint32_t color_rgba;
+    float    depth;
+} disp_cmd_clear;
+
+typedef struct disp_cmd_draw {
+    disp_cmd_hdr hdr;
+    uint32_t count;
+    uint32_t first;
+} disp_cmd_draw;
+
+typedef struct disp_cmd_draw_indexed {
+    disp_cmd_hdr hdr;
+    uint32_t count;
+    uint32_t first_index;
+    int32_t  base_vertex;
+} disp_cmd_draw_indexed;
+
+typedef struct disp_cmd_blit {
+    disp_cmd_hdr hdr;
+    uint32_t src_tex;   /* RGBA8 texture handle */
+    uint32_t dst_rt;    /* render-target handle */
+    int32_t  dst_x, dst_y;
+    int32_t  src_x, src_y, src_w, src_h; /* src_w/h <=0 → full */
+    uint32_t blend;     /* 0=opaque 1=alpha 2=premul */
+} disp_cmd_blit;
+
+typedef struct disp_vertex {
+    float    x, y, z;
+    float    nx, ny, nz;
+    float    u, v;
+    uint32_t color;
+} disp_vertex;
 
 #endif

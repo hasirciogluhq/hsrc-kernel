@@ -16,8 +16,6 @@ void exec_main(void)
 
     for (;;) {
         int status = 0;
-        long rc = waitpid(-1, &status, 0);
-        if (rc < 0)
-            hsrc::sdk::syscall0(SYS_YIELD);
+        (void)waitpid(-1, &status, 0);
     }
 }

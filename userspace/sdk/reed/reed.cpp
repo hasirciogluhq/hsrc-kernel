@@ -4,76 +4,20 @@
 #include <kernel/string.h>
 #include <stdint.h>
 
+/*
+ * Reed — OpenGL-style userspace client.
+ * Records DISP_CMD_* into a command buffer; submit → display.kmod → GpuProvider.
+ * NEVER writes pixels. Raster/blit/compose run only in the GPU provider.
+ */
+
 namespace reed {
 
 namespace {
 
-static void mat4_identity(float *m)
+static uint32_t align4(uint32_t n)
 {
-    memset(m, 0, 16 * sizeof(float));
-    m[0] = m[5] = m[10] = m[15] = 1.0f;
+    return (n + 3u) & ~3u;
 }
-
-static void mat4_mul_vec4(const float *m, float x, float y, float z, float w,
-                          float *ox, float *oy, float *oz, float *ow)
-{
-    *ox = m[0] * x + m[4] * y + m[8] * z + m[12] * w;
-    *oy = m[1] * x + m[5] * y + m[9] * z + m[13] * w;
-    *oz = m[2] * x + m[6] * y + m[10] * z + m[14] * w;
-    *ow = m[3] * x + m[7] * y + m[11] * z + m[15] * w;
-}
-
-static uint32_t pack_rgba(uint8_t r, uint8_t g, uint8_t b, uint8_t a)
-{
-    return ((uint32_t)a << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
-}
-
-static void unpack_rgba(uint32_t c, uint8_t *r, uint8_t *g, uint8_t *b, uint8_t *a)
-{
-    *a = (uint8_t)((c >> 24) & 0xffu);
-    *r = (uint8_t)((c >> 16) & 0xffu);
-    *g = (uint8_t)((c >> 8) & 0xffu);
-    *b = (uint8_t)(c & 0xffu);
-}
-
-static uint32_t blend_alpha(uint32_t dst, uint32_t src)
-{
-    uint8_t sr, sg, sb, sa, dr, dg, db, da;
-    unpack_rgba(src, &sr, &sg, &sb, &sa);
-    unpack_rgba(dst, &dr, &dg, &db, &da);
-    if (sa == 255)
-        return src;
-    if (sa == 0)
-        return dst;
-    uint32_t inv = 255u - (uint32_t)sa;
-    uint8_t r = (uint8_t)(((uint32_t)sr * sa + (uint32_t)dr * inv) / 255u);
-    uint8_t g = (uint8_t)(((uint32_t)sg * sa + (uint32_t)dg * inv) / 255u);
-    uint8_t b = (uint8_t)(((uint32_t)sb * sa + (uint32_t)db * inv) / 255u);
-    uint8_t a = (uint8_t)(sa + (uint32_t)da * inv / 255u);
-    return pack_rgba(r, g, b, a);
-}
-
-static float clampf(float v, float lo, float hi)
-{
-    if (v < lo)
-        return lo;
-    if (v > hi)
-        return hi;
-    return v;
-}
-
-static int32_t clampi(int32_t v, int32_t lo, int32_t hi)
-{
-    if (v < lo)
-        return lo;
-    if (v > hi)
-        return hi;
-    return v;
-}
-
-/* Max vertices/indices per draw — DoS / hang guard (plan #4). */
-static const uint32_t kMaxVertsPerDraw = 65536;
-static const uint32_t kMaxTrisBudget = 200000;
 
 } /* namespace */
 
@@ -229,7 +173,7 @@ Fence Device::create_fence()
 CommandList Device::create_command_list()
 {
     CommandList cl;
-    cl.dev_ = this;
+    cl.set_device(this);
     return cl;
 }
 
@@ -255,6 +199,49 @@ int Device::import_handle(uint32_t token, uint32_t *handle_out)
     if (handle_out)
         *handle_out = a.handle;
     return 0;
+}
+
+Texture2D Device::adopt_texture(uint32_t handle)
+{
+    Texture2D t;
+    if (!handle)
+        return t;
+    t.handle_ = handle;
+    disp_texture_map a;
+    memset(&a, 0, sizeof(a));
+    a.handle = handle;
+    if (call(DISP_OP_TEXTURE_MAP, &a) < 0 || !a.ptr) {
+        t.handle_ = 0;
+        return Texture2D();
+    }
+    t.width_ = a.width;
+    t.height_ = a.height;
+    t.stride_ = a.stride;
+    t.mapped_ = nullptr;
+    switch (a.format) {
+    case DISP_FMT_R8:
+        t.format_ = TexFormat::R8;
+        break;
+    case DISP_FMT_RG8:
+        t.format_ = TexFormat::RG8;
+        break;
+    case DISP_FMT_A8:
+        t.format_ = TexFormat::A8;
+        break;
+    default:
+        t.format_ = TexFormat::RGBA8;
+        break;
+    }
+    /* Probe only — unmap semantics: clear mapped so callers re-map if needed. */
+    return t;
+}
+
+Texture2D Device::import_texture(uint32_t token)
+{
+    uint32_t handle = 0;
+    if (import_handle(token, &handle) < 0 || handle == 0)
+        return Texture2D();
+    return adopt_texture(handle);
 }
 
 int Buffer::update(uint32_t offset, const void *data, uint32_t len)
@@ -406,16 +393,8 @@ void Fence::destroy()
 }
 
 CommandList::CommandList()
-    : dev_(nullptr), recording_(false), ended_(false), vb_(nullptr), vb_count_(0),
-      ib_(nullptr), ib_count_(0), rt_(nullptr), draw_calls_(0)
+    : dev_(nullptr), recording_(false), ended_(false), draw_calls_(0), cmd_len_(0)
 {
-    memset(&pipe_, 0, sizeof(pipe_));
-    memset(&uniforms_, 0, sizeof(uniforms_));
-    mat4_identity(uniforms_.model);
-    mat4_identity(uniforms_.view);
-    mat4_identity(uniforms_.proj);
-    viewport_ = {0, 0, 0, 0, 0, 1};
-    scissor_ = {0, 0, 0, 0};
 }
 
 void CommandList::begin()
@@ -423,11 +402,7 @@ void CommandList::begin()
     recording_ = true;
     ended_ = false;
     draw_calls_ = 0;
-    vb_ = nullptr;
-    vb_count_ = 0;
-    ib_ = nullptr;
-    ib_count_ = 0;
-    rt_ = nullptr;
+    cmd_len_ = 0;
 }
 
 void CommandList::end()
@@ -436,378 +411,220 @@ void CommandList::end()
     ended_ = true;
 }
 
+int CommandList::emit(const void *pkt, uint32_t size)
+{
+    uint32_t aligned = align4(size);
+    if (!recording_ || !pkt || size < sizeof(disp_cmd_hdr))
+        return -1;
+    if (cmd_len_ + aligned > kCmdCap)
+        return -1;
+    memcpy(cmd_ + cmd_len_, pkt, size);
+    if (aligned > size)
+        memset(cmd_ + cmd_len_ + size, 0, aligned - size);
+    /* Fix hdr.size to aligned packet length. */
+    {
+        disp_cmd_hdr *h = (disp_cmd_hdr *)(cmd_ + cmd_len_);
+        h->size = (uint16_t)aligned;
+    }
+    cmd_len_ += aligned;
+    return 0;
+}
+
 void CommandList::bind_pipeline(const Pipeline &p)
 {
-    if (p.valid())
-        pipe_ = p.desc();
+    disp_cmd_bind_pipeline c;
+    if (!p.valid())
+        return;
+    memset(&c, 0, sizeof(c));
+    c.hdr.op = DISP_CMD_BIND_PIPELINE;
+    c.hdr.size = (uint16_t)sizeof(c);
+    c.topology = (uint32_t)p.desc().topology;
+    c.cull = (uint32_t)p.desc().cull;
+    c.blend = (uint32_t)p.desc().blend;
+    c.shade = (uint32_t)p.desc().shade;
+    c.depth_test = p.desc().depth_test;
+    c.depth_write = p.desc().depth_write;
+    (void)emit(&c, sizeof(c));
 }
 
 void CommandList::bind_vertex_buffer(const Buffer &b)
 {
-    void *p = const_cast<Buffer &>(b).map();
-    if (!p) {
-        vb_ = nullptr;
-        vb_count_ = 0;
+    disp_cmd_bind_handle c;
+    if (!b.valid())
         return;
-    }
-    vb_ = (const Vertex *)p;
-    vb_count_ = b.size() / (uint32_t)sizeof(Vertex);
+    memset(&c, 0, sizeof(c));
+    c.hdr.op = DISP_CMD_BIND_VB;
+    c.hdr.size = (uint16_t)sizeof(c);
+    c.handle = b.handle();
+    (void)emit(&c, sizeof(c));
 }
 
 void CommandList::bind_index_buffer(const Buffer &b)
 {
-    void *p = const_cast<Buffer &>(b).map();
-    if (!p) {
-        ib_ = nullptr;
-        ib_count_ = 0;
+    disp_cmd_bind_handle c;
+    if (!b.valid())
         return;
-    }
-    ib_ = (const uint32_t *)p;
-    ib_count_ = b.size() / 4u;
+    memset(&c, 0, sizeof(c));
+    c.hdr.op = DISP_CMD_BIND_IB;
+    c.hdr.size = (uint16_t)sizeof(c);
+    c.handle = b.handle();
+    (void)emit(&c, sizeof(c));
 }
 
 void CommandList::bind_texture(uint32_t slot, const Texture2D &t, const Sampler &s)
 {
-    if (slot == 0) {
-        tex0_ = t;
-        samp0_ = s;
-        (void)tex0_.map();
-    }
+    disp_cmd_bind_tex c;
+    if (!t.valid())
+        return;
+    memset(&c, 0, sizeof(c));
+    c.hdr.op = DISP_CMD_BIND_TEX;
+    c.hdr.size = (uint16_t)sizeof(c);
+    c.slot = slot;
+    c.handle = t.handle();
+    c.wrap = (uint32_t)s.wrap();
+    c.filter = (uint32_t)s.filter();
+    (void)emit(&c, sizeof(c));
 }
 
 void CommandList::bind_render_target(RenderTarget &rt)
 {
-    rt_ = &rt;
-    (void)rt.color().map();
+    disp_cmd_bind_handle c;
+    if (!rt.valid())
+        return;
+    memset(&c, 0, sizeof(c));
+    c.hdr.op = DISP_CMD_BIND_RT;
+    c.hdr.size = (uint16_t)sizeof(c);
+    c.handle = rt.handle();
+    (void)emit(&c, sizeof(c));
 }
 
 void CommandList::set_uniform(const Uniforms &u)
 {
-    uniforms_ = u;
+    disp_cmd_set_uniform c;
+    memset(&c, 0, sizeof(c));
+    c.hdr.op = DISP_CMD_SET_UNIFORM;
+    c.hdr.size = (uint16_t)sizeof(c);
+    /* Layout matches disp_uniforms / reed::Uniforms. */
+    memcpy(&c.u, &u, sizeof(disp_uniforms) < sizeof(Uniforms) ? sizeof(disp_uniforms)
+                                                              : sizeof(Uniforms));
+    (void)emit(&c, sizeof(c));
 }
 
 void CommandList::set_viewport(const Viewport &vp)
 {
-    viewport_ = vp;
+    disp_cmd_set_viewport c;
+    memset(&c, 0, sizeof(c));
+    c.hdr.op = DISP_CMD_SET_VIEWPORT;
+    c.hdr.size = (uint16_t)sizeof(c);
+    c.x = vp.x;
+    c.y = vp.y;
+    c.w = vp.w;
+    c.h = vp.h;
+    c.min_depth = vp.min_depth;
+    c.max_depth = vp.max_depth;
+    (void)emit(&c, sizeof(c));
 }
 
 void CommandList::set_scissor(const Rect &r)
 {
-    scissor_ = r;
+    disp_cmd_set_scissor c;
+    memset(&c, 0, sizeof(c));
+    c.hdr.op = DISP_CMD_SET_SCISSOR;
+    c.hdr.size = (uint16_t)sizeof(c);
+    c.x = r.x;
+    c.y = r.y;
+    c.w = r.w;
+    c.h = r.h;
+    (void)emit(&c, sizeof(c));
 }
 
-void CommandList::clear(uint32_t color_rgba, float /*depth*/)
+void CommandList::clear(uint32_t color_rgba, float depth)
 {
-    if (!rt_ || !rt_->color().map())
-        return;
-    uint32_t *px = (uint32_t *)rt_->color().map();
-    uint32_t w = rt_->color().width();
-    uint32_t h = rt_->color().height();
-    uint32_t stride = rt_->color().stride() / 4u;
-    int32_t x0 = 0, y0 = 0, x1 = (int32_t)w, y1 = (int32_t)h;
-    if (scissor_.w > 0 && scissor_.h > 0) {
-        x0 = clampi(scissor_.x, 0, (int32_t)w);
-        y0 = clampi(scissor_.y, 0, (int32_t)h);
-        x1 = clampi(scissor_.x + scissor_.w, 0, (int32_t)w);
-        y1 = clampi(scissor_.y + scissor_.h, 0, (int32_t)h);
-    }
-    for (int32_t y = y0; y < y1; y++) {
-        uint32_t *row = px + (uint32_t)y * stride + (uint32_t)x0;
-        int32_t n = x1 - x0;
-        for (int32_t x = 0; x < n; x++)
-            row[x] = color_rgba;
-    }
-}
-
-static uint32_t sample_tex(const Texture2D &tex, const Sampler &samp, float u, float v)
-{
-    if (!tex.valid() || !tex.map())
-        return 0xffffffffu;
-    uint32_t tw = tex.width();
-    uint32_t th = tex.height();
-    if (tw == 0 || th == 0)
-        return 0xffffffffu;
-
-    if (samp.wrap() == WrapMode::Repeat) {
-        u = u - (float)(int32_t)u;
-        v = v - (float)(int32_t)v;
-        if (u < 0)
-            u += 1.0f;
-        if (v < 0)
-            v += 1.0f;
-    } else {
-        u = clampf(u, 0.0f, 1.0f);
-        v = clampf(v, 0.0f, 1.0f);
-    }
-
-    float fx = u * (float)(tw - 1u);
-    float fy = v * (float)(th - 1u);
-    int32_t x0 = (int32_t)fx;
-    int32_t y0 = (int32_t)fy;
-    x0 = clampi(x0, 0, (int32_t)tw - 1);
-    y0 = clampi(y0, 0, (int32_t)th - 1);
-
-    const uint8_t *base = (const uint8_t *)tex.map();
-    uint32_t stride = tex.stride();
-
-    if (tex.format() == TexFormat::RGBA8) {
-        const uint32_t *row = (const uint32_t *)(base + (uint32_t)y0 * stride);
-        return row[x0];
-    }
-    if (tex.format() == TexFormat::A8 || tex.format() == TexFormat::R8) {
-        uint8_t a = base[(uint32_t)y0 * stride + (uint32_t)x0];
-        return pack_rgba(255, 255, 255, a);
-    }
-    return 0xffffffffu;
-}
-
-static uint32_t shade_pixel(const PipelineDesc &pipe, const Uniforms &u,
-                            const Texture2D &tex, const Sampler &samp,
-                            const Vertex &v)
-{
-    uint32_t base = v.color ? v.color : u.color;
-    if (base == 0)
-        base = 0xffffffffu;
-
-    switch (pipe.shade) {
-    case ShadeMode::UnlitColor:
-        return base;
-    case ShadeMode::UnlitTextured: {
-        uint32_t tc = sample_tex(tex, samp, v.u, v.v);
-        uint8_t tr, tg, tb, ta, br, bg, bb, ba;
-        unpack_rgba(tc, &tr, &tg, &tb, &ta);
-        unpack_rgba(base, &br, &bg, &bb, &ba);
-        return pack_rgba((uint8_t)((tr * br) / 255u), (uint8_t)((tg * bg) / 255u),
-                         (uint8_t)((tb * bb) / 255u), (uint8_t)((ta * ba) / 255u));
-    }
-    case ShadeMode::VertexLit: {
-        float ndl = 0.25f; /* ambient */
-        for (uint32_t i = 0; i < u.light_count && i < 4u; i++) {
-            float lx = u.lights[i].x, ly = u.lights[i].y, lz = u.lights[i].z;
-            float len = lx * lx + ly * ly + lz * lz;
-            if (len > 0.0001f) {
-                /* Quake-style invsqrt approximation (no libm). */
-                float xhalf = 0.5f * len;
-                union { float f; uint32_t i; } u = { len };
-                u.i = 0x5f3759dfu - (u.i >> 1);
-                float inv = u.f * (1.5f - xhalf * u.f * u.f);
-                lx *= inv;
-                ly *= inv;
-                lz *= inv;
-            }
-            float d = v.nx * lx + v.ny * ly + v.nz * lz;
-            if (d < 0)
-                d = 0;
-            ndl += d * u.lights[i].intensity;
-        }
-        ndl = clampf(ndl, 0.0f, 1.0f);
-        uint8_t r, g, b, a;
-        unpack_rgba(base, &r, &g, &b, &a);
-        return pack_rgba((uint8_t)((float)r * ndl), (uint8_t)((float)g * ndl),
-                         (uint8_t)((float)b * ndl), a);
-    }
-    case ShadeMode::BlurH:
-    case ShadeMode::BlurV:
-    case ShadeMode::AcrylicTint:
-        return base;
-    default:
-        return base;
-    }
-}
-
-void CommandList::raster_triangles(uint32_t count, uint32_t first, const uint32_t *idx,
-                                   uint32_t idx_count, int32_t base_vertex)
-{
-    if (!rt_ || !vb_ || !dev_)
-        return;
-    uint32_t *fb = (uint32_t *)rt_->color().map();
-    if (!fb)
-        return;
-
-    uint32_t fw = rt_->color().width();
-    uint32_t fh = rt_->color().height();
-    uint32_t fstride = rt_->color().stride() / 4u;
-    if (fw == 0 || fh == 0)
-        return;
-
-    float vpx = viewport_.w > 0 ? viewport_.x : 0.0f;
-    float vpy = viewport_.h > 0 ? viewport_.y : 0.0f;
-    float vpw = viewport_.w > 0 ? viewport_.w : (float)fw;
-    float vph = viewport_.h > 0 ? viewport_.h : (float)fh;
-
-    int32_t sx0 = 0, sy0 = 0, sx1 = (int32_t)fw, sy1 = (int32_t)fh;
-    if (scissor_.w > 0 && scissor_.h > 0) {
-        sx0 = clampi(scissor_.x, 0, (int32_t)fw);
-        sy0 = clampi(scissor_.y, 0, (int32_t)fh);
-        sx1 = clampi(scissor_.x + scissor_.w, 0, (int32_t)fw);
-        sy1 = clampi(scissor_.y + scissor_.h, 0, (int32_t)fh);
-    }
-
-    uint32_t tri_budget = kMaxTrisBudget;
-    uint32_t ntri = count / 3u;
-    if (ntri > tri_budget)
-        ntri = tri_budget;
-
-    for (uint32_t t = 0; t < ntri; t++) {
-        uint32_t i0, i1, i2;
-        if (idx) {
-            uint32_t base = first + t * 3u;
-            if (base + 2u >= idx_count)
-                break;
-            i0 = (uint32_t)((int32_t)idx[base + 0] + base_vertex);
-            i1 = (uint32_t)((int32_t)idx[base + 1] + base_vertex);
-            i2 = (uint32_t)((int32_t)idx[base + 2] + base_vertex);
-        } else {
-            i0 = first + t * 3u + 0u;
-            i1 = first + t * 3u + 1u;
-            i2 = first + t * 3u + 2u;
-        }
-        if (i0 >= vb_count_ || i1 >= vb_count_ || i2 >= vb_count_)
-            continue;
-
-        Vertex v0 = vb_[i0], v1 = vb_[i1], v2 = vb_[i2];
-
-        /* MVP transform (column-major). */
-        float x0, y0, z0, w0, x1, y1, z1, w1, x2, y2, z2, w2;
-        float mx, my, mz, mw;
-        mat4_mul_vec4(uniforms_.model, v0.x, v0.y, v0.z, 1.0f, &mx, &my, &mz, &mw);
-        mat4_mul_vec4(uniforms_.view, mx, my, mz, mw, &mx, &my, &mz, &mw);
-        mat4_mul_vec4(uniforms_.proj, mx, my, mz, mw, &x0, &y0, &z0, &w0);
-
-        mat4_mul_vec4(uniforms_.model, v1.x, v1.y, v1.z, 1.0f, &mx, &my, &mz, &mw);
-        mat4_mul_vec4(uniforms_.view, mx, my, mz, mw, &mx, &my, &mz, &mw);
-        mat4_mul_vec4(uniforms_.proj, mx, my, mz, mw, &x1, &y1, &z1, &w1);
-
-        mat4_mul_vec4(uniforms_.model, v2.x, v2.y, v2.z, 1.0f, &mx, &my, &mz, &mw);
-        mat4_mul_vec4(uniforms_.view, mx, my, mz, mw, &mx, &my, &mz, &mw);
-        mat4_mul_vec4(uniforms_.proj, mx, my, mz, mw, &x2, &y2, &z2, &w2);
-
-        if (w0 == 0.0f || w1 == 0.0f || w2 == 0.0f)
-            continue;
-        x0 /= w0;
-        y0 /= w0;
-        x1 /= w1;
-        y1 /= w1;
-        x2 /= w2;
-        y2 /= w2;
-
-        /* NDC [-1,1] → viewport pixels. */
-        float px0 = vpx + (x0 * 0.5f + 0.5f) * vpw;
-        float py0 = vpy + (1.0f - (y0 * 0.5f + 0.5f)) * vph;
-        float px1 = vpx + (x1 * 0.5f + 0.5f) * vpw;
-        float py1 = vpy + (1.0f - (y1 * 0.5f + 0.5f)) * vph;
-        float px2 = vpx + (x2 * 0.5f + 0.5f) * vpw;
-        float py2 = vpy + (1.0f - (y2 * 0.5f + 0.5f)) * vph;
-
-        float area = (px1 - px0) * (py2 - py0) - (px2 - px0) * (py1 - py0);
-        if (pipe_.cull == CullMode::Back && area <= 0.0f)
-            continue;
-        if (pipe_.cull == CullMode::Front && area >= 0.0f)
-            continue;
-        if (area == 0.0f)
-            continue;
-
-        int32_t minx = (int32_t)(px0 < px1 ? (px0 < px2 ? px0 : px2) : (px1 < px2 ? px1 : px2));
-        int32_t maxx = (int32_t)(px0 > px1 ? (px0 > px2 ? px0 : px2) : (px1 > px2 ? px1 : px2)) + 1;
-        int32_t miny = (int32_t)(py0 < py1 ? (py0 < py2 ? py0 : py2) : (py1 < py2 ? py1 : py2));
-        int32_t maxy = (int32_t)(py0 > py1 ? (py0 > py2 ? py0 : py2) : (py1 > py2 ? py1 : py2)) + 1;
-        minx = clampi(minx, sx0, sx1 - 1);
-        maxx = clampi(maxx, sx0, sx1 - 1);
-        miny = clampi(miny, sy0, sy1 - 1);
-        maxy = clampi(maxy, sy0, sy1 - 1);
-
-        float inv_area = 1.0f / area;
-        for (int32_t y = miny; y <= maxy; y++) {
-            for (int32_t x = minx; x <= maxx; x++) {
-                float px = (float)x + 0.5f;
-                float py = (float)y + 0.5f;
-                float w0b = ((px1 - px) * (py2 - py) - (px2 - px) * (py1 - py)) * inv_area;
-                float w1b = ((px2 - px) * (py0 - py) - (px0 - px) * (py2 - py)) * inv_area;
-                float w2b = 1.0f - w0b - w1b;
-                if (w0b < 0.0f || w1b < 0.0f || w2b < 0.0f)
-                    continue;
-
-                Vertex pv;
-                pv.x = v0.x * w0b + v1.x * w1b + v2.x * w2b;
-                pv.y = v0.y * w0b + v1.y * w1b + v2.y * w2b;
-                pv.z = v0.z * w0b + v1.z * w1b + v2.z * w2b;
-                pv.nx = v0.nx * w0b + v1.nx * w1b + v2.nx * w2b;
-                pv.ny = v0.ny * w0b + v1.ny * w1b + v2.ny * w2b;
-                pv.nz = v0.nz * w0b + v1.nz * w1b + v2.nz * w2b;
-                pv.u = v0.u * w0b + v1.u * w1b + v2.u * w2b;
-                pv.v = v0.v * w0b + v1.v * w1b + v2.v * w2b;
-                /* Flat color from v0 for unlit; barycentric lerp of channels skipped for speed. */
-                pv.color = v0.color;
-
-                uint32_t src = shade_pixel(pipe_, uniforms_, tex0_, samp0_, pv);
-                uint32_t *dst = &fb[(uint32_t)y * fstride + (uint32_t)x];
-                if (pipe_.blend == BlendMode::Opaque)
-                    *dst = src;
-                else
-                    *dst = blend_alpha(*dst, src);
-            }
-        }
-    }
+    disp_cmd_clear c;
+    memset(&c, 0, sizeof(c));
+    c.hdr.op = DISP_CMD_CLEAR;
+    c.hdr.size = (uint16_t)sizeof(c);
+    c.color_rgba = color_rgba;
+    c.depth = depth;
+    (void)emit(&c, sizeof(c));
 }
 
 void CommandList::draw(uint32_t count, uint32_t first)
 {
-    if (!recording_ || !rt_)
+    disp_cmd_draw c;
+    if (!recording_)
         return;
     if (draw_calls_ >= (dev_ ? dev_->caps().max_draw_calls_per_frame : 4096u))
         return;
-    if (count > kMaxVertsPerDraw)
-        count = kMaxVertsPerDraw;
-    draw_calls_++;
-    if (pipe_.topology == Topology::Triangles)
-        raster_triangles(count, first, nullptr, 0, 0);
+    memset(&c, 0, sizeof(c));
+    c.hdr.op = DISP_CMD_DRAW;
+    c.hdr.size = (uint16_t)sizeof(c);
+    c.count = count;
+    c.first = first;
+    if (emit(&c, sizeof(c)) == 0)
+        draw_calls_++;
 }
 
 void CommandList::draw_indexed(uint32_t count, uint32_t first_index, int32_t base_vertex)
 {
-    if (!recording_ || !rt_ || !ib_)
+    disp_cmd_draw_indexed c;
+    if (!recording_)
         return;
     if (draw_calls_ >= (dev_ ? dev_->caps().max_draw_calls_per_frame : 4096u))
         return;
-    if (count > kMaxVertsPerDraw)
-        count = kMaxVertsPerDraw;
-    draw_calls_++;
-    if (pipe_.topology == Topology::Triangles)
-        raster_triangles(count, first_index, ib_, ib_count_, base_vertex);
+    memset(&c, 0, sizeof(c));
+    c.hdr.op = DISP_CMD_DRAW_INDEXED;
+    c.hdr.size = (uint16_t)sizeof(c);
+    c.count = count;
+    c.first_index = first_index;
+    c.base_vertex = base_vertex;
+    if (emit(&c, sizeof(c)) == 0)
+        draw_calls_++;
 }
 
 void CommandList::blit(const RenderTarget &src, RenderTarget &dst, const Rect &region)
 {
-    uint32_t *s = (uint32_t *)const_cast<Texture2D &>(src.color()).map();
-    uint32_t *d = (uint32_t *)dst.color().map();
-    if (!s || !d)
+    blit(src.color(), dst, region.x, region.y, &region, BlendMode::Opaque);
+}
+
+void CommandList::blit(const Texture2D &src, RenderTarget &dst, int32_t dst_x, int32_t dst_y,
+                       const Rect *src_rect, BlendMode blend)
+{
+    disp_cmd_blit c;
+    if (!src.valid() || !dst.valid())
         return;
-    uint32_t sw = src.color().width();
-    uint32_t sh = src.color().height();
-    uint32_t dw = dst.color().width();
-    uint32_t dh = dst.color().height();
-    uint32_t ss = src.color().stride() / 4u;
-    uint32_t ds = dst.color().stride() / 4u;
-    int32_t x0 = clampi(region.x, 0, (int32_t)sw);
-    int32_t y0 = clampi(region.y, 0, (int32_t)sh);
-    int32_t x1 = clampi(region.x + region.w, 0, (int32_t)sw);
-    int32_t y1 = clampi(region.y + region.h, 0, (int32_t)sh);
-    if (x1 > (int32_t)dw)
-        x1 = (int32_t)dw;
-    if (y1 > (int32_t)dh)
-        y1 = (int32_t)dh;
-    for (int32_t y = y0; y < y1; y++)
-        for (int32_t x = x0; x < x1; x++)
-            d[(uint32_t)y * ds + (uint32_t)x] = s[(uint32_t)y * ss + (uint32_t)x];
+    memset(&c, 0, sizeof(c));
+    c.hdr.op = DISP_CMD_BLIT;
+    c.hdr.size = (uint16_t)sizeof(c);
+    c.src_tex = src.handle();
+    c.dst_rt = dst.handle();
+    c.dst_x = dst_x;
+    c.dst_y = dst_y;
+    if (src_rect) {
+        c.src_x = src_rect->x;
+        c.src_y = src_rect->y;
+        c.src_w = src_rect->w;
+        c.src_h = src_rect->h;
+    }
+    c.blend = (uint32_t)blend;
+    (void)emit(&c, sizeof(c));
 }
 
 int CommandList::submit(Fence *fence)
 {
-    ended_ = true;
+    disp_submit a;
     recording_ = false;
-    if (fence)
-        return fence->signal();
-    return 0;
+    ended_ = true;
+    if (cmd_len_ == 0) {
+        if (fence)
+            return fence->signal();
+        return 0;
+    }
+    memset(&a, 0, sizeof(a));
+    a.cmds = cmd_;
+    a.size = cmd_len_;
+    a.fence = fence ? fence->handle() : 0;
+    return (int)Device::call(DISP_OP_SUBMIT, &a);
 }
 
 int CommandList::present(const RenderTarget &rt, const Rect *damage)

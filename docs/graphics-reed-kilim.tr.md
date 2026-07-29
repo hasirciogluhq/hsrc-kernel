@@ -1,38 +1,54 @@
 # Reed / Kilim / Display — Grafik Yığını
 
-Bu belge mykernel’in aktif grafik mimarisini açıklar. Legacy `dx` / `mkdx` / `gfx.hpp` / `SYS_WM_*` / `SYS_GX_*` **yoktur**.
+mykernel aktif grafik mimarisi. Legacy `dx` / `mkdx` / `gfx.hpp` / `SYS_WM_*` / `SYS_GX_*` **yoktur**.
+
+## Zihinsel model
+
+| Katman | Analoji | Rol |
+|--------|---------|-----|
+| **Reed** | OpenGL / D3D device | FBO/backbuffer, command buffer, submit, present |
+| **Kilim** | ImGui DrawList | Yüksek seviye quad/text/widget → Reed komutları |
+| **WM** | Compositor | App FBO import, Reed blit ile compose, tek scanout |
+| **GpuProvider** | GPU driver | **Tüm** raster / blit / compose piksel işi |
+
+**Kural:** userspace (Reed / Kilim / app) framebuffer’a **asla** piksel yazmaz. CPU yalnızca texture/buffer upload edebilir.
 
 ## Stack
 
 ```text
 Uygulama
-  wm::Window          — pencere + /tmp/wm file IPC
-  kilim::Context      — 2D/text/3D/widgets (batch)
-  reed::Device        — buffer/texture/RT/command/present
+  kilim::Context      — drawlist (fill_rect / text / …)
+  reed::Device        — FBO yarat, cmd kaydet, submit
         │
-        ▼  SYS_DISP_CALL (296)
-display.kmod          — orchestrator (disp_api)
+        ▼  SYS_DISP_CALL (296)  DISP_OP_SUBMIT / SCANOUT
+display.kmod          — handle + resolve → GpuProvider
         │
-        ▼  GpuProvider
-display_bga | display_virtio
+        ▼  gpu_submit / present
+display_bga | display_virtio   (bugün softpipe; ileride VirGL)
 ```
 
-- **WM** (`userspace/window-manager`) tek present sahibidir (`kilim::end_frame` / Reed present).
-- **İstemci uygulamalar** yalnızca `kilim::commit_frame` (export + attach); scanout **yapmaz**.
-- **os-shell** wallpaper (background surface); menubar/dock v1 WM chrome çizimi.
+- **WM** tek present sahibi (`kilim::end_frame` / Reed present).
+- **İstemci** yalnızca `kilim::commit_frame`; scanout **yapmaz**.
+- **os-shell** wallpaper; menubar/dock v1 WM chrome.
 
-`gui_stack_ready()` = `display_active() && disp_api_get()`. GUI yoksa kernel **kshell**’e düşer; halt etmez.
+`gui_stack_ready()` = `display_active() && disp_api_get()`. GUI yoksa → **kshell**.
+
+## Frame akışı (DX11-vari)
+
+1. Reed FBO bağlar (`create_render_target` / swapchain).
+2. Kilim `begin_frame` → clear + drawlist.
+3. App/Kilim çizim (`fill_rect` → Reed `draw`); komutlar Reed buffer’ında birikir.
+4. `commit_frame` / `end_frame` → `DISP_OP_SUBMIT` → **GpuProvider::gpu_submit** FBO’ya yazar.
+5. WM app surface token’larını import eder, kendi FBO’suna `blit` (yine submit), sonra `present`.
 
 ## Kernel / display
 
 | Parça | Konum | Rol |
 |-------|--------|-----|
-| Bridge | `src/drivers/display/display.c`, `gpu.c` | provider seçimi, mode, LFB/scanout |
-| Orchestrator | `display_mod.c` | `SYS_DISP_CALL` opcode’ları |
-| BGA | `providers/bga/` | Bochs/QEMU std VGA LFB |
-| Virtio | `providers/virtio_gpu/` | virtio-gpu 2D scanout |
-| ABI | `include/user/disp.h` | `DISP_OP_*` |
-| Lock | `klock_disp` | `disp_api` + `drivers_poll` (asm spinlock) |
+| Softpipe | `gpu_soft.c` (kernel) | Provider `gpu_submit` backend (BGA/virtio-2D) |
+| Bridge | `display.c`, `gpu.c` | provider seçimi, mode, LFB/scanout |
+| Orchestrator | `display_mod.c` | `SYS_DISP_CALL` — **piksel loop yok** |
+| BGA / Virtio | `providers/*` | `gpu_submit` + `present*` |
 
 ### QEMU (tek primary)
 
@@ -41,28 +57,20 @@ display_bga | display_virtio
 | BGA | `-vga std` | `display_bga` |
 | Virtio | `-vga virtio` **veya** `-vga none` + `-device virtio-gpu-pci` | `display_virtio` |
 
-**Yasak:** default/std VGA ile birlikte `virtio-gpu-pci` — present virtio’ya gider, pencere std’yi gösterir → siyah ekran.
+**Yasak:** std VGA + `virtio-gpu-pci` birlikte → siyah ekran.
 
-Varsayılan çözünürlük: **1920×1080**.
+Varsayılan: **1920×1080**.
 
 ## Reed (`reed::`)
 
-- Header: `include/user/sdk/reed.hpp`
-- Kaynak: `userspace/sdk/reed/`
-- Düşük seviye: Device, Buffer, Texture2D, RenderTarget, CommandBuffer, Fence, Pipeline.
-- v1 backend: **yazılım rasterizer**; `hw_accel_available` yalnızca capability.
-- Kernel’e `SYS_DISP_CALL` ile buffer/texture/RT/export/import/scanout.
-
-Önemli opcode’lar: `DISP_OP_BUFFER_*`, `TEXTURE_*`, `RT_*`, `EXPORT` / `IMPORT`, `SCANOUT`, `STATS`.
-
-**Import kuralı:** import edilen texture exporter backing’i **paylaşır** (steal + free yasak); destroy son ref’te `kfree`.
+- Sadece `DISP_CMD_*` kaydı; `submit()` → `DISP_OP_SUBMIT`.
+- Opcode’lar: `BUFFER_*`, `TEXTURE_*`, `RT_*`, `SUBMIT`, `SCANOUT`, `EXPORT`/`IMPORT`.
+- **Import:** exporter backing paylaşılır (steal yasak).
 
 ## Kilim (`kilim::`)
 
-- Header: `include/user/sdk/kilim.hpp`
-- Kaynak: `userspace/sdk/kilim/`
-- Reed üzerinde yüksek seviye: batching, Font/Text atlas, 2D, Acrylic blur, Mesh/Material/Transform/Camera/Scene, `.kmesh`, widgets.
-- `SYS_DISP_*` doğrudan çağırmaz; sadece Reed.
+- Sadece Reed drawlist (`SYS_DISP_*` yok).
+- Vertex buffer’lar submit bitene kadar canlı tutulur.
 
 ### Frame API
 
@@ -72,38 +80,9 @@ Varsayılan çözünürlük: **1920×1080**.
 | `commit_frame` | **istemci** | flush + submit; **present yok** |
 | `end_frame` | **yalnızca WM** | submit + **scanout/present** |
 
-### Context boyutu (kritik)
+### Context boyutu
 
-`kilim::Context` içinde büyük batch dizileri vardır (~**3 MiB**).
-
-- **MUST:** `static` / BSS / heap
-- **MUST NOT:** process ustack (default **1 MiB**; Context ~3 MiB)
-
-Aksi halde stack smash / `#GP` (window-manager donması).
-
-## WM (`wm::`)
-
-- Client: `include/user/sdk/wm.hpp`
-- Server: `userspace/window-manager/main.cpp`
-- IPC: `/tmp/wm` file request/response (`WMRq` / `WMRs`)
-- Kernel `SYS_WM_*` **yok**
-
-Sorumluluklar: create/show/focus/move/resize/damage, z-order, hit-test (focus ≠ hover), surface import + compose, pencere chrome, sistem menubar/dock (v1), ok imleci, tek present.
-
-## Input
-
-- `SYS_INPUT_STATE` — mouse/keyboard driver’larından; DX bağımlılığı yok.
-- Focus routing usermode WM’de.
-- Present hot path içinde `ps2_poll` / ağır poll yok.
-
-## Uygulama durumu
-
-| Bileşen | Durum |
-|---------|--------|
-| Pipeline (display→Reed→Kilim→WM) | Çalışıyor |
-| Apps | wm+kilim **smoke stub** |
-| Menubar/dock | WM v1 chrome (tam macOS UX değil) |
-| Settings/terminal/files/minesweeper/imgui | Feature parity **NEXT** (`restore-app-ux`) |
+`kilim::Context` (~3 MiB+) **MUST** `static` / heap — default 1 MiB ustack **yasak**.
 
 ## İlgili kurallar
 

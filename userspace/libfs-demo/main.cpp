@@ -31,6 +31,5 @@ extern "C" void exec_main(void)
         hsrc::sdk::libfs::puts("\n");
     }
 
-    for (;;)
-        hsrc::sdk::sleep_ticks(10);
+    hsrc::sdk::exit(1);
 }

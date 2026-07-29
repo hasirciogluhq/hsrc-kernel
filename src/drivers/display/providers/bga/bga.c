@@ -1,10 +1,12 @@
 #include "bga.h"
 #include <drivers/display/display.h>
+#include <drivers/display/gpu_soft.h>
 #include <drivers/driver.h>
 #include <drivers/bus/pci.h>
 #include <drivers/console/serial.h>
 #include <arch/x86/io.h>
 #include <kernel/string.h>
+#include <kernel/vmm.h>
 
 #define BGA_DEFAULT_W   1920
 #define BGA_DEFAULT_H   1080
@@ -93,6 +95,8 @@ static int bga_set_mode(uint32_t width, uint32_t height, uint32_t bpp)
     lfb = bga_find_lfb();
     if (!lfb)
         return -1;
+    /* LFB is typically above RAM — identity-map enough for double-buffered 32bpp. */
+    (void)vmm_identity_map_range(lfb, (size_t)width * (size_t)height * 4u * 2u);
 
     memset(&g_mode, 0, sizeof(g_mode));
     g_mode.addr = (uint8_t *)(uintptr_t)lfb;
@@ -289,6 +293,14 @@ static int bga_drv_probe(driver_t *drv, void *ctx)
     return ((id & VBE_DISPI_ID_MASK) == VBE_DISPI_ID_MAGIC) ? 0 : -1;
 }
 
+static int bga_gpu_submit(const void *cmd, uint32_t size)
+{
+    /* Softpipe: Reed cmd stream → FBO pixels. Scanout still via present(). */
+    if (!g_ready)
+        return -1;
+    return (int)gpu_soft_submit(cmd, size);
+}
+
 static int bga_drv_init(driver_t *drv, void *ctx)
 {
     (void)drv;
@@ -302,7 +314,7 @@ static int bga_drv_init(driver_t *drv, void *ctx)
     g_ops.present = bga_present;
     g_ops.present_rect = bga_present_rect;
     g_ops.present_rects = bga_present_rects;
-    g_ops.gpu_submit = NULL;
+    g_ops.gpu_submit = bga_gpu_submit;
     return display_register(&g_ops, DISPLAY_PRIO_BGA);
 }
 

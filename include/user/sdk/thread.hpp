@@ -18,8 +18,8 @@ constexpr uint32_t kWaitForever = 0xFFFFFFFFu;
  * - Kernel creates one **main thread** per process on spawn (tid == pid).
  * - Apps may create custom threads via Thread::create (same flat AS).
  *   Cap: thread::max_per_process() == online CPU/HW-thread count.
- * - Idle / wait: prefer GxDevice::wait_input or Event/CV - not yield(0)
- *   or timed sleep polling.
+ * - Idle / wait: prefer Event/CV / wait_input when available; otherwise
+ *   hsrc::sdk::sleep(ms) for pacing. Never bare yield() in render/idle loops.
  * - Suspended a thread only deschedules that thread; siblings keep running.
  * - Preemption: timer IRQ (~3.5ms) context-switches after ~140ms thread life
  *   (overridable via SYS_SCHED_SET).
@@ -31,20 +31,16 @@ inline tid_t get_id()
     return (tid_t)syscall0(SYS_GETTID);
 }
 
+/* Low-level voluntary reschedule — not for pacing; prefer sleep(ms). */
 inline void yield()
 {
     hsrc::sdk::yield(0);
 }
 
-/* Suspend (PROC_SUSPENDED) for up to `ticks` scheduler ticks - not a Ready spin. */
-inline void sleep_for(uint32_t ticks)
+/* Suspend (PROC_SUSPENDED) for `ms` milliseconds. ms==0 is a no-op. */
+inline void sleep_for(uint32_t ms)
 {
-    if (ticks == 0) {
-        /* Optional cooperative hint only - fairness comes from timer preemption. */
-        yield();
-        return;
-    }
-    hsrc::sdk::sleep_ticks(ticks);
+    hsrc::sdk::sleep(ms);
 }
 
 [[noreturn]] inline void exit(int code = 0)

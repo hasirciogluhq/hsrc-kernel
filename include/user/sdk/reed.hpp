@@ -4,9 +4,9 @@
 #include <user/disp.h>
 
 /*
- * Reed — low-level graphics (Vulkan-portable surface, fixed-function shading).
- * Kernel counterpart: display.kmod via SYS_DISP_CALL.
- * Software rasterizer is the v1 backend; hw_accel_available is capability only.
+ * Reed — low-level graphics client (Vulkan-portable surface).
+ * Pipeline: Reed → SYS_DISP_CALL → display.kmod → GpuProvider.
+ * Reed NEVER rasterizes; it only records commands and submits.
  */
 
 namespace reed {
@@ -259,33 +259,33 @@ public:
     void draw(uint32_t count, uint32_t first = 0);
     void draw_indexed(uint32_t count, uint32_t first_index = 0, int32_t base_vertex = 0);
     void blit(const RenderTarget &src, RenderTarget &dst, const Rect &region);
+    /*
+     * Record row-copy (or alpha blend) src → dst. Executed on submit.
+     * Preferred path for compositor surfaces (P20).
+     */
+    void blit(const Texture2D &src, RenderTarget &dst, int32_t dst_x, int32_t dst_y,
+              const Rect *src_rect = nullptr, BlendMode blend = BlendMode::Alpha);
 
-    /* Execute SW rasterizer into bound RT; optional fence signal after. */
+    /* DISP_OP_SUBMIT → display.kmod → GpuProvider (softpipe or HW). */
     int submit(Fence *fence = nullptr);
 
-    /* Present bound RT (or explicit) to scanout. */
+    /* Present RT to scanout via GpuProvider. */
     int present(const RenderTarget &rt, const Rect *damage = nullptr);
+
+    void set_device(Device *d) { dev_ = d; }
 
 private:
     friend class Device;
+    static constexpr uint32_t kCmdCap = 256u * 1024u;
+
     Device *dev_;
     bool recording_;
     bool ended_;
-    PipelineDesc pipe_;
-    const Vertex *vb_;
-    uint32_t vb_count_;
-    const uint32_t *ib_;
-    uint32_t ib_count_;
-    Texture2D tex0_;
-    Sampler samp0_;
-    RenderTarget *rt_;
-    Uniforms uniforms_;
-    Viewport viewport_;
-    Rect scissor_;
     uint32_t draw_calls_;
+    uint32_t cmd_len_;
+    uint8_t cmd_[kCmdCap];
 
-    void raster_triangles(uint32_t count, uint32_t first, const uint32_t *idx,
-                          uint32_t idx_count, int32_t base_vertex);
+    int emit(const void *pkt, uint32_t size);
 };
 
 class Device {
@@ -310,6 +310,16 @@ public:
 
     int export_handle(uint32_t handle, uint32_t *token_out);
     int import_handle(uint32_t token, uint32_t *handle_out);
+
+    /*
+     * Wrap an existing texture handle (e.g. from import_handle) into Texture2D.
+     * Probes width/height/stride/format via TEXTURE_MAP. Does not create a new
+     * resource — caller owns destroy().
+     */
+    Texture2D adopt_texture(uint32_t handle);
+
+    /* Cross-process share: import token → local Texture2D (adopt). */
+    Texture2D import_texture(uint32_t token);
 
     /* Screen-sized RGBA8 RT helper for fullscreen present. */
     RenderTarget create_swapchain_target();

@@ -33,7 +33,7 @@ void mm_init(void);
 void *mm_alloc_pages(size_t npages);
 void  mm_free_pages(void *ptr, size_t npages);
 
-/* File-backed mmap on identity-mapped address space. */
+/* File-backed / anonymous mmap into the process address space. */
 long mm_mmap(struct process *p, uint32_t addr, size_t len, int prot, int flags,
              int vfs_fd, off_t off);
 int  mm_munmap(struct process *p, uint32_t addr, size_t len);

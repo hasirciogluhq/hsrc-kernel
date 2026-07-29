@@ -11,7 +11,10 @@ namespace {
 
 constexpr const char *kWmIn = "/tmp/wm/in";
 constexpr const char *kWmOut = "/tmp/wm/out";
-constexpr int kTransactTries = 2000;
+constexpr const char *kWmPid = "/tmp/wm/pid";
+/* Wait for WM readiness + response: ~30s at 1ms sleep (boot race / slow compose). */
+constexpr int kReadyTries = 30000;
+constexpr int kTransactTries = 30000;
 
 static void str_cat(char *dst, const char *src)
 {
@@ -122,10 +125,32 @@ bool input_snapshot(Input &out)
     return true;
 }
 
+/* True once window-manager has written /tmp/wm/pid (setup_dirs done). */
+static int wm_is_ready(void)
+{
+    int fd = (int)hsrc::sdk::open(kWmPid, O_RDONLY);
+    if (fd < 0)
+        return 0;
+    hsrc::sdk::close(fd);
+    return 1;
+}
+
+static int wait_wm_ready(void)
+{
+    for (int i = 0; i < kReadyTries; i++) {
+        if (wm_is_ready())
+            return 0;
+        hsrc::sdk::sleep(1);
+    }
+    return -1;
+}
+
 bool Connection::connect()
 {
     pid_ = (int)hsrc::sdk::getpid();
     if (pid_ < 0)
+        return false;
+    if (wait_wm_ready() < 0)
         return false;
     ready_ = true;
     return true;
@@ -146,7 +171,15 @@ int Connection::transact(Request &req, Response &rsp)
 
     (void)hsrc::sdk::unlink(rsp_path);
 
-    if (write_all(req_path, &req, sizeof(req)) < 0)
+    /* Retry open/write if /tmp/wm/in is not ready yet (WM just started). */
+    int wrote = -1;
+    for (int i = 0; i < kReadyTries; i++) {
+        wrote = write_all(req_path, &req, sizeof(req));
+        if (wrote == 0)
+            break;
+        hsrc::sdk::sleep(1);
+    }
+    if (wrote < 0)
         return -1;
 
     for (int i = 0; i < kTransactTries; i++) {
@@ -156,7 +189,7 @@ int Connection::transact(Request &req, Response &rsp)
                 return -1;
             return rsp.status;
         }
-        hsrc::sdk::yield(1);
+        hsrc::sdk::sleep(1);
     }
     (void)hsrc::sdk::unlink(req_path);
     return -1;
@@ -164,15 +197,22 @@ int Connection::transact(Request &req, Response &rsp)
 
 bool Window::create(const WindowOptions &opts)
 {
-    Request req{};
-    Response rsp{};
-    req.op = (uint32_t)Op::Create;
-    req.window_id = -1;
-    req.opts = opts;
-    if (conn_.transact(req, rsp) < 0 || rsp.window_id < 0)
-        return false;
-    id_ = rsp.window_id;
-    return true;
+    /* A few outer retries; Connection::transact already waits for /tmp/wm/pid
+     * and polls the response for ~30s. Avoid exit-on-first-timeout storms. */
+    for (int attempt = 0; attempt < 8; attempt++) {
+        Request req{};
+        Response rsp{};
+        req.op = (uint32_t)Op::Create;
+        req.window_id = -1;
+        req.opts = opts;
+        if (conn_.transact(req, rsp) == 0 && rsp.window_id >= 0) {
+            id_ = rsp.window_id;
+            return true;
+        }
+        conn_ = Connection();
+        hsrc::sdk::sleep(100);
+    }
+    return false;
 }
 
 bool Window::destroy()

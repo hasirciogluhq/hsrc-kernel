@@ -1,6 +1,7 @@
 #include <kernel/proc_mem.h>
 #include <kernel/process.h>
 #include <kernel/mm.h>
+#include <kernel/vmm.h>
 #include <kernel/heap.h>
 #include <kernel/errno.h>
 #include <kernel/string.h>
@@ -109,10 +110,10 @@ static int resolve_addr_locked(process_t *target, uint32_t addr, size_t len,
     if (!lead || !out_ptr)
         return -EINVAL;
 
-    /* User stack */
+    /* User stack (canonical VA → physical backing) */
     if (lead->ustack_base && lead->ustack_size) {
-        uint32_t b = (uint32_t)(uintptr_t)lead->ustack_base;
-        uint32_t e = b + lead->ustack_size;
+        uint32_t b = USER_STACK_TOP - lead->ustack_size;
+        uint32_t e = USER_STACK_TOP;
         if (addr >= b && addr + len <= e) {
             *out_ptr = (uint8_t *)lead->ustack_base + (addr - b);
             if (out_max)
@@ -135,23 +136,9 @@ static int resolve_addr_locked(process_t *target, uint32_t addr, size_t len,
 
     for (i = 0; i < VMA_MAX; i++) {
         vma_t *v = &lead->vmas[i];
-        uint32_t b, e;
         if (!v->used || !v->pages)
             continue;
-        b = (uint32_t)(uintptr_t)v->pages;
-        e = b + (uint32_t)(v->npages * PAGE_SIZE);
-        if (addr >= b && addr < e) {
-            size_t max = (size_t)(e - addr);
-            if (len > max)
-                return -EFAULT;
-            *out_ptr = (uint8_t *)v->pages + (addr - b);
-            if (out_max)
-                *out_max = max;
-            return 0;
-        }
-        /* Also accept recorded start if it matched identity pages */
-        if (addr >= v->start && addr < v->end &&
-            (uint32_t)(uintptr_t)v->pages == v->start) {
+        if (addr >= v->start && addr < v->end) {
             size_t max = (size_t)(v->end - addr);
             if (len > max)
                 return -EFAULT;
@@ -162,13 +149,14 @@ static int resolve_addr_locked(process_t *target, uint32_t addr, size_t len,
         }
     }
 
-    /* Image blob (identity load window) */
-    if (lead->image_bytes && lead->user_entry) {
-        /* Best-effort: allow raw addr if within EXEC_LOAD window */
-        if (addr >= 0x02000000u && addr + len <= 0x07000000u) {
-            *out_ptr = (void *)(uintptr_t)addr;
+    /* Mapped .exec image */
+    if (lead->image_pages && lead->image_bytes && lead->load_addr) {
+        uint32_t b = lead->load_addr;
+        uint32_t e = b + lead->image_bytes;
+        if (addr >= b && addr + len <= e) {
+            *out_ptr = (uint8_t *)lead->image_pages + (addr - b);
             if (out_max)
-                *out_max = len;
+                *out_max = (size_t)(e - addr);
             return 0;
         }
     }

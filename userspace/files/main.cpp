@@ -11,12 +11,6 @@
 
 namespace {
 
-[[noreturn]] void hang(void)
-{
-    for (;;)
-        hsrc::sdk::syscall0(SYS_YIELD);
-}
-
 constexpr int kMaxEnt = 96;
 constexpr int kSideN = 5;
 
@@ -136,8 +130,8 @@ extern "C" void exec_main(void)
     static reed::Device dev;
     static kilim::Context k;
 
-    if (dev.init() < 0 || k.init(&dev) < 0)
-        hang();
+    while (dev.init() < 0 || k.init(&dev) < 0)
+        hsrc::sdk::sleep(100);
 
     path_copy(g_cwd, "/", sizeof(g_cwd));
     (void)hsrc::sdk::getcwd(g_cwd, sizeof(g_cwd));
@@ -157,7 +151,7 @@ extern "C" void exec_main(void)
 
     wm::Window win;
     if (!win.create(opts))
-        hang();
+        hsrc::sdk::exit(1);
 
     bool mapped = false;
     for (;;) {
@@ -197,7 +191,6 @@ extern "C" void exec_main(void)
         }
 
         if (k.begin_frame() < 0) {
-            hsrc::sdk::sleep_ticks(1);
             continue;
         }
 
@@ -245,6 +238,5 @@ extern "C" void exec_main(void)
             (void)win.damage();
             g_dirty = 0;
         }
-        hsrc::sdk::sleep_ticks(2);
     }
 }

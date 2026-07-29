@@ -18,6 +18,7 @@
 #include <drivers/bus/pci.h>
 #include <drivers/display/display.h>
 #include <drivers/display/gpu.h>
+#include <drivers/display/gpu_soft.h>
 #include <drivers/console/vga.h>
 #include <drivers/console/serial.h>
 #include <drivers/input/mouse.h>
@@ -83,6 +84,9 @@ static const ksym_t g_ksyms[] = {
     { "gpu_provider_active", (void *)gpu_provider_active },
     { "gpu_get_screen_size", (void *)gpu_get_screen_size },
     { "gpu_provider_register_display", (void *)gpu_provider_register_display },
+    { "gpu_soft_submit",    (void *)gpu_soft_submit },
+    { "gpu_submit_res_set", (void *)gpu_submit_res_set },
+    { "gpu_submit_res_get", (void *)gpu_submit_res_get },
 
     { "disp_api_register",  (void *)disp_api_register },
     { "disp_api_get",       (void *)disp_api_get },

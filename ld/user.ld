@@ -1,4 +1,4 @@
-/* Usermode .exec link script. LOAD_ADDR is set via --defsym=LOAD_ADDR=0x... */
+/* Usermode .exec link script. LOAD_ADDR = USER_IMAGE_BASE via --defsym. */
 ENTRY(exec_main)
 
 SECTIONS

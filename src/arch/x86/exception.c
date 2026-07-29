@@ -11,6 +11,10 @@ typedef struct {
 void exc_dispatch(exc_regs_t *r)
 {
     process_t *p = process_current();
+    uint32_t cr2 = 0;
+
+    if (r->int_no == 14)
+        __asm__ volatile("mov %%cr2, %0" : "=r"(cr2));
 
     klog("\n[exc] FATAL vector=");
     serial_print_uint(r->int_no);
@@ -18,6 +22,10 @@ void exc_dispatch(exc_regs_t *r)
     serial_print_hex(r->err_code);
     klog(" eip=");
     serial_print_hex(r->eip);
+    if (r->int_no == 14) {
+        klog(" cr2=");
+        serial_print_hex(cr2);
+    }
     klog(" cs=");
     serial_print_hex(r->cs);
     klog(" eflags=");

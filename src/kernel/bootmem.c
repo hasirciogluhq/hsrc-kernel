@@ -1,5 +1,5 @@
 #include <kernel/bootmem.h>
-#include <kernel/exec.h>
+#include <kernel/vmm.h>
 #include <drivers/console/serial.h>
 
 /*
@@ -8,17 +8,18 @@
  * Layout constraints:
  *   - Kernel image from 1MiB .. _kernel_end
  *   - Multiboot modules (initrd) wherever the loader placed them
- *   - .exec apps: [EXEC_LOAD_MIN, EXEC_LOAD_MAX + 8MiB)
- *   - Kernel heap: largest available span after the .exec window (fallback:
- *     classic 16-32MiB window below .exec when RAM is small)
+ *   - Low hole kept free of heap so USER_IMAGE_BASE (0x00400000) VA range
+ *     does not alias kmalloc identity pointers
+ *   - Kernel heap: largest available span above that hole
  */
 
 extern char _kernel_end[];
 
 #define BOOTMEM_HEAP_MIN_BYTES  (1u * 1024u * 1024u)
-#define BOOTMEM_EXEC_END         (EXEC_LOAD_MAX + 0x00800000u) /* 0x07800000 */
+/* Keep [0, 16MiB) free of heap — covers USER_IMAGE_BASE + ~8MiB image. */
+#define BOOTMEM_HEAP_FLOOR      0x01000000u
 #define BOOTMEM_FALLBACK_PHYS   0x01000000u
-#define BOOTMEM_FALLBACK_END    (EXEC_LOAD_MIN - 0x10000u)
+#define BOOTMEM_FALLBACK_END    0x02000000u
 #define BOOTMEM_ADDR_MAX        0xFFFFF000u
 
 static bootmem_layout_t g_bootmem;
@@ -81,10 +82,6 @@ static uint32_t bootmem_reserved_low_end(const multiboot_info_t *mbi)
     return align_up_u32(end, 0x1000u);
 }
 
-/*
- * Clip [start, end) to the available Multiboot region; returns 1 if non-empty.
- * Without mmap, treat [1MiB, mem_top) as available (mem_upper fallback).
- */
 static int bootmem_clip_available(const multiboot_info_t *mbi, uint32_t start,
                                   uint32_t end, uint32_t *out_start,
                                   uint32_t *out_end)
@@ -201,11 +198,10 @@ int bootmem_init(const multiboot_info_t *mbi, bootmem_layout_t *out)
         layout.total_ram_bytes = (uint32_t)total64;
 
     reserved_low = bootmem_reserved_low_end(mbi);
-    prefer_start = BOOTMEM_EXEC_END;
+    prefer_start = BOOTMEM_HEAP_FLOOR;
     if (reserved_low > prefer_start)
         prefer_start = reserved_low;
 
-    /* Prefer heap above the fixed .exec load window so apps keep their VA. */
     if (bootmem_clip_available(mbi, prefer_start, BOOTMEM_ADDR_MAX, &hs, &he) &&
         (he - hs) >= BOOTMEM_HEAP_MIN_BYTES) {
         layout.heap_phys = hs;
@@ -225,7 +221,6 @@ int bootmem_init(const multiboot_info_t *mbi, bootmem_layout_t *out)
     }
 
     if (layout.heap_size == 0) {
-        /* Last resort: classic ~16MiB window (may be short on tiny VMs). */
         layout.heap_phys = BOOTMEM_FALLBACK_PHYS;
         layout.heap_size = BOOTMEM_FALLBACK_END - BOOTMEM_FALLBACK_PHYS;
         layout.phys_end = BOOTMEM_FALLBACK_END;

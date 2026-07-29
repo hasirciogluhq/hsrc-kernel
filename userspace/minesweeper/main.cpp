@@ -8,12 +8,6 @@
 
 namespace {
 
-[[noreturn]] void hang(void)
-{
-    for (;;)
-        hsrc::sdk::syscall0(SYS_YIELD);
-}
-
 constexpr int kN = 9;
 constexpr int kCell = 28;
 
@@ -27,8 +21,8 @@ extern "C" void exec_main(void)
     static uint8_t mine[kN][kN];
     static int inited;
 
-    if (dev.init() < 0 || k.init(&dev) < 0)
-        hang();
+    while (dev.init() < 0 || k.init(&dev) < 0)
+        hsrc::sdk::sleep(100);
 
     if (!inited) {
         for (int y = 0; y < kN; y++) {
@@ -51,7 +45,7 @@ extern "C" void exec_main(void)
 
     wm::Window win;
     if (!win.create(opts))
-        hang();
+        hsrc::sdk::exit(1);
 
     bool mapped = false;
     uint8_t prev = 0;
@@ -77,7 +71,6 @@ extern "C" void exec_main(void)
         prev = in.buttons;
 
         if (k.begin_frame() < 0) {
-            hsrc::sdk::yield(1);
             continue;
         }
 
@@ -112,6 +105,5 @@ extern "C" void exec_main(void)
         } else if (pressed & 1) {
             (void)win.damage();
         }
-        hsrc::sdk::yield(2);
     }
 }

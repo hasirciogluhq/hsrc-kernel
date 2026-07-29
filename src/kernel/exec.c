@@ -9,6 +9,8 @@
 #include <kernel/initrd_store.h>
 #include <kernel/vfs.h>
 #include <kernel/syscall.h>
+#include <kernel/mm.h>
+#include <kernel/vmm.h>
 #include <drivers/console/vga.h>
 #include <drivers/console/serial.h>
 #include <multiboot.h>
@@ -215,6 +217,8 @@ static const uint8_t *exec_initrd_lookup(const char *path, size_t *size_out)
 
 static int exec_validate_header(const exec_header_t *hdr, size_t total_size)
 {
+    uint32_t total;
+
     if (!hdr || total_size < sizeof(exec_header_t)) {
         klog("[exec] spawn: bad blob\n");
         return -1;
@@ -227,10 +231,8 @@ static int exec_validate_header(const exec_header_t *hdr, size_t total_size)
         klog("[exec] spawn: bad header_size\n");
         return -1;
     }
-    if (hdr->load_addr < EXEC_LOAD_MIN || hdr->load_addr > EXEC_LOAD_MAX) {
-        klog("[exec] spawn: load_addr out of range ");
-        serial_print_hex(hdr->load_addr);
-        klog("\n");
+    if (hdr->load_addr != EXEC_IMAGE_BASE) {
+        klog("[exec] spawn: load_addr must be EXEC_IMAGE_BASE\n");
         return -1;
     }
     if (hdr->image_size == 0) {
@@ -245,11 +247,12 @@ static int exec_validate_header(const exec_header_t *hdr, size_t total_size)
         klog("[exec] spawn: bad entry_off\n");
         return -1;
     }
-    if (hdr->load_addr + hdr->image_size + hdr->bss_size < hdr->load_addr) {
+    total = hdr->image_size + hdr->bss_size;
+    if (hdr->image_size + hdr->bss_size < hdr->image_size) {
         klog("[exec] spawn: load region wrap\n");
         return -1;
     }
-    if (hdr->load_addr + hdr->image_size + hdr->bss_size > EXEC_LOAD_MAX + 0x00800000u) {
+    if (total > 0x04000000u) { /* 64 MiB sanity cap */
         klog("[exec] spawn: load region too large\n");
         return -1;
     }
@@ -260,184 +263,66 @@ static int exec_validate_header(const exec_header_t *hdr, size_t total_size)
     return 0;
 }
 
-static void exec_zero_bss(const exec_header_t *hdr)
+static int exec_load_image(process_t *child, const uint8_t *img,
+                           const exec_header_t *hdr)
 {
-    if (!hdr || hdr->bss_size == 0)
-        return;
-    memset((void *)(uintptr_t)(hdr->load_addr + hdr->image_size), 0, hdr->bss_size);
-}
+    size_t total = (size_t)hdr->image_size + (size_t)hdr->bss_size;
+    size_t npages = (total + PAGE_SIZE - 1u) / PAGE_SIZE;
+    void *pages;
+    uint32_t pa;
 
-static int ranges_overlap(uint32_t a_lo, uint32_t a_hi, uint32_t b_lo, uint32_t b_hi)
-{
-    return a_lo < b_hi && b_lo < a_hi;
-}
+    if (!child || !child->as || !img || !hdr)
+        return -1;
 
-/*
- * Single address space: reloading an .exec at a fixed load_addr overwrites any
- * still-running instance. Kill those first so we do not corrupt live EIP/data
- * or leave orphan windows / PROC slots.
- */
-static void exec_kill_load_overlap(const exec_header_t *hdr)
-{
-    process_t **table;
-    uint32_t lo, hi;
-    int i;
-    pid_t victims[PROC_MAX];
-    int n_victims = 0;
-    uint32_t irqf;
+    pages = mm_alloc_pages(npages);
+    if (!pages)
+        return -ENOMEM;
+    memset(pages, 0, npages * PAGE_SIZE);
+    memcpy(pages, img, hdr->image_size);
 
-    if (!hdr)
-        return;
-    lo = hdr->load_addr;
-    hi = hdr->load_addr + hdr->image_size + hdr->bss_size;
-    if (hi < lo)
-        return;
-
-    table = process_table();
-    if (!table)
-        return;
-
-    /*
-     * g_procs[] / process_t::state are mutated concurrently by other CPUs
-     * (scheduler, exit, other exec spawns). Snapshot matching pids under
-     * g_proc_lock, then call process_kill() outside the lock — process_kill
-     * takes g_proc_lock itself (no recursive spinlocks) and can send IPIs /
-     * touch sync/fd state that must not run with g_proc_lock held.
-     */
-    irqf = process_table_lock_irqsave();
-    for (i = 0; i < PROC_MAX; i++) {
-        process_t *p = table[i];
-        uint32_t p_lo, p_hi;
-
-        if (!p || p->state == PROC_UNUSED || p->state == PROC_ZOMBIE)
-            continue;
-        if (!p->is_user)
-            continue;
-        if (p->load_addr) {
-            /* Full image+bss range known (spawned after load_addr tracking
-             * was added) — catches foreign-app slot bloat, not just self-
-             * reload of the exact same binary. */
-            p_lo = p->load_addr;
-            p_hi = p->load_addr + p->image_bytes;
-            if (!ranges_overlap(lo, hi, p_lo, p_hi))
-                continue;
-        } else if (p->user_entry) {
-            uint32_t entry = (uint32_t)(uintptr_t)p->user_entry;
-            if (entry < lo || entry >= hi)
-                continue;
-        } else {
-            continue;
-        }
-        if (n_victims < PROC_MAX)
-            victims[n_victims++] = p->pid;
+    pa = (uint32_t)(uintptr_t)pages;
+    if (vmm_map_pages(child->as, EXEC_IMAGE_BASE, pa, npages,
+                      VMM_WRITE | VMM_USER) < 0) {
+        mm_free_pages(pages, npages);
+        return -ENOMEM;
     }
-    process_table_unlock_irqrestore(irqf);
 
-    for (i = 0; i < n_victims; i++) {
-        klog("[exec] killing overlapping process pid=");
-        serial_print_uint((uint32_t)victims[i]);
-        klog(" to load into its slot\n");
-        (void)process_kill(victims[i]);
-    }
+    child->image_pages = pages;
+    child->image_npages = npages;
+    child->image_bytes = (uint32_t)total;
+    child->load_addr = EXEC_IMAGE_BASE;
+    return 0;
 }
 
-/*
- * Defense-in-depth: after killing same-slot occupants, any *remaining*
- * live process whose [load_addr, load_addr+image_bytes) still intersects
- * [lo,hi) is a genuine cross-binary slot collision (e.g. a binary outgrew
- * its fixed xmake load-address spacing). In this single-address-space,
- * no-MMU tree that is silent memory corruption, not a recoverable fault —
- * refuse the spawn instead of memcpy-ing over another process's live
- * code/data. See xmake/userspace.lua load_addr spacing.
- */
-static int exec_check_foreign_overlap(const exec_header_t *hdr)
+static int exec_bind_libs(process_t *child, const exec_header_t *hdr)
 {
-    process_t **table;
-    uint32_t lo, hi;
-    int i;
-    int bad = 0;
-    uint32_t irqf;
-
-    if (!hdr)
-        return 0;
-    lo = hdr->load_addr;
-    hi = hdr->load_addr + hdr->image_size + hdr->bss_size;
-    if (hi < lo)
-        return 0;
-
-    table = process_table();
-    if (!table)
-        return 0;
-
-    irqf = process_table_lock_irqsave();
-    for (i = 0; i < PROC_MAX; i++) {
-        process_t *p = table[i];
-        uint32_t p_lo, p_hi;
-
-        if (!p || p->state == PROC_UNUSED || p->state == PROC_ZOMBIE)
-            continue;
-        if (!p->is_user || !p->load_addr)
-            continue;
-        p_lo = p->load_addr;
-        p_hi = p->load_addr + p->image_bytes;
-        if (!ranges_overlap(lo, hi, p_lo, p_hi))
-            continue;
-        klog("[exec] FATAL slot collision: new image [");
-        serial_print_hex(lo);
-        klog("..");
-        serial_print_hex(hi);
-        klog(") overlaps live proc=");
-        klog(p->name);
-        klog(" [");
-        serial_print_hex(p_lo);
-        klog("..");
-        serial_print_hex(p_hi);
-        klog(") — refusing spawn (widen load_addr spacing in xmake/userspace.lua)\n");
-        bad = 1;
-    }
-    process_table_unlock_irqrestore(irqf);
-    return bad;
+    return dynlib_bind_exec(child, hdr->needed, EXEC_NEEDED_MAX,
+                            EXEC_IMAGE_BASE, hdr->imports_off);
 }
 
-static int exec_bind_libs(const exec_header_t *hdr)
-{
-    return dynlib_bind_exec(hdr->needed, EXEC_NEEDED_MAX, hdr->load_addr,
-                        hdr->imports_off);
-}
-
-static int exec_spawn_header(const exec_header_t *hdr, uint32_t spawn_flags,
-                            const char *const *argv, int argc)
+static int exec_spawn_loaded(process_t *child, const exec_header_t *hdr,
+                             uint32_t spawn_flags, const char *const *argv,
+                             int argc)
 {
     void (*entry)(void);
     pid_t pid;
 
-    if (exec_bind_libs(hdr) < 0) {
+    if (!child || !hdr)
+        return -1;
+
+    if (exec_bind_libs(child, hdr) < 0) {
         klog("[exec] dynamic lib bind failed\n");
         return -ENOENT;
     }
 
-    entry = (void (*)(void))(uintptr_t)(hdr->load_addr + hdr->entry_off);
-    pid = process_create_user_stack(hdr->name[0] ? hdr->name : "exec", entry,
-                                    hdr->stack_size);
-    if (pid < 0) {
-        klog("[exec] process_create_user FAILED\n");
-        vga_print("exec: process_create_user failed\n");
-        return -1;
-    }
+    entry = (void (*)(void))(uintptr_t)(EXEC_IMAGE_BASE + hdr->entry_off);
+    child->user_entry = entry;
 
+    pid = child->pid;
     if (argv && argc > 0) {
-        process_t *child = process_get(pid);
-        if (child && argv_proc_set(child, argv, argc) < 0) {
+        if (argv_proc_set(child, argv, argc) < 0) {
             (void)process_kill(pid);
             return -EINVAL;
-        }
-    }
-
-    {
-        process_t *child = process_get(pid);
-        if (child) {
-            child->image_bytes = hdr->image_size + hdr->bss_size;
-            child->load_addr = hdr->load_addr;
         }
     }
 
@@ -456,39 +341,55 @@ static int exec_spawn_header(const exec_header_t *hdr, uint32_t spawn_flags,
 }
 
 int exec_spawn_flags(const void *blob, size_t size, uint32_t spawn_flags,
-                    const char *const *argv, int argc)
+                     const char *const *argv, int argc)
 {
     const exec_header_t *hdr;
     const uint8_t *img;
-    uint8_t *dst;
+    pid_t pid;
+    process_t *child;
+    void (*entry)(void);
 
     if (exec_validate_header((const exec_header_t *)blob, size) < 0)
         return -1;
 
     hdr = (const exec_header_t *)blob;
+    entry = (void (*)(void))(uintptr_t)(EXEC_IMAGE_BASE + hdr->entry_off);
 
     klog("[exec] loading ");
     klog(hdr->name[0] ? hdr->name : "?");
     klog(" @ ");
-    serial_print_hex(hdr->load_addr);
+    serial_print_hex(EXEC_IMAGE_BASE);
     klog(" img=");
     serial_print_uint(hdr->image_size);
     klog(" bss=");
     serial_print_uint(hdr->bss_size);
     klog("\n");
 
-    exec_kill_load_overlap(hdr);
-    if (exec_check_foreign_overlap(hdr)) {
-        klog("[exec] spawn refused: slot collision\n");
+    pid = process_create_user_stack(hdr->name[0] ? hdr->name : "exec", entry,
+                                    hdr->stack_size);
+    if (pid < 0) {
+        klog("[exec] process_create_user FAILED\n");
+        vga_print("exec: process_create_user failed\n");
+        return -1;
+    }
+    child = process_get(pid);
+    if (!child) {
         return -1;
     }
 
     img = (const uint8_t *)blob + hdr->header_size;
-    dst = (uint8_t *)(uintptr_t)hdr->load_addr;
-    memcpy(dst, img, hdr->image_size);
-    exec_zero_bss(hdr);
+    if (exec_load_image(child, img, hdr) < 0) {
+        klog("[exec] image map/copy failed\n");
+        (void)process_kill(pid);
+        return -1;
+    }
 
-    return exec_spawn_header(hdr, spawn_flags, argv, argc);
+    {
+        int rc = exec_spawn_loaded(child, hdr, spawn_flags, argv, argc);
+        if (rc < 0)
+            (void)process_kill(pid);
+        return rc;
+    }
 }
 
 int exec_spawn(const void *blob, size_t size)
@@ -497,7 +398,7 @@ int exec_spawn(const void *blob, size_t size)
 }
 
 int exec_spawn_path_flags(const char *path, uint32_t spawn_flags,
-                         const char *const *argv, int argc)
+                          const char *const *argv, int argc)
 {
     const uint8_t *initrd_blob;
     size_t initrd_size = 0;
@@ -506,7 +407,12 @@ int exec_spawn_path_flags(const char *path, uint32_t spawn_flags,
     off_t end;
     ssize_t n;
     size_t loaded;
-    uint8_t *dst;
+    pid_t pid;
+    process_t *child;
+    void (*entry)(void);
+    void *pages;
+    size_t npages;
+    size_t total;
 
     if (!path || !path[0])
         return -EINVAL;
@@ -546,47 +452,84 @@ int exec_spawn_path_flags(const char *path, uint32_t spawn_flags,
     klog("[exec] loading ");
     klog(hdr.name[0] ? hdr.name : "?");
     klog(" @ ");
-    serial_print_hex(hdr.load_addr);
+    serial_print_hex(EXEC_IMAGE_BASE);
     klog(" img=");
     serial_print_uint(hdr.image_size);
     klog(" bss=");
     serial_print_uint(hdr.bss_size);
     klog("\n");
 
-    exec_kill_load_overlap(&hdr);
-    if (exec_check_foreign_overlap(&hdr)) {
-        klog("[exec] spawn refused: slot collision\n");
+    entry = (void (*)(void))(uintptr_t)(EXEC_IMAGE_BASE + hdr.entry_off);
+    pid = process_create_user_stack(hdr.name[0] ? hdr.name : "exec", entry,
+                                    hdr.stack_size);
+    if (pid < 0) {
+        (void)vfs_close(fd);
+        return -1;
+    }
+    child = process_get(pid);
+    if (!child) {
         (void)vfs_close(fd);
         return -1;
     }
 
-    dst = (uint8_t *)(uintptr_t)hdr.load_addr;
-    if (vfs_lseek(fd, (off_t)hdr.header_size, SEEK_SET) < 0) {
+    total = (size_t)hdr.image_size + (size_t)hdr.bss_size;
+    npages = (total + PAGE_SIZE - 1u) / PAGE_SIZE;
+    pages = mm_alloc_pages(npages);
+    if (!pages) {
         (void)vfs_close(fd);
+        (void)process_kill(pid);
+        return -ENOMEM;
+    }
+    memset(pages, 0, npages * PAGE_SIZE);
+
+    if (vfs_lseek(fd, (off_t)hdr.header_size, SEEK_SET) < 0) {
+        mm_free_pages(pages, npages);
+        (void)vfs_close(fd);
+        (void)process_kill(pid);
         return -EIO;
     }
 
     loaded = 0;
     while (loaded < hdr.image_size) {
         size_t chunk = hdr.image_size - loaded;
-        n = vfs_read(fd, dst + loaded, chunk);
+        n = vfs_read(fd, (uint8_t *)pages + loaded, chunk);
         if (n < 0) {
+            mm_free_pages(pages, npages);
             (void)vfs_close(fd);
+            (void)process_kill(pid);
             return (int)n;
         }
         if (n == 0) {
+            mm_free_pages(pages, npages);
             (void)vfs_close(fd);
+            (void)process_kill(pid);
             return -EIO;
         }
         loaded += (size_t)n;
     }
-
     (void)vfs_close(fd);
-    exec_zero_bss(&hdr);
-    return exec_spawn_header(&hdr, spawn_flags, argv, argc);
+
+    if (vmm_map_pages(child->as, EXEC_IMAGE_BASE, (uint32_t)(uintptr_t)pages,
+                      npages, VMM_WRITE | VMM_USER) < 0) {
+        mm_free_pages(pages, npages);
+        (void)process_kill(pid);
+        return -ENOMEM;
+    }
+    child->image_pages = pages;
+    child->image_npages = npages;
+    child->image_bytes = (uint32_t)total;
+    child->load_addr = EXEC_IMAGE_BASE;
+
+    {
+        int rc = exec_spawn_loaded(child, &hdr, spawn_flags, argv, argc);
+        if (rc < 0)
+            (void)process_kill(pid);
+        return rc;
+    }
 }
 
 int exec_spawn_path(const char *path)
 {
     return exec_spawn_path_flags(path, SPAWN_CONSOLE_HIDDEN, NULL, 0);
 }
+

@@ -135,7 +135,7 @@ int gpu_provider_register_display(display_ops_t *ops, int priority,
     if (ops->present_rects)
         caps |= GPU_CAP_PRESENT_RECTS;
     if (ops->gpu_submit)
-        caps |= GPU_CAP_HW_SUBMIT;
+        caps |= GPU_CAP_SUBMIT;
 
     memset(slot, 0, sizeof(*slot));
     slot->name = ops->name ? ops->name : "display";
