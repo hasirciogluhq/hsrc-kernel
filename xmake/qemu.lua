@@ -59,7 +59,9 @@ target("disk")
         local img = path.join(ROOT, "disk.img")
         local mkfat = path.join(BUILD, "tools", "mkfatimg")
         local packer = path.join(BUILD, "tools", "pack_fat")
-        os.execv(mkfat, {img, "64"})
+        -- DISK_SIZE_MB=32 for release; default 64 for local dev.
+        local size_mb = os.getenv("DISK_SIZE_MB") or "64"
+        os.execv(mkfat, {img, size_mb})
         local args = {img}
         for _, n in ipairs(layout.system_exec_names()) do
             local src = path.join(BUILD, "userspace", n, n .. ".exec")
@@ -89,6 +91,21 @@ target("disk-install")
     set_kind("phony")
     set_default(false)
     add_deps("disk")
+
+-- Production release tree under dist/ (see scripts/pack-release.sh)
+target("release")
+    set_kind("phony")
+    set_default(false)
+    add_deps("kernel", "initrd", "disk")
+    on_build(function (target)
+        local ver = os.getenv("RELEASE_VERSION") or ""
+        local args = {path.join(ROOT, "scripts/pack-release.sh"), "--skip-build"}
+        if ver ~= "" then
+            table.insert(args, ver)
+        end
+        os.setenv("DISK_SIZE_MB", os.getenv("DISK_SIZE_MB") or "32")
+        os.execv("bash", args)
+    end)
 
 target("kernel")
     add_deps("initrd", "disk")
