@@ -619,6 +619,35 @@ int Context::begin_frame()
     return 0;
 }
 
+int Context::begin_frame_region(int x, int y, int w, int h)
+{
+    if (!alive_ || !dev_)
+        return -1;
+    if (!target_.valid()) {
+        target_ = dev_->create_swapchain_target();
+        if (!target_.valid())
+            return -1;
+    }
+    ensure_font_atlas();
+    cmd_ = dev_->create_command_list();
+    cmd_.begin();
+    cmd_.bind_pipeline(pipe_color_);
+    cmd_.bind_render_target(target_);
+    reed::Viewport vp = {0, 0, (float)dev_->caps().width, (float)dev_->caps().height, 0, 1};
+    cmd_.set_viewport(vp);
+    reed::Rect sc = {x, y, w, h};
+    cmd_.set_scissor(sc);
+    /* No clear() here: caller repaints every pixel of the region (blit
+     * whatever sits under it, then draw chrome) instead of paying for a
+     * full-screen clear + full-screen re-blit for a tiny dirty rect. */
+    nbatches_ = 0;
+    text_batch_.vcount_ = 0;
+    text_batch_.pipe_key_ = 1;
+    text_batch_.tex_handle_ = dyn_atlas_.valid() ? dyn_atlas_.handle() : font_.atlas_.handle();
+    frame_open_ = true;
+    return 0;
+}
+
 int Context::commit_frame()
 {
     if (!frame_open_)

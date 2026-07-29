@@ -122,6 +122,16 @@ public:
     Font &font() { return font_; }
 
     int begin_frame();
+    /*
+     * Partial-redraw variant: scissors all clear/fill/text to [x,y,w,h] and
+     * skips the full-screen clear (caller is responsible for repainting
+     * every pixel in the region, e.g. by re-blitting whatever sits under it
+     * before drawing chrome on top). Pair with commit_frame() +
+     * present_damage() instead of end_frame() — see graphics-pipeline P05/P06:
+     * full-screen redraw for a small dirty region (dock hover, tooltips) is
+     * the #1 cause of visible stalls on the software rasterizer.
+     */
+    int begin_frame_region(int x, int y, int w, int h);
     int end_frame(); /* flush batches + present to scanout */
     /* flush + submit only — for WM map_surface / composite (no present). */
     int commit_frame();

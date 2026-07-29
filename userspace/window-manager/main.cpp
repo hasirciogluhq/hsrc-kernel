@@ -51,6 +51,9 @@ int g_screen_h = 0;
 int g_dock_hover = -1;
 int g_menu_open = 0; /* 0=none 1=system */
 int g_compose_dirty = 1;
+/* Dock hover glow/tooltip only — cheap region-scoped redraw, not a full
+ * screen recompose (see graphics-pipeline P05/P06, compose_dock_partial). */
+int g_dock_only_dirty = 0;
 int g_cursor_x = -1000;
 int g_cursor_y = -1000;
 uint32_t g_cursor_under[24 * 24];
@@ -576,8 +579,17 @@ static void handle_input(void)
 
     int prev_hover = g_dock_hover;
     g_dock_hover = dock_hit(st.mouse_x, st.mouse_y);
-    if (g_dock_hover != prev_hover)
-        g_compose_dirty = 1;
+    if (g_dock_hover != prev_hover) {
+        /*
+         * Hover glow + tooltip only touch the dock's own small rect — do
+         * NOT set g_compose_dirty here, that forces a full-screen software
+         * re-clear + re-blit of every window every time the mouse crosses
+         * an icon boundary (see compose_dock_partial for the cheap path).
+         * This used to make sweeping the mouse across the dock stall the
+         * whole desktop to a few FPS.
+         */
+        g_dock_only_dirty = 1;
+    }
     g_hit_id = (g_dock_hover >= 0) ? -1 : hit_test(st.mouse_x, st.mouse_y);
 
     uint8_t btn = st.buttons;
@@ -723,7 +735,9 @@ static uint32_t blend_px(uint32_t dst, uint32_t src)
     return (a << 24) | (r << 16) | (g << 8) | b;
 }
 
-static void blit_window(Slot *s, uint32_t *dst, uint32_t dst_stride)
+static void blit_window(Slot *s, uint32_t *dst, uint32_t dst_stride,
+                        int32_t clip_x0 = 0, int32_t clip_y0 = 0,
+                        int32_t clip_x1 = 0x7fffffff, int32_t clip_y1 = 0x7fffffff)
 {
     disp_texture_map tm;
     uint32_t *src;
@@ -754,6 +768,16 @@ static void blit_window(Slot *s, uint32_t *dst, uint32_t dst_stride)
         x1 = g_screen_w;
     if (y1 > g_screen_h)
         y1 = g_screen_h;
+    /* Extra caller-supplied clip — used by compose_dock_partial() to avoid
+     * touching pixels outside the small dirty region being redrawn. */
+    if (x0 < clip_x0)
+        x0 = clip_x0;
+    if (y0 < clip_y0)
+        y0 = clip_y0;
+    if (x1 > clip_x1)
+        x1 = clip_x1;
+    if (y1 > clip_y1)
+        y1 = clip_y1;
 
     for (int32_t y = y0; y < y1; y++) {
         int32_t sy = y - s->opts.y;
@@ -828,22 +852,22 @@ static void draw_window_chrome(kilim::Context &k, Slot *s)
     int h = s->opts.h;
     int active = (s->id == g_focus_id);
 
-    /* Soft drop shadow — do not cover client pixels. */
-    k.fill_round_rect(x + 4, y + 6, w, h, wm::kWinRadius,
-                      kilim::rgba(0, 0, 0, 40));
+    /* Soft, tight drop shadow — do not cover client pixels. */
+    k.fill_round_rect(x + 3, y + 5, w, h, wm::kWinRadius,
+                      kilim::rgba(0, 0, 0, active ? 55 : 35));
 
     /* Titlebar only (client surface already blitted underneath). */
-    uint32_t title = active ? kilim::rgba(48, 52, 62, 245)
-                            : kilim::rgba(40, 43, 52, 230);
-    k.fill_round_rect(x, y, w, wm::kChromeTitleH + 8, wm::kWinRadius, title);
-    k.fill_rect(x, y + wm::kChromeTitleH, w, 8, title);
+    uint32_t title = active ? kilim::rgba(38, 40, 47, 250)
+                            : kilim::rgba(32, 34, 40, 235);
+    k.fill_round_rect(x, y, w, wm::kChromeTitleH + wm::kWinRadius, wm::kWinRadius, title);
+    k.fill_rect(x, y + wm::kChromeTitleH, w, wm::kWinRadius, title);
     k.fill_rect(x, y + wm::kChromeTitleH - 1, w, 1,
-                kilim::rgba(0, 120, 212, active ? 220 : 0)); /* Fluent accent */
+                kilim::rgba(90, 140, 255, active ? 200 : 0)); /* accent underline */
 
-    /* Thin frame border around whole window */
+    /* Thin 1px frame around whole window — hairline, not a heavy border. */
     k.stroke_rect(x, y, w, h, 1,
-                  active ? kilim::rgba(90, 100, 120, 200)
-                         : kilim::rgba(60, 66, 78, 160));
+                  active ? kilim::rgba(255, 255, 255, 30)
+                         : kilim::rgba(255, 255, 255, 14));
 
     /* macOS traffic lights (left) */
     int cy = y + wm::kChromeBtnY + wm::kChromeBtn / 2;
@@ -868,54 +892,72 @@ static void draw_window_chrome(kilim::Context &k, Slot *s)
     }
 }
 
-static void draw_system_chrome(kilim::Context &k, int mx, int my)
+/* Dock bar + icons + hover tooltip label — the one piece of chrome that
+ * changes on every mouse-over, so it is factored out for the cheap
+ * region-scoped redraw path (compose_dock_partial). Pure function of
+ * global dock/hover state; safe to call under a scissored partial frame. */
+static void draw_dock(kilim::Context &k)
 {
     int dx, dy, dw, dh;
     dock_geom(&dx, &dy, &dw, &dh);
-    (void)mx;
-    (void)my;
 
-    /* Menubar — acrylic-ish translucent strip */
-    k.fill_rect(0, 0, g_screen_w, wm::kMenubarH,
-                kilim::rgba(28, 30, 36, 230));
-    k.fill_rect(0, wm::kMenubarH - 1, g_screen_w, 1,
-                kilim::rgba(70, 78, 92, 160));
-
-    /* Dock — rounded floating bar */
-    k.fill_round_rect(dx + 2, dy + 4, dw, dh, wm::kDockRadius,
-                      kilim::rgba(0, 0, 0, 50));
+    k.fill_round_rect(dx + 2, dy + 5, dw, dh, wm::kDockRadius,
+                      kilim::rgba(0, 0, 0, 55));
     k.fill_round_rect(dx, dy, dw, dh, wm::kDockRadius,
-                      kilim::rgba(38, 42, 52, 235));
+                      kilim::rgba(34, 36, 44, 214));
     k.stroke_rect(dx + 1, dy + 1, dw - 2, dh - 2, 1,
-                  kilim::rgba(90, 100, 120, 90));
+                  kilim::rgba(255, 255, 255, 22));
 
     for (int i = 0; i < kDockCount; i++) {
         int ix = dx + wm::kDockPad + i * (wm::kDockIcon + wm::kDockGap);
         int iy = dy + (wm::kDockH - wm::kDockIcon) / 2;
         int hover = (i == g_dock_hover);
-        int r = hover ? 14 : 12;
+        int r = hover ? 15 : 13;
         if (hover)
-            iy -= 4;
+            iy -= 6;
         const DockItem &it = g_dock_items[i];
-        k.fill_round_rect(ix - 2, iy - 2, wm::kDockIcon + 4, wm::kDockIcon + 4,
-                          r + 2, kilim::rgba(255, 255, 255, hover ? 40 : 18));
+        if (hover) {
+            k.fill_round_rect(ix - 3, iy - 3, wm::kDockIcon + 6, wm::kDockIcon + 6,
+                              r + 3, kilim::rgba(255, 255, 255, 34));
+        }
         k.fill_round_rect(ix, iy, wm::kDockIcon, wm::kDockIcon, r,
                           kilim::rgba(it.r, it.g, it.b, 255));
-        /* Inner highlight */
-        k.fill_round_rect(ix + 4, iy + 4, wm::kDockIcon - 8, wm::kDockIcon / 3,
-                          6, kilim::rgba(255, 255, 255, 55));
+        /* Inner top highlight — subtle glass sheen, not a hard gradient. */
+        k.fill_round_rect(ix + 5, iy + 4, wm::kDockIcon - 10, wm::kDockIcon / 3,
+                          6, kilim::rgba(255, 255, 255, 46));
         /* Running indicator (dot) if window class exists */
         if (find_class(it.cls)) {
-            k.circle(ix + wm::kDockIcon / 2, dy + dh - 8, 3,
-                     kilim::rgba(230, 235, 245, 255), 1);
+            k.circle(ix + wm::kDockIcon / 2, dy + dh - 7, 2,
+                     kilim::rgba(255, 255, 255, 235), 1);
+        }
+        if (hover) {
+            int tw = (int)strlen(it.label) * 7 + 16;
+            int tx = ix + wm::kDockIcon / 2 - tw / 2;
+            int ty = dy - 30;
+            k.fill_round_rect(tx, ty, tw, 22, 6, kilim::rgba(24, 26, 32, 235));
+            k.text(it.label, tx + 8, ty + 5, 12, kilim::rgba(238, 240, 245, 255));
         }
     }
+}
+
+static void draw_system_chrome(kilim::Context &k, int mx, int my)
+{
+    (void)mx;
+    (void)my;
+
+    /* Menubar — flat, low-contrast strip (content stays the focus). */
+    k.fill_rect(0, 0, g_screen_w, wm::kMenubarH,
+                kilim::rgba(24, 26, 32, 235));
+    k.fill_rect(0, wm::kMenubarH - 1, g_screen_w, 1,
+                kilim::rgba(255, 255, 255, 18));
+
+    draw_dock(k);
 
     if (g_menu_open) {
         k.fill_round_rect(8, wm::kMenubarH + 4, 200, 28 * 4 + 12, 10,
-                          kilim::rgba(36, 40, 48, 245));
+                          kilim::rgba(32, 34, 41, 248));
         k.stroke_rect(8, wm::kMenubarH + 4, 200, 28 * 4 + 12, 1,
-                      kilim::rgba(90, 100, 120, 120));
+                      kilim::rgba(255, 255, 255, 24));
         for (int i = 0; i < 4 && i < kDockCount; i++) {
             k.text(g_dock_items[i].label, 24, wm::kMenubarH + 12 + i * 28, 13,
                    kilim::rgba(230, 235, 245, 255));
@@ -988,23 +1030,13 @@ static void compose_frame(kilim::Context &k)
 
     draw_system_chrome(k, mx, my);
 
-    k.text("hsrcOS", 14, 7, 14, kilim::rgba(245, 246, 250, 255));
-    k.text("File", 100, 8, 13, kilim::rgba(200, 206, 218, 255));
-    k.text("Edit", 150, 8, 13, kilim::rgba(200, 206, 218, 255));
-    k.text("View", 200, 8, 13, kilim::rgba(200, 206, 218, 255));
-    k.text("Go", 255, 8, 13, kilim::rgba(200, 206, 218, 255));
-    k.text("Window", 295, 8, 13, kilim::rgba(200, 206, 218, 255));
-    k.text("Help", 370, 8, 13, kilim::rgba(200, 206, 218, 255));
-
-    for (int i = 0; i < kDockCount; i++) {
-        int dx, dy, dw, dh;
-        dock_geom(&dx, &dy, &dw, &dh);
-        int ix = dx + wm::kDockPad + i * (wm::kDockIcon + wm::kDockGap);
-        if (i == g_dock_hover) {
-            k.text(g_dock_items[i].label, ix - 4, dy - 18, 12,
-                   kilim::rgba(240, 244, 250, 255));
-        }
-    }
+    k.text("hsrcOS", 14, 6, 13, kilim::rgba(240, 242, 248, 255));
+    k.text("File", 96, 6, 12, kilim::rgba(180, 186, 198, 235));
+    k.text("Edit", 140, 6, 12, kilim::rgba(180, 186, 198, 235));
+    k.text("View", 186, 6, 12, kilim::rgba(180, 186, 198, 235));
+    k.text("Go", 234, 6, 12, kilim::rgba(180, 186, 198, 235));
+    k.text("Window", 268, 6, 12, kilim::rgba(180, 186, 198, 235));
+    k.text("Help", 336, 6, 12, kilim::rgba(180, 186, 198, 235));
 
     /* Cursor on top — remap briefly */
     fb = (uint32_t *)rt.color().map();
@@ -1085,6 +1117,108 @@ static void compose_cursor_only(kilim::Context &k, int mx, int my)
     (void)k.present_damage(x0, y0, x1 - x0, y1 - y0);
 }
 
+/*
+ * Region-scoped redraw for dock hover glow/tooltip changes (see
+ * g_dock_only_dirty). Re-blits only the windows intersecting the dock's
+ * bounding rect (usually just the always-on-bottom wallpaper), draws the
+ * dock on top, then presents just that rect — instead of the full-screen
+ * clear + full-screen re-blit compose_frame() does. This is the fix for
+ * the multi-second desktop freeze that used to happen while sweeping the
+ * mouse across the dock (graphics-pipeline P05/P06/C07/C22).
+ */
+static void compose_dock_partial(kilim::Context &k)
+{
+    if (!g_dev)
+        return;
+
+    input_state_t st;
+    memset(&st, 0, sizeof(st));
+    int mx = g_cursor_x, my = g_cursor_y;
+    if (hsrc::sdk::syscall1(SYS_INPUT_STATE, (long)&st) == 0) {
+        mx = st.mouse_x;
+        my = st.mouse_y;
+    }
+
+    int dx, dy, dw, dh;
+    dock_geom(&dx, &dy, &dw, &dh);
+    /* Dock rect + headroom for the hover-lift (-6px), glow (+3px) and the
+     * tooltip bubble drawn above it, plus the cursor sprite (24x24) which
+     * is almost certainly inside/near this rect while hovering. */
+    int rx = dx - 6;
+    int ry = dy - 34;
+    int rw = dw + 12;
+    int rh = dh + 40;
+    if (mx - 2 < rx) { int d = rx - (mx - 2); rx -= d; rw += d; }
+    if (my - 2 < ry) { int d = ry - (my - 2); ry -= d; rh += d; }
+    if (mx + 26 > rx + rw)
+        rw = mx + 26 - rx;
+    if (my + 26 > ry + rh)
+        rh = my + 26 - ry;
+    if (rx < 0) { rw += rx; rx = 0; }
+    if (ry < 0) { rh += ry; ry = 0; }
+    if (rx + rw > g_screen_w)
+        rw = g_screen_w - rx;
+    if (ry + rh > g_screen_h)
+        rh = g_screen_h - ry;
+    if (rw <= 0 || rh <= 0)
+        return;
+
+    if (k.begin_frame_region(rx, ry, rw, rh) < 0)
+        return;
+
+    reed::RenderTarget &rt = k.target();
+    uint32_t *fb = (uint32_t *)rt.color().map();
+    uint32_t stride = rt.color().stride();
+    uint32_t stride4 = stride / 4u;
+    if (!fb) {
+        (void)k.commit_frame();
+        return;
+    }
+
+    int order[kMaxWin];
+    int n = 0;
+    for (int i = 0; i < kMaxWin; i++) {
+        if (g_slots[i].used && effective_visible(g_slots[i].opts))
+            order[n++] = i;
+    }
+    for (int i = 0; i < n; i++) {
+        for (int j = i + 1; j < n; j++) {
+            if (g_slots[order[j]].z < g_slots[order[i]].z) {
+                int t = order[i];
+                order[i] = order[j];
+                order[j] = t;
+            }
+        }
+    }
+    for (int i = 0; i < n; i++)
+        blit_window(&g_slots[order[i]], fb, stride, rx, ry, rx + rw, ry + rh);
+    rt.color().unmap();
+
+    draw_dock(k); /* scissored to [rx,ry,rw,rh] by begin_frame_region() */
+
+    fb = (uint32_t *)rt.color().map();
+    if (fb) {
+        g_cursor_x = mx;
+        g_cursor_y = my;
+        g_cursor_saved = 1;
+        for (int row = 0; row < 24; row++) {
+            for (int col = 0; col < 24; col++) {
+                int px = mx + col;
+                int py = my + row;
+                uint32_t c = 0;
+                if (px >= 0 && py >= 0 && px < g_screen_w && py < g_screen_h)
+                    c = fb[(uint32_t)py * stride4 + (uint32_t)px];
+                g_cursor_under[row * 24 + col] = c;
+            }
+        }
+        draw_cursor_arrow(fb, stride4, mx, my);
+        rt.color().unmap();
+    }
+
+    (void)k.commit_frame();
+    (void)k.present_damage(rx, ry, rw, rh);
+}
+
 static int setup_dirs(void)
 {
     (void)hsrc::sdk::mkdir("/tmp", 0755);
@@ -1148,6 +1282,10 @@ extern "C" void exec_main(void)
                         g_menu_open;
         if (need_full) {
             compose_frame(kctx);
+            g_dock_only_dirty = 0;
+        } else if (g_dock_only_dirty) {
+            compose_dock_partial(kctx);
+            g_dock_only_dirty = 0;
         } else if (st.mouse_x != g_cursor_x || st.mouse_y != g_cursor_y) {
             compose_cursor_only(kctx, st.mouse_x, st.mouse_y);
         }

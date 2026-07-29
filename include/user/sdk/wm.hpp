@@ -14,20 +14,23 @@ namespace wm {
 constexpr uint32_t kProtoMagicReq = 0x71524d57u; /* 'WMRq' LE */
 constexpr uint32_t kProtoMagicRsp = 0x73524d57u; /* 'WMRs' LE */
 constexpr int kMaxWindows = 64;
-constexpr int kChromeTitleH = 32;
+/* Compact chrome tokens — tight spacing, small radii, low-contrast surfaces.
+ * Kept centralized here so window-manager/os-shell/os-settings share one
+ * "design system" instead of hardcoding pixel constants per app. */
+constexpr int kChromeTitleH = 30;
 constexpr int kChromeBtn = 12;
-constexpr int kChromeBtnY = 10;
+constexpr int kChromeBtnY = 9;
 constexpr int kChromeBtn0X = 14;
 constexpr int kChromeBtnGap = 8;
 constexpr int kChromeBtnZone = 68;
 constexpr int kResizeGrip = 14;
-constexpr int kMenubarH = 28;
-constexpr int kDockH = 76;
-constexpr int kDockIcon = 48;
-constexpr int kDockPad = 18;
-constexpr int kDockGap = 12;
-constexpr int kDockRadius = 22;
-constexpr int kWinRadius = 10;
+constexpr int kMenubarH = 26;
+constexpr int kDockH = 60;
+constexpr int kDockIcon = 40;
+constexpr int kDockPad = 12;
+constexpr int kDockGap = 8;
+constexpr int kDockRadius = 18;
+constexpr int kWinRadius = 12;
 
 enum class Op : uint32_t {
     Create = 1,

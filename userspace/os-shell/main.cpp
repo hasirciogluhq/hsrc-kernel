@@ -29,10 +29,14 @@ static uint32_t lerp_rgba(uint32_t a, uint32_t b, int t /*0..256*/)
 
 static void paint_wallpaper(kilim::Context &k, int sw, int sh)
 {
-    /* Vertical dusk gradient (Fluent-dark, no image decode). */
-    uint32_t top = kilim::rgba(18, 24, 48, 255);
-    uint32_t mid = kilim::rgba(32, 40, 64, 255);
-    uint32_t bot = kilim::rgba(12, 14, 22, 255);
+    /*
+     * Compact/modern desktop background — quiet, low-contrast graphite
+     * gradient (content-first, no decoration for its own sake). Painted
+     * once at startup (see exec_main); never recommitted per frame.
+     */
+    uint32_t top = kilim::rgba(15, 17, 23, 255);
+    uint32_t mid = kilim::rgba(22, 25, 33, 255);
+    uint32_t bot = kilim::rgba(11, 12, 16, 255);
     for (int y = 0; y < sh; y++) {
         uint32_t c;
         if (y < sh / 2) {
@@ -45,22 +49,26 @@ static void paint_wallpaper(kilim::Context &k, int sw, int sh)
         k.fill_rect(0, y, sw, 1, c);
     }
 
-    /* Soft orbs */
-    k.fill_round_rect(sw / 6, sh / 5, 280, 280, 140, kilim::rgba(0, 120, 212, 28));
-    k.fill_round_rect(sw - 420, sh / 3, 320, 320, 160, kilim::rgba(136, 23, 152, 22));
-    k.fill_round_rect(sw / 3, sh - 360, 360, 200, 100, kilim::rgba(16, 124, 16, 18));
+    /* Two restrained accent glows instead of three loud orbs. */
+    k.fill_round_rect(sw - sw / 4 - 180, sh / 6, 360, 360, 180,
+                      kilim::rgba(88, 120, 255, 20));
+    k.fill_round_rect(-80, sh - 320, 420, 420, 210,
+                      kilim::rgba(60, 200, 170, 14));
 
-    /* Subtle grid */
-    for (int x = 0; x < sw; x += 48)
-        k.fill_rect(x, 0, 1, sh, kilim::rgba(255, 255, 255, 8));
-    for (int y = 0; y < sh; y += 48)
-        k.fill_rect(0, y, sw, 1, kilim::rgba(255, 255, 255, 8));
+    /* Faint dot grid — read as texture, not a decoration. */
+    for (int y = 32; y < sh; y += 32)
+        for (int x = 32; x < sw; x += 32)
+            k.fill_rect(x, y, 1, 1, kilim::rgba(255, 255, 255, 14));
 
-    k.fill_round_rect(sw / 2 - 200, sh / 2 - 48, 400, 96, 20,
-                      kilim::rgba(20, 24, 36, 140));
-    k.text("hsrcOS", sw / 2 - 52, sh / 2 - 28, 26, kilim::rgba(245, 248, 255, 255));
-    k.text("Click the dock to launch apps", sw / 2 - 120, sh / 2 + 12, 14,
-           kilim::rgba(180, 190, 210, 255));
+    /* Compact glass card — centered brand mark, no big headline block. */
+    int cw = 300, ch = 74;
+    int cx = sw / 2 - cw / 2, cy = sh / 2 - ch / 2;
+    k.fill_round_rect(cx + 2, cy + 3, cw, ch, 16, kilim::rgba(0, 0, 0, 50));
+    k.fill_round_rect(cx, cy, cw, ch, 16, kilim::rgba(255, 255, 255, 10));
+    k.stroke_rect(cx, cy, cw, ch, 1, kilim::rgba(255, 255, 255, 22));
+    k.text("hsrcOS", cx + 24, cy + 16, 22, kilim::rgba(245, 247, 252, 255));
+    k.text("Click a dock icon to launch an app", cx + 24, cy + 46, 12,
+           kilim::rgba(165, 172, 188, 235));
 }
 
 } // namespace
