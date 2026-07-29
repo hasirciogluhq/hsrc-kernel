@@ -1,4 +1,3 @@
-#include <user/mke.h>
 #include <user/sdk/process.hpp>
 #include <user/sdk/syscall.hpp>
 #include <kernel/syscall.h>

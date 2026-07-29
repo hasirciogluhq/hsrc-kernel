@@ -2,15 +2,18 @@
 #define KERNEL_EXE_H
 
 #include <kernel/types.h>
+#include <kernel/mkl.h>
 #include <multiboot.h>
 
 #define EXE_MAGIC    0x31455845u /* 'EXE1' */
-#define EXE_VERSION  1
+#define EXE_VERSION  2
 #define EXE_NAME_MAX 32
 
 /* On-disk usermode binary extension (PATH may omit it: `hello` → hello.exe). */
 #define EXE_EXT      ".exe"
 #define EXE_EXT_LEN  4
+
+#define EXE_NEEDED_MAX 4
 
 /* Minimum / maximum identity load addresses (below 128MiB QEMU default) */
 #define EXE_LOAD_MIN 0x02000000u
@@ -26,9 +29,12 @@ typedef struct exe_header {
     uint32_t bss_size;
     uint32_t stack_size;
     char     name[EXE_NAME_MAX];
+    /* v2: dynamic userspace libraries */
+    uint32_t imports_off; /* load_addr-relative offset of mkl_import_t[] */
+    char     needed[EXE_NEEDED_MAX][MKL_NAME_MAX];
 } __attribute__((packed)) exe_header_t;
 
-/* Validate + copy image to load_addr, zero BSS, create ring-3 process. */
+/* Validate + copy image to load_addr, zero BSS, bind .mkl, create ring-3 process. */
 int exe_spawn(const void *blob, size_t size);
 int exe_spawn_flags(const void *blob, size_t size, uint32_t spawn_flags,
                     const char *const *argv, int argc);

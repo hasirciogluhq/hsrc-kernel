@@ -2,6 +2,7 @@
 #include <kernel/process.h>
 #include <kernel/env.h>
 #include <kernel/argv.h>
+#include <kernel/exe.h>
 #include <kernel/service.h>
 #include <kernel/scheduler.h>
 #include <kernel/sync.h>
@@ -11,8 +12,6 @@
 #include <kernel/errno.h>
 #include <kernel/mm.h>
 #include <kernel/module.h>
-#include <kernel/mke.h>
-#include <kernel/mkdx_api.h>
 #include <kernel/netif.h>
 #include <kernel/socket.h>
 #include <kernel/uaccess.h>

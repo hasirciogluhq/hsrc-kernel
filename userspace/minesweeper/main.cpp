@@ -1,4 +1,3 @@
-#include <user/mke.h>
 #include <user/sdk/gfx.hpp>
 #include <user/sdk/settings.hpp>
 #include <user/sdk/thread.hpp>

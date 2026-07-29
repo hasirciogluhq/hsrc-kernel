@@ -1,4 +1,3 @@
-#include <kernel/mke.h>
 #include <kernel/argv.h>
 #include <kernel/errno.h>
 #include <kernel/env.h>
@@ -7,7 +6,6 @@
 #include <kernel/initrd.h>
 #include <kernel/initrd_store.h>
 #include <kernel/vfs.h>
-#include <kernel/mkdx_api.h>
 #include <kernel/syscall.h>
 #include <drivers/vga.h>
 #include <drivers/serial.h>
