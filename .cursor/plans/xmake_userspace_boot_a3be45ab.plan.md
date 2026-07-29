@@ -1,12 +1,15 @@
 ---
 name: Xmake Userspace Boot
-overview: "Tek kaynak: Makefile/mk → __old_shits__; xmake.lua + xmake/ + ld/; userspace/ ağacı; boot init→systemd; embedded+custom drivers. Grafik/OS planları buraya bağlanır."
+overview: "Makefile/mk → __old_shits__; xmake + ld/; userspace/ taşıma; init→systemd; sonra include/import map + clangd/compile_commands zorunlu güncelleme."
 todos:
   - id: archive-make
     content: "Makefile + mk/ → __old_shits__; kök linker.ld/user.ld → ld/; xmake.lua + xmake/"
     status: pending
   - id: userspace-layout
-    content: "userspace/<app|lib>/ kendi xmake.lua; src/user + apps/imgui-demo taşı; include/user ABI kalsın"
+    content: "userspace/<app|sdk|…>/ taşı; çoklu sdk (sdk/reed, sdk/kilim); tekil+nested app"
+    status: pending
+  - id: fix-imports-clangd
+    content: "Taşıma sonrası #include/path, xmake includes, .clangd, compile_commands.json yenile"
     status: pending
   - id: init-systemd
     content: "Kernel yalnız init; systemd + units/; mke_spawn_all ve service_start_critical kalkar"
@@ -15,19 +18,21 @@ todos:
     content: "Embedded → kernel link; custom .kmod targets → initrd"
     status: pending
   - id: tools-initrd-qemu
-    content: "tools/pack_* xmake target; initrd; xmake run; compile_commands"
+    content: "tools/pack_* xmake; initrd; xmake run"
     status: pending
 isProject: false
 ---
 
 # Xmake + Userspace + Init/Systemd
 
-**Tek kaynak** build / userspace layout / boot supervisor için.
+**Tek kaynak** build / userspace layout / boot supervisor.
 
-- Grafik → [gpu_display_stack_bc5f6172.plan.md](gpu_display_stack_bc5f6172.plan.md) (paths = `userspace/…`, derleme **bu plan**)
-- OS → [god-level_window_api_87fb7031.plan.md](god-level_window_api_87fb7031.plan.md) (Wave M / H11 Make → **bu plan**)
+- Grafik → [gpu_display_stack_bc5f6172.plan.md](gpu_display_stack_bc5f6172.plan.md)
+- OS → [god-level_window_api_87fb7031.plan.md](god-level_window_api_87fb7031.plan.md)
 
 CMake yok. Aktif Make yok.
+
+**Zorunlu:** Taşıma bitince yarım bırakılmaz — **tüm import/include map’leri + clangd** aynı teslimatta güncellenir.
 
 ## 1. Arşiv + xmake
 
@@ -40,87 +45,91 @@ CMake yok. Aktif Make yok.
 
 ```text
 xmake/
-  toolchain.lua    # i386 freestanding + userspace CXX
+  toolchain.lua
   kernel.lua
-  drivers.lua      # custom .kmod
-  userspace.lua    # .mke pack helpers
+  drivers.lua
+  userspace.lua
   qemu.lua
 ld/
   linker.ld
   user.ld
-tools/             # pack_mke, pack_initrd — yerinde kalır; xmake host target
+tools/             # pack_* yerinde; xmake host target
 ```
-
-Kök `xmake.lua` tek giriş: kernel + embedded drivers + custom kmods + userspace + initrd + `xmake run`.
 
 ```text
 xmake
 xmake kernel | drivers | userspace
 xmake run
+xmake project -k compile_commands   # clangd için
 ```
-
-`xmake project -k compile_commands` (veya eşdeğeri) → clangd.
 
 ## 2. Userspace ağacı
 
-Kernel / `src/kernel` içinde userspace program **yasak**.
+Kernel içinde userspace program yok.
 
 Taşı:
 - `src/user/apps/*`, `src/user/sdk/*`, `src/user/string.c` → `userspace/`
-- `apps/imgui-demo` (third_party dahil) → `userspace/imgui-demo`
+- `apps/imgui-demo` → `userspace/imgui-demo` (veya nested `userspace/apps/...`)
 
 ```text
 userspace/
-  sdk/                 # impl; xmake.lua; add_deps
-  reed/                # gpu plan
-  kilim/
-  init/                # first process
+  sdk/                 # çoklu SDK (tek monolit değil)
+    reed/              # LL; display ile konuşur (kernel karşılığı: display)
+    kilim/             # HL; sadece Reed — kernel karşılığı yok
+    process/           # örnek OS glue SDK (gerekirse)
+  init/
   systemd/
-    units/             # *.service → initrd /etc/systemd/
+    units/
+  terminal/            # tekil app
+  apps/                # nested örnek alanı
+    ...
   window-manager/
   os-shell/
   os-settings/
-  terminal/
   files/
   activity-monitor/
   minesweeper/
   imgui-demo/
 ```
 
-Her program/lib: **kendi klasör + kendi `xmake.lua`**. App’ler `add_deps("sdk"|"reed"|"kilim")`.
+Her app/lib: kendi `xmake.lua`. App’ler `add_deps` ile sdk’lara bağlanır.
 
-**Headers (sabit karar):** public ABI `include/user/**` **kalır** (syscall/reed/kilim deklarasyonları). İmplementasyon `userspace/sdk|reed|kilim`. Çift include root yok.
+**Headers:** public ABI `include/user/**` kalır. İmpl `userspace/sdk/...`.
 
-Çıktı: `build/userspace/<name>/<name>.mke` → initrd (`/applications/…`, init → `/sbin/init` veya `/init.mke`).
+## 3. Taşıma sonrası — import map + clangd (zorunlu)
 
-## 3. Drivers
+Sadece dosya taşımak yetmez. Aynı adımda:
 
-| Tür | Build | Çıktı |
-|-----|--------|--------|
-| Embedded (`DRIVER_KIND_INTERNAL`) | kernel target | kernel image |
-| Custom | drivers target | `.kmod` → initrd |
+1. **Kaynak `#include` / relative path** — eski `src/user/...` referanslarını tara (`rg`); kırık include’ları düzelt.
+2. **xmake include roots** — her target’ta `-I include`, userspace sdk public path’leri, driver local headers; `add_includedirs` tutarlı.
+3. **[`.clangd`](.clangd)** — Make-era absolute `-I.../mkdx`, `-I.../bga` vb. **yeniden yaz**:
+   - ortak: `-Iinclude`
+   - stale mkdx/bga path’leri kaldır (gpu planı sonrası zaten ölecek; xmake aşamasında en azından gerçek path’lere çek)
+   - userspace C++ için ayrı flag seti gerekirse `.clangd` `If:` path match veya `compile_commands` öncelikli
+4. **`compile_commands.json`** — `xmake project -k compile_commands` (veya eşdeğeri) kökte üret; clangd bunu kullansın. Elle bayat `.clangd` Add listesine güvenme.
+5. **IDE / Cursor** — eski build dir path’leri; gerekirse `.vscode`/`c_cpp_properties` yoksa sadece compile_commands yeterli.
+6. **Smoke:** kernel + bir userspace dosyası clangd’de kırmızı include kalmasın; `xmake` clean build yeşil.
 
-## 4. Boot
+Bu madde `userspace-layout` ile aynı PR/dalga; “sonra bakarız” yok.
 
-1. Kernel: drivers, VFS, initrd  
-2. Kernel **yalnızca init** exec (`mke_spawn_from_initrd` → tek dosya / init path)  
-3. init → systemd  
-4. systemd units: `window-manager`, `os-shell`, … + respawn  
+## 4. Drivers
 
-Kalkar: tüm `.mke` auto-spawn; `service_start_critical(os-ui)`; kernel’in WM/os-ui özel-case’i.
+Embedded → kernel link. Custom → `.kmod` → initrd.
 
-**`service.c`:** boot critical spawn **silinir**. İsteğe bağlı ince `SYS_SERVICE_*` (liste/status) kalabilir (Activity Monitor); asıl supervisor systemd.
+## 5. Boot
 
-## 5. Sıra
+Kernel yalnız **init** → **systemd** → units (`window-manager`, `os-shell`, …).  
+`mke_spawn` hepsi + `service_start_critical` kalkar.
 
-1. `__old_shits__` + `xmake`/`ld` + tools wire + kernel smoke  
-2. `userspace/init` + `systemd` + units; kernel tek-spawn  
-3. SDK taşıma; app klasörleri  
-4. Embedded/custom driver xmake  
-5. gpu_display_stack app/lib’leri bu ağaca oturur  
+## 6. Sıra
+
+1. `__old_shits__` + xmake/ld + kernel smoke  
+2. userspace taşı + **import/clangd/compile_commands**  
+3. init + systemd + tek spawn  
+4. driver targets  
+5. gpu plan lib/app path’leri bu ağaca  
 6. `xmake run`  
 
-## 6. Diğer planlar ne yapmaz
+## 7. Diğer planlar
 
-- gpu_display_stack: build/Makefile/initrd/xmake **yeniden tarif etmez**; path + bağımlılık yazar  
-- god-level: H11 “Makefile” / Wave M kernel registry spawn **bu plana defer**; systemd unit semantiği burada  
+gpu_display_stack / god-level build tarif etmez; path + defer buraya.
