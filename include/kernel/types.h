@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_TYPES_H
-#define MYKERNEL_TYPES_H
+#ifndef HSRC_TYPES_H
+#define HSRC_TYPES_H
 
 /*
  * Match GCC freestanding <stdint.h> / <stddef.h> type identities so usermode

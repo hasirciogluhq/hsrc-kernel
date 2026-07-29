@@ -3,7 +3,7 @@
 #include <kernel/heap.h>
 #include <kernel/string.h>
 
-int mkdx_gpu_init(mkdx_gpu *gpu)
+int dx_gpu_init(dx_gpu *gpu)
 {
     if (!gpu)
         return -1;
@@ -14,24 +14,24 @@ int mkdx_gpu_init(mkdx_gpu *gpu)
     return 0;
 }
 
-void mkdx_gpu_shutdown(mkdx_gpu *gpu)
+void dx_gpu_shutdown(dx_gpu *gpu)
 {
     int i;
     if (!gpu)
         return;
-    for (i = 0; i < MKDX_MAX_BUFFERS; i++) {
+    for (i = 0; i < DX_MAX_BUFFERS; i++) {
         if (gpu->buffers[i].used && gpu->buffers[i].data)
             kfree(gpu->buffers[i].data);
     }
     memset(gpu, 0, sizeof(*gpu));
 }
 
-int mkdx_buffer_create(mkdx_gpu *gpu, mkdx_buffer_kind kind, uint32_t size, const void *data)
+int dx_buffer_create(dx_gpu *gpu, dx_buffer_kind kind, uint32_t size, const void *data)
 {
     int i;
     if (!gpu || !gpu->ready || size == 0)
         return -1;
-    for (i = 0; i < MKDX_MAX_BUFFERS; i++) {
+    for (i = 0; i < DX_MAX_BUFFERS; i++) {
         if (!gpu->buffers[i].used) {
             void *mem = kmalloc(size);
             if (!mem)
@@ -51,12 +51,12 @@ int mkdx_buffer_create(mkdx_gpu *gpu, mkdx_buffer_kind kind, uint32_t size, cons
     return -1;
 }
 
-int mkdx_buffer_destroy(mkdx_gpu *gpu, int id)
+int dx_buffer_destroy(dx_gpu *gpu, int id)
 {
     int i;
     if (!gpu)
         return -1;
-    for (i = 0; i < MKDX_MAX_BUFFERS; i++) {
+    for (i = 0; i < DX_MAX_BUFFERS; i++) {
         if (gpu->buffers[i].used && gpu->buffers[i].id == id) {
             if (gpu->buffers[i].data)
                 kfree(gpu->buffers[i].data);
@@ -67,12 +67,12 @@ int mkdx_buffer_destroy(mkdx_gpu *gpu, int id)
     return -1;
 }
 
-int mkdx_pipeline_create(mkdx_gpu *gpu, uint32_t flags)
+int dx_pipeline_create(dx_gpu *gpu, uint32_t flags)
 {
     int i;
     if (!gpu || !gpu->ready)
         return -1;
-    for (i = 0; i < MKDX_MAX_PIPELINES; i++) {
+    for (i = 0; i < DX_MAX_PIPELINES; i++) {
         if (!gpu->pipelines[i].used) {
             gpu->pipelines[i].used = 1;
             gpu->pipelines[i].id = gpu->next_pipe_id++;
@@ -83,7 +83,7 @@ int mkdx_pipeline_create(mkdx_gpu *gpu, uint32_t flags)
     return -1;
 }
 
-int mkdx_draw_indexed(mkdx_gpu *gpu, int pipeline, int vbo, int ibo,
+int dx_draw_indexed(dx_gpu *gpu, int pipeline, int vbo, int ibo,
                       uint32_t index_count, uint32_t index_offset)
 {
     (void)gpu;
@@ -96,7 +96,7 @@ int mkdx_draw_indexed(mkdx_gpu *gpu, int pipeline, int vbo, int ibo,
     return 0;
 }
 
-int mkdx_submit(mkdx_gpu *gpu)
+int dx_submit(dx_gpu *gpu)
 {
     display_ops_t *ops;
     if (!gpu || !gpu->ready)

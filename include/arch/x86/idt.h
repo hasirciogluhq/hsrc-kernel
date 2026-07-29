@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_IDT_H
-#define MYKERNEL_IDT_H
+#ifndef HSRC_IDT_H
+#define HSRC_IDT_H
 
 #include <kernel/types.h>
 

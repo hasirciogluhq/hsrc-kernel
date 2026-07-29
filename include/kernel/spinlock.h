@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_SPINLOCK_H
-#define MYKERNEL_SPINLOCK_H
+#ifndef HSRC_SPINLOCK_H
+#define HSRC_SPINLOCK_H
 
 #include <kernel/types.h>
 

@@ -1,10 +1,13 @@
-#ifndef MYKERNEL_USERSPACE_BOOT_H
-#define MYKERNEL_USERSPACE_BOOT_H
+#ifndef HSRC_USERSPACE_BOOT_H
+#define HSRC_USERSPACE_BOOT_H
 
 /*
- * Start the first userspace process (systemd) from disk.
- * Kernel main must not enumerate or spawn session apps.
+ * Hand off to /init when present. Kernel stays usable without GUI:
+ * missing /init or failed spawn → kshell (console mode).
  */
 void userspace_boot(void);
+
+/* Non-zero when display driver + dx are available for a GUI session. */
+int gui_stack_ready(void);
 
 #endif

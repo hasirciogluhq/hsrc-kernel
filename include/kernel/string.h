@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_STRING_H
-#define MYKERNEL_STRING_H
+#ifndef HSRC_STRING_H
+#define HSRC_STRING_H
 
 #include <kernel/types.h>
 

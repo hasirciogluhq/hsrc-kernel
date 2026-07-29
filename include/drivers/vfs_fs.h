@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_DRIVERS_VFS_FS_H
-#define MYKERNEL_DRIVERS_VFS_FS_H
+#ifndef HSRC_DRIVERS_VFS_FS_H
+#define HSRC_DRIVERS_VFS_FS_H
 
 #include <kernel/types.h>
 #include <kernel/block_api.h>
@@ -198,8 +198,8 @@ typedef struct vfs_stat {
     uint32_t st_ctime;
 } vfs_stat_t;
 
-#ifndef MYKERNEL_VFS_DIRENT_DEFINED
-#define MYKERNEL_VFS_DIRENT_DEFINED
+#ifndef HSRC_VFS_DIRENT_DEFINED
+#define HSRC_VFS_DIRENT_DEFINED
 typedef struct vfs_dirent {
     uint32_t ino;
     uint32_t type;

@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_INITRD_STORE_H
-#define MYKERNEL_INITRD_STORE_H
+#ifndef HSRC_INITRD_STORE_H
+#define HSRC_INITRD_STORE_H
 
 #include <kernel/types.h>
 

@@ -1,2 +1,2 @@
-# Global environment defaults (Wave P)
-PATH=/usr/bin:/applications
+# Global environment defaults
+PATH=/system/bin:/applications

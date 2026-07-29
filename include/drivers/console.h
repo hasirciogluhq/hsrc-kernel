@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_DRIVERS_CONSOLE_H
-#define MYKERNEL_DRIVERS_CONSOLE_H
+#ifndef HSRC_DRIVERS_CONSOLE_H
+#define HSRC_DRIVERS_CONSOLE_H
 
 #include <kernel/types.h>
 

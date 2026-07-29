@@ -5,7 +5,7 @@ local BUILD = path.join(ROOT, "build")
 
 local KMOD_INCLUDES = {
     INC,
-    path.join(ROOT, "src/drivers/mkdx"),
+    path.join(ROOT, "src/drivers/dx"),
     path.join(ROOT, "src/drivers/display/bga"),
     path.join(ROOT, "src/drivers/display/virtio_gpu"),
 }
@@ -56,7 +56,7 @@ mykernel_define_kmod("nvme", {"src/drivers/block/nvme/*.c"})
 mykernel_define_kmod("virtio_net", {"src/drivers/net/virtio_net/*.c"})
 mykernel_define_kmod("display_bga", {"src/drivers/display/bga/*.c"})
 mykernel_define_kmod("display_virtio", {"src/drivers/display/virtio_gpu/*.c"})
-mykernel_define_kmod("mkdx", {"src/drivers/mkdx/*.c"})
+mykernel_define_kmod("mkdx", {"src/drivers/dx/*.c"})
 
 local KMOD_ORDER = {
     "block", "vfs", "part_gpt", "part_mbr", "ramfs", "devtmpfs",

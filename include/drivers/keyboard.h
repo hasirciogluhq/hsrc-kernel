@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_DRIVERS_KEYBOARD_H
-#define MYKERNEL_DRIVERS_KEYBOARD_H
+#ifndef HSRC_DRIVERS_KEYBOARD_H
+#define HSRC_DRIVERS_KEYBOARD_H
 
 #include <kernel/types.h>
 

@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_ARCH_CPU_H
-#define MYKERNEL_ARCH_CPU_H
+#ifndef HSRC_ARCH_CPU_H
+#define HSRC_ARCH_CPU_H
 
 #include <kernel/types.h>
 

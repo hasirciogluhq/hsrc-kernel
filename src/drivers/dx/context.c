@@ -2,7 +2,7 @@
 #include "accel.h"
 #include <kernel/string.h>
 
-int mkdx_context2d_init(mkdx_context2d *ctx, gx_surface *target)
+int dx_context2d_init(dx_context2d *ctx, gx_surface *target)
 {
     if (!ctx || !target)
         return -1;
@@ -14,7 +14,7 @@ int mkdx_context2d_init(mkdx_context2d *ctx, gx_surface *target)
     return 0;
 }
 
-void mkdx_context2d_set_clip(mkdx_context2d *ctx, gx_rect clip)
+void dx_context2d_set_clip(dx_context2d *ctx, gx_rect clip)
 {
     if (!ctx || !ctx->ready)
         return;
@@ -22,28 +22,28 @@ void mkdx_context2d_set_clip(mkdx_context2d *ctx, gx_rect clip)
         clip, gx_rect_make(0, 0, (int32_t)ctx->target->width, (int32_t)ctx->target->height));
 }
 
-void mkdx_context2d_set_mask(mkdx_context2d *ctx, gx_surface *mask)
+void dx_context2d_set_mask(dx_context2d *ctx, gx_surface *mask)
 {
     if (!ctx)
         return;
     ctx->mask = mask;
 }
 
-void mkdx_context2d_set_opacity(mkdx_context2d *ctx, uint8_t opacity)
+void dx_context2d_set_opacity(dx_context2d *ctx, uint8_t opacity)
 {
     if (!ctx)
         return;
     ctx->opacity = opacity;
 }
 
-void mkdx_context2d_set_round(mkdx_context2d *ctx, int32_t radius)
+void dx_context2d_set_round(dx_context2d *ctx, int32_t radius)
 {
     if (!ctx)
         return;
     ctx->round_radius = radius;
 }
 
-int mkdx_context2d_fill(mkdx_context2d *ctx, gx_rect r, gx_color color)
+int dx_context2d_fill(dx_context2d *ctx, gx_rect r, gx_color color)
 {
     gx_rect clipped;
     if (!ctx || !ctx->ready || !ctx->target)

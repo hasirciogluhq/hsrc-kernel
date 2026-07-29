@@ -91,17 +91,17 @@ struct AppDef {
 
 constexpr AppDef kApps[APP_COUNT] = {
     { "monitor",  "Mon",  "Activity Monitor", "os.activity-monitor",
-      "/applications/activity-monitor.mke", "dock.pin.monitor",  rgb(75, 180, 120),  true },
+      "/system/bin/activity-monitor.mke", "dock.pin.monitor",  rgb(75, 180, 120),  true },
     { "terminal", "Term", "Terminal",         "os.terminal",
-      "/applications/terminal.mke",         "dock.pin.terminal", rgb(36, 36, 40),    true },
+      "/system/bin/terminal.mke",         "dock.pin.terminal", rgb(36, 36, 40),    true },
     { "files",    "Files","Files",            "os.files",
-      "/applications/files.mke",            "dock.pin.files",    rgb(255, 190, 60),  true },
+      "/system/bin/files.mke",            "dock.pin.files",    rgb(255, 190, 60),  true },
     { "settings", "Prefs","System Settings",  "os.settings",
-      "/applications/os-settings.mke",      "dock.pin.settings", rgb(150, 150, 160), true },
+      "/system/bin/os-settings.mke",      "dock.pin.settings", rgb(150, 150, 160), true },
     { "imgui",    "ImGui","ImGui Demo",       "imgui.demo",
-      "/applications/imgui-demo.mke",       "dock.pin.imgui",    rgb(90, 140, 220),  true },
+      "/applications/imgui-demo.mke",     "dock.pin.imgui",    rgb(90, 140, 220),  true },
     { "mines",    "Mine", "Minesweeper",      "os.minesweeper",
-      "/applications/minesweeper.mke",      "dock.pin.mines",    rgb(220, 90, 90),   true },
+      "/applications/minesweeper.mke",    "dock.pin.mines",    rgb(220, 90, 90),   true },
 };
 
 struct DockSlot {
@@ -228,12 +228,12 @@ void format_percent(char *out, size_t out_sz, int percent)
 bool load_status_icons()
 {
     bool ok = true;
-    ok = g_icon_sun.load("/applications/theme-sun.svg", kStatusIcon, kStatusIcon) && ok;
-    ok = g_icon_moon.load("/applications/theme-moon.svg", kStatusIcon, kStatusIcon) && ok;
-    ok = g_icon_wifi.load("/applications/status-wifi.svg", kStatusIcon, kStatusIcon) && ok;
-    ok = g_icon_wifi_off.load("/applications/status-wifi-off.svg", kStatusIcon, kStatusIcon) && ok;
-    ok = g_icon_battery.load("/applications/status-battery.svg", 22, 12) && ok;
-    ok = g_icon_bolt.load("/applications/status-bolt.svg", 8, 12) && ok;
+    ok = g_icon_sun.load("/system/share/theme-sun.svg", kStatusIcon, kStatusIcon) && ok;
+    ok = g_icon_moon.load("/system/share/theme-moon.svg", kStatusIcon, kStatusIcon) && ok;
+    ok = g_icon_wifi.load("/system/share/status-wifi.svg", kStatusIcon, kStatusIcon) && ok;
+    ok = g_icon_wifi_off.load("/system/share/status-wifi-off.svg", kStatusIcon, kStatusIcon) && ok;
+    ok = g_icon_battery.load("/system/share/status-battery.svg", 22, 12) && ok;
+    ok = g_icon_bolt.load("/system/share/status-bolt.svg", 8, 12) && ok;
     return ok;
 }
 

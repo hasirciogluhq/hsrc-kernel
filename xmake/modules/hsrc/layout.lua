@@ -13,12 +13,30 @@ function initrd_mke_names()
     return { "init" }
 end
 
--- Disk FAT → /applications (apps only; not PID1).
-function disk_mke_names()
+-- OS / GUI package → /system/bin
+function system_mke_names()
     return {
         "window-manager", "os-shell", "os-settings",
-        "terminal", "files", "activity-monitor", "minesweeper", "imgui-demo",
+        "terminal", "files", "activity-monitor",
     }
+end
+
+-- User applications → /applications
+function user_mke_names()
+    return {
+        "minesweeper", "imgui-demo",
+    }
+end
+
+function disk_mke_names()
+    local t = {}
+    for _, n in ipairs(system_mke_names()) do
+        table.insert(t, n)
+    end
+    for _, n in ipairs(user_mke_names()) do
+        table.insert(t, n)
+    end
+    return t
 end
 
 function app_mke_names()

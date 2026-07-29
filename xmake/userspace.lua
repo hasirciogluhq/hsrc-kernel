@@ -54,7 +54,7 @@ local function define_app(name, load_addr, files, incs, flags)
             os.execv("i686-elf-ld", args)
         end)
         after_build(function (target)
-            import("mykernel.pack")
+            import("hsrc.pack")
             pack.pack_mke(target, load_addr, name)
         end)
 end

@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_KERNEL_NETIF_H
-#define MYKERNEL_KERNEL_NETIF_H
+#ifndef HSRC_KERNEL_NETIF_H
+#define HSRC_KERNEL_NETIF_H
 
 #include <kernel/types.h>
 

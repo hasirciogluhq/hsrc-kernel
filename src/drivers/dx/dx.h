@@ -1,9 +1,9 @@
-#ifndef MYKERNEL_MKDX_H
-#define MYKERNEL_MKDX_H
+#ifndef HSRC_DX_H
+#define HSRC_DX_H
 
 /*
- * MKDX - Direct eXperience graphics for hsrc-kernel (loadable driver API)
- * Compositor / WM / accel live in mkdx.kmod.
+ * DX - Direct eXperience graphics for hsrc-kernel (loadable driver API)
+ * Compositor / WM / accel live in dx.kmod.
  * UI is drawn by userspace via <user/gx.h>.
  */
 
@@ -21,7 +21,7 @@
 #include "render3d.h"
 
 /* Public driver exports */
-int mkdx_get_screen_size(uint32_t *w, uint32_t *h, uint32_t *bpp);
-int mkdx_present(void);
+int dx_get_screen_size(uint32_t *w, uint32_t *h, uint32_t *bpp);
+int dx_present(void);
 
 #endif

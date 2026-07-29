@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_USER_GX_H
-#define MYKERNEL_USER_GX_H
+#ifndef HSRC_USER_GX_H
+#define HSRC_USER_GX_H
 
 #include <kernel/types.h>
 #include <kernel/syscall.h>

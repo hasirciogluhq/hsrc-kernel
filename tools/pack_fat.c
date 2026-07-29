@@ -1,4 +1,5 @@
-/* Host tool: add files (with VFAT LFN) into an existing FAT16 image from mkfatimg. */
+/* Host tool: add files (with VFAT LFN) into an existing FAT16 image.
+ * diskname may contain directories: system/bin/foo.mke creates parents. */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,7 +47,6 @@ static int make_short_name(const char *long_name, uint8_t out[11], int uniq)
     char stem[16];
     char ext[4];
     size_t i, si = 0, ei = 0;
-    int tilde = uniq;
 
     if (slash)
         base = slash + 1;
@@ -85,10 +85,9 @@ static int make_short_name(const char *long_name, uint8_t out[11], int uniq)
     if (si == 0)
         stem[si++] = 'X';
     if (strlen(base) > 12 || strchr(base, '-') || (dot && (size_t)(dot - base) > 8)) {
-        /* Need ~N form */
         char num[4];
         size_t keep;
-        snprintf(num, sizeof(num), "%d", tilde < 1 ? 1 : tilde);
+        snprintf(num, sizeof(num), "%d", uniq < 1 ? 1 : uniq);
         keep = 8 - 1 - strlen(num);
         if (keep > si)
             keep = si;
@@ -105,7 +104,6 @@ static int make_short_name(const char *long_name, uint8_t out[11], int uniq)
 
 static void put_lfn_chars(uint8_t *ent, const char *name, int start_idx)
 {
-    /* Fill one LFN entry slots: 5 + 6 + 2 UTF-16LE chars from name[start_idx..] */
     static const int pos[] = {1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30};
     int i;
     for (i = 0; i < 13; i++) {
@@ -123,7 +121,6 @@ static void put_lfn_chars(uint8_t *ent, const char *name, int start_idx)
         ent[pos[i]] = (uint8_t)(ch & 0xff);
         ent[pos[i] + 1] = (uint8_t)(ch >> 8);
         if (ch == 0) {
-            /* pad remaining with 0xFFFF */
             int j;
             for (j = i + 1; j < 13; j++) {
                 ent[pos[j]] = 0xFF;
@@ -180,8 +177,7 @@ static int fat_open(fat_img_t *f, uint8_t *img, size_t img_bytes)
 static uint16_t fat_get(fat_img_t *f, uint32_t cl)
 {
     uint8_t *fat = f->img + f->fat_lba * f->bps;
-    uint32_t off = cl * 2u;
-    return rd16(fat + off);
+    return rd16(fat + cl * 2u);
 }
 
 static void fat_set(fat_img_t *f, uint32_t cl, uint16_t v)
@@ -205,19 +201,42 @@ static uint32_t fat_alloc_cluster(fat_img_t *f)
     return 0;
 }
 
-static int root_find_free_slots(fat_img_t *f, int need, uint32_t *out_index)
+static uint32_t cluster_bytes(fat_img_t *f)
 {
-    uint32_t root_bytes = (uint32_t)f->root_ents * 32u;
-    uint8_t *root = f->img + f->root_lba * f->bps;
-    uint32_t i;
-    int run = 0;
+    return (uint32_t)f->spc * f->bps;
+}
+
+static uint8_t *cluster_ptr(fat_img_t *f, uint32_t cl)
+{
+    return f->img + (f->data_lba + (cl - 2) * f->spc) * f->bps;
+}
+
+/* dir_clust==0 → FAT16 root. */
+static int dir_entry_count(fat_img_t *f, uint32_t dir_clust)
+{
+    if (dir_clust == 0)
+        return (int)f->root_ents;
+    return (int)(cluster_bytes(f) / 32u); /* single-cluster dirs for now */
+}
+
+static uint8_t *dir_entry_ptr(fat_img_t *f, uint32_t dir_clust, uint32_t index)
+{
+    if (dir_clust == 0)
+        return f->img + f->root_lba * f->bps + index * 32u;
+    return cluster_ptr(f, dir_clust) + index * 32u;
+}
+
+static int dir_find_free_slots(fat_img_t *f, uint32_t dir_clust, int need, uint32_t *out_index)
+{
+    int max = dir_entry_count(f, dir_clust);
+    int i, run = 0;
     uint32_t run_start = 0;
 
-    for (i = 0; i < f->root_ents; i++) {
-        uint8_t *e = root + i * 32u;
+    for (i = 0; i < max; i++) {
+        uint8_t *e = dir_entry_ptr(f, dir_clust, (uint32_t)i);
         if (e[0] == 0x00 || e[0] == 0xE5) {
             if (run == 0)
-                run_start = i;
+                run_start = (uint32_t)i;
             run++;
             if (run >= need) {
                 *out_index = run_start;
@@ -227,27 +246,256 @@ static int root_find_free_slots(fat_img_t *f, int need, uint32_t *out_index)
             run = 0;
         }
     }
-    (void)root_bytes;
     return -1;
 }
 
-static int add_file(fat_img_t *f, const char *host_path, const char *disk_name)
+static int dir_name_exists(fat_img_t *f, uint32_t dir_clust, const char *name,
+                           uint32_t *out_clust, int *out_is_dir)
+{
+    int max = dir_entry_count(f, dir_clust);
+    int i;
+    char lfn[260];
+    int lfn_len = 0;
+
+    lfn[0] = 0;
+    for (i = 0; i < max; i++) {
+        uint8_t *e = dir_entry_ptr(f, dir_clust, (uint32_t)i);
+        if (e[0] == 0x00)
+            break;
+        if (e[0] == 0xE5)
+            continue;
+        if ((e[11] & 0x0F) == 0x0F) {
+            /* Rebuild LFN roughly from entries (seq ascending as we scan) */
+            int seq = e[0] & 0x1F;
+            int start = (seq - 1) * 13;
+            static const int pos[] = {1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30};
+            int j;
+            if (e[0] & 0x40)
+                lfn_len = 0;
+            for (j = 0; j < 13; j++) {
+                uint16_t ch = (uint16_t)(e[pos[j]] | (e[pos[j] + 1] << 8));
+                if (ch == 0 || ch == 0xFFFF)
+                    break;
+                if (start + j < (int)sizeof(lfn) - 1) {
+                    lfn[start + j] = (char)(ch & 0xff);
+                    if (start + j + 1 > lfn_len)
+                        lfn_len = start + j + 1;
+                }
+            }
+            lfn[lfn_len] = 0;
+            continue;
+        }
+        if (lfn[0] && strcmp(lfn, name) == 0) {
+            uint32_t cl = rd16(e + 26) | ((uint32_t)rd16(e + 20) << 16);
+            if (out_clust)
+                *out_clust = cl;
+            if (out_is_dir)
+                *out_is_dir = (e[11] & 0x10) != 0;
+            return 1;
+        }
+        /* short-name fallback */
+        {
+            char shortn[13];
+            int p = 0, k;
+            for (k = 0; k < 8 && e[k] != ' '; k++)
+                shortn[p++] = (char)tolower(e[k]);
+            if (e[8] != ' ') {
+                shortn[p++] = '.';
+                for (k = 8; k < 11 && e[k] != ' '; k++)
+                    shortn[p++] = (char)tolower(e[k]);
+            }
+            shortn[p] = 0;
+            if (strcmp(shortn, name) == 0) {
+                uint32_t cl = rd16(e + 26) | ((uint32_t)rd16(e + 20) << 16);
+                if (out_clust)
+                    *out_clust = cl;
+                if (out_is_dir)
+                    *out_is_dir = (e[11] & 0x10) != 0;
+                return 1;
+            }
+        }
+        lfn[0] = 0;
+        lfn_len = 0;
+    }
+    return 0;
+}
+
+static int write_dir_entry(fat_img_t *f, uint32_t dir_clust, const char *name,
+                           uint32_t first_clust, uint32_t size, int is_dir)
+{
+    uint8_t name83[11];
+    uint8_t chk;
+    int nlen = (int)strlen(name);
+    int n_lfn = (nlen + 12) / 13;
+    int need;
+    uint32_t slot;
+    int seq, i;
+
+    if (n_lfn < 1)
+        n_lfn = 1;
+    need = n_lfn + 1;
+    if (dir_find_free_slots(f, dir_clust, need, &slot) < 0) {
+        fprintf(stderr, "directory full for %s\n", name);
+        return -1;
+    }
+
+    make_short_name(name, name83, 1);
+    for (i = 2; i < 10; i++) {
+        uint32_t e;
+        int clash = 0;
+        int max = dir_entry_count(f, dir_clust);
+        make_short_name(name, name83, i);
+        for (e = 0; e < (uint32_t)max; e++) {
+            uint8_t *ent = dir_entry_ptr(f, dir_clust, e);
+            if (ent[0] == 0 || ent[0] == 0xE5)
+                continue;
+            if ((ent[11] & 0x0F) == 0x0F)
+                continue;
+            if (memcmp(ent, name83, 11) == 0) {
+                clash = 1;
+                break;
+            }
+        }
+        if (!clash)
+            break;
+    }
+    chk = lfn_checksum(name83);
+
+    for (seq = n_lfn; seq >= 1; seq--) {
+        uint8_t *ent = dir_entry_ptr(f, dir_clust, slot + (uint32_t)(n_lfn - seq));
+        memset(ent, 0, 32);
+        ent[0] = (uint8_t)seq;
+        if (seq == n_lfn)
+            ent[0] |= 0x40;
+        ent[11] = 0x0F;
+        ent[13] = chk;
+        put_lfn_chars(ent, name, (seq - 1) * 13);
+    }
+    {
+        uint8_t *ent = dir_entry_ptr(f, dir_clust, slot + (uint32_t)n_lfn);
+        memset(ent, 0, 32);
+        memcpy(ent, name83, 11);
+        ent[11] = is_dir ? 0x10 : 0x20;
+        wr16(ent + 26, (uint16_t)(first_clust & 0xffff));
+        wr16(ent + 20, (uint16_t)(first_clust >> 16));
+        wr32(ent + 28, size);
+    }
+    return 0;
+}
+
+static int mkdir_fat(fat_img_t *f, uint32_t parent, const char *name, uint32_t *out_clust)
+{
+    uint32_t cl;
+    uint8_t *p;
+    uint32_t existing = 0;
+    int is_dir = 0;
+
+    if (dir_name_exists(f, parent, name, &existing, &is_dir)) {
+        if (!is_dir) {
+            fprintf(stderr, "not a directory: %s\n", name);
+            return -1;
+        }
+        *out_clust = existing;
+        return 0;
+    }
+
+    cl = fat_alloc_cluster(f);
+    if (!cl)
+        return -1;
+    p = cluster_ptr(f, cl);
+    memset(p, 0, cluster_bytes(f));
+
+    /* . */
+    memset(p, ' ', 11);
+    p[0] = '.';
+    p[11] = 0x10;
+    wr16(p + 26, (uint16_t)(cl & 0xffff));
+    wr16(p + 20, (uint16_t)(cl >> 16));
+
+    /* .. */
+    memset(p + 32, ' ', 11);
+    p[32] = '.';
+    p[33] = '.';
+    p[32 + 11] = 0x10;
+    wr16(p + 32 + 26, (uint16_t)(parent & 0xffff));
+    wr16(p + 32 + 20, (uint16_t)(parent >> 16));
+
+    if (write_dir_entry(f, parent, name, cl, 0, 1) < 0)
+        return -1;
+    *out_clust = cl;
+    return 0;
+}
+
+static int ensure_dir_path(fat_img_t *f, const char *dirpath, uint32_t *out_clust)
+{
+    char tmp[512];
+    char *tok;
+    char *save;
+    uint32_t cur = 0;
+
+    if (!dirpath || !dirpath[0] || strcmp(dirpath, ".") == 0) {
+        *out_clust = 0;
+        return 0;
+    }
+    if (strlen(dirpath) >= sizeof(tmp))
+        return -1;
+    strcpy(tmp, dirpath);
+    for (tok = strtok_r(tmp, "/", &save); tok; tok = strtok_r(NULL, "/", &save)) {
+        if (!tok[0] || strcmp(tok, ".") == 0)
+            continue;
+        if (mkdir_fat(f, cur, tok, &cur) < 0)
+            return -1;
+    }
+    *out_clust = cur;
+    return 0;
+}
+
+static int add_file_in_dir(fat_img_t *f, uint32_t dir_clust, const char *basename,
+                           const uint8_t *data, long sz)
+{
+    uint32_t first = 0, prev = 0;
+    long left = sz;
+    long off = 0;
+
+    while (left > 0 || (sz == 0 && first == 0)) {
+        uint32_t cl = fat_alloc_cluster(f);
+        uint32_t cbytes = cluster_bytes(f);
+        uint32_t chunk;
+        if (!cl) {
+            fprintf(stderr, "no free clusters for %s\n", basename);
+            return -1;
+        }
+        if (!first)
+            first = cl;
+        else
+            fat_set(f, prev, (uint16_t)cl);
+        fat_set(f, cl, 0xFFF8);
+        chunk = (uint32_t)((left > (long)cbytes) ? cbytes : (left > 0 ? (uint32_t)left : 0));
+        memset(cluster_ptr(f, cl), 0, cbytes);
+        if (chunk)
+            memcpy(cluster_ptr(f, cl), data + off, chunk);
+        off += (long)chunk;
+        left -= (long)chunk;
+        prev = cl;
+        if (sz == 0)
+            break;
+    }
+
+    if (write_dir_entry(f, dir_clust, basename, first, (uint32_t)sz, 0) < 0)
+        return -1;
+    return 0;
+}
+
+static int add_file(fat_img_t *f, const char *host_path, const char *disk_path)
 {
     FILE *fp;
     long sz;
     uint8_t *data;
-    uint8_t name83[11];
-    uint8_t chk;
-    int nlen;
-    int n_lfn;
-    int need;
-    uint32_t slot;
-    uint8_t *root;
-    uint32_t first = 0, prev = 0;
-    long left;
-    long off;
-    int seq;
-    int i;
+    char pathbuf[512];
+    char *slash;
+    const char *basename;
+    char dirpath[512];
+    uint32_t dir_clust = 0;
 
     fp = fopen(host_path, "rb");
     if (!fp) {
@@ -270,95 +518,35 @@ static int add_file(fat_img_t *f, const char *host_path, const char *disk_name)
     }
     fclose(fp);
 
-    nlen = (int)strlen(disk_name);
-    n_lfn = (nlen + 12) / 13;
-    if (n_lfn < 1)
-        n_lfn = 1;
-    need = n_lfn + 1;
-    if (root_find_free_slots(f, need, &slot) < 0) {
-        fprintf(stderr, "root dir full for %s\n", disk_name);
+    if (strlen(disk_path) >= sizeof(pathbuf)) {
         free(data);
         return -1;
     }
-
-    make_short_name(disk_name, name83, 1);
-    /* Ensure unique short name among existing */
-    for (i = 2; i < 10; i++) {
-        uint32_t e;
-        int clash = 0;
-        make_short_name(disk_name, name83, i);
-        root = f->img + f->root_lba * f->bps;
-        for (e = 0; e < f->root_ents; e++) {
-            uint8_t *ent = root + e * 32u;
-            if (ent[0] == 0 || ent[0] == 0xE5)
-                continue;
-            if ((ent[11] & 0x0F) == 0x0F)
-                continue;
-            if (memcmp(ent, name83, 11) == 0) {
-                clash = 1;
-                break;
-            }
-        }
-        if (!clash)
-            break;
-    }
-    chk = lfn_checksum(name83);
-
-    /* Write file clusters */
-    left = sz;
-    off = 0;
-    while (left > 0 || (sz == 0 && first == 0)) {
-        uint32_t cl = fat_alloc_cluster(f);
-        uint32_t lba;
-        uint32_t cbytes = (uint32_t)f->spc * f->bps;
-        uint32_t chunk;
-        if (!cl) {
-            fprintf(stderr, "no free clusters for %s\n", disk_name);
+    strcpy(pathbuf, disk_path);
+    slash = strrchr(pathbuf, '/');
+    if (slash) {
+        *slash = 0;
+        basename = slash + 1;
+        strcpy(dirpath, pathbuf);
+        if (ensure_dir_path(f, dirpath, &dir_clust) < 0) {
+            fprintf(stderr, "mkdir failed for %s\n", dirpath);
             free(data);
             return -1;
         }
-        if (!first)
-            first = cl;
-        else
-            fat_set(f, prev, (uint16_t)cl);
-        fat_set(f, cl, 0xFFF8);
-        lba = f->data_lba + (cl - 2) * f->spc;
-        chunk = (uint32_t)((left > (long)cbytes) ? cbytes : (left > 0 ? (uint32_t)left : 0));
-        memset(f->img + lba * f->bps, 0, cbytes);
-        if (chunk)
-            memcpy(f->img + lba * f->bps, data + off, chunk);
-        off += (long)chunk;
-        left -= (long)chunk;
-        prev = cl;
-        if (sz == 0)
-            break;
+    } else {
+        basename = pathbuf;
     }
 
-    root = f->img + f->root_lba * f->bps;
-    /* LFN entries: highest seq first */
-    for (seq = n_lfn; seq >= 1; seq--) {
-        uint8_t *ent = root + (slot + (uint32_t)(n_lfn - seq)) * 32u;
-        memset(ent, 0, 32);
-        ent[0] = (uint8_t)seq;
-        if (seq == n_lfn)
-            ent[0] |= 0x40;
-        ent[11] = 0x0F;
-        ent[12] = 0;
-        ent[13] = chk;
-        put_lfn_chars(ent, disk_name, (seq - 1) * 13);
+    if (!basename[0]) {
+        free(data);
+        return -1;
     }
-    {
-        uint8_t *ent = root + (slot + (uint32_t)n_lfn) * 32u;
-        memset(ent, 0, 32);
-        memcpy(ent, name83, 11);
-        ent[11] = 0x20;
-        wr16(ent + 26, (uint16_t)(first & 0xffff));
-        wr16(ent + 20, (uint16_t)(first >> 16));
-        wr32(ent + 28, (uint32_t)sz);
+    if (add_file_in_dir(f, dir_clust, basename, data, sz) < 0) {
+        free(data);
+        return -1;
     }
-
     free(data);
-    printf("  + %s (%ld bytes)\n", disk_name, sz);
+    printf("  + %s (%ld bytes)\n", disk_path, sz);
     return 0;
 }
 
@@ -372,7 +560,7 @@ int main(int argc, char **argv)
     int i;
 
     if (argc < 3) {
-        fprintf(stderr, "usage: %s <disk.img> <hostfile:diskname>...\n", argv[0]);
+        fprintf(stderr, "usage: %s <disk.img> <hostfile:disk/path>...\n", argv[0]);
         return 1;
     }
     img_path = argv[1];
@@ -398,7 +586,7 @@ int main(int argc, char **argv)
         char *colon = strrchr(arg, ':');
         const char *host, *disk;
         if (!colon || colon == arg) {
-            fprintf(stderr, "bad spec (want host:diskname): %s\n", argv[i]);
+            fprintf(stderr, "bad spec (want host:disk/path): %s\n", argv[i]);
             return 1;
         }
         *colon = 0;

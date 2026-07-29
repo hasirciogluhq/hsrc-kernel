@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_DRIVERS_MOUSE_H
-#define MYKERNEL_DRIVERS_MOUSE_H
+#ifndef HSRC_DRIVERS_MOUSE_H
+#define HSRC_DRIVERS_MOUSE_H
 
 #include <kernel/types.h>
 

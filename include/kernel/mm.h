@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_MM_H
-#define MYKERNEL_MM_H
+#ifndef HSRC_MM_H
+#define HSRC_MM_H
 
 #include <kernel/types.h>
 

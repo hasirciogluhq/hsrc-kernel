@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_KERNEL_NETSTACK_H
-#define MYKERNEL_KERNEL_NETSTACK_H
+#ifndef HSRC_KERNEL_NETSTACK_H
+#define HSRC_KERNEL_NETSTACK_H
 
 #include <kernel/netif.h>
 #include <kernel/types.h>

@@ -4,8 +4,9 @@
 #include <kernel/syscall.h>
 
 /*
- * /init — first userspace process (PID1).
- * Kernel only execs /init; this process starts session services and respawns them.
+ * /init — PID1.
+ * Starts the GUI session package from /system/bin when present.
+ * Kernel stays usable without these binaries (console / no-GUI).
  */
 
 namespace {
@@ -16,6 +17,7 @@ struct Unit {
     pid_t       pid;
 };
 
+/* System session — not user apps. Resolved via PATH (/system/bin). */
 Unit g_units[] = {
     {"window-manager", 1, 0},
     {"os-shell",       1, 0},
@@ -27,7 +29,6 @@ void start_unit(Unit *u)
 {
     if (!u || u->pid > 0)
         return;
-    /* Kernel PATH resolves bare names to /applications/<name>.mke */
     long pid = hsrc::sdk::process::spawn(u->name, nullptr);
     if (pid > 0)
         u->pid = (pid_t)pid;
@@ -53,7 +54,7 @@ void on_child_exit(pid_t pid)
 
 } /* namespace */
 
-void mke_main(void)
+extern "C" void mke_main(void)
 {
     start_all();
 

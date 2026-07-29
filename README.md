@@ -8,7 +8,7 @@
 
 <p align="center"><em>Hobby OS - kernel to dock, from scratch.</em></p>
 
-i386 Multiboot kernel + loadable `.kmod` drivers + usermode C++ `.mke` apps. SMP. Virtio. A real compositor. We're not asking permission - this is the sport.
+i386 Multiboot kernel + loadable `.kmod` drivers + usermode C++ `.hxe` apps. SMP. Virtio. A real compositor. We're not asking permission - this is the sport.
 
 Boots. Paints windows. Runs ImGui for fun. Cool. Don't care. Doing it anyway.
 
@@ -46,11 +46,11 @@ Stuff that actually exists in the tree - no LinkedIn buzzwords:
 - **x86 Multiboot kernel** - `i686-elf` freestanding, boots under QEMU (`qemu-system-i386`)
 - **SMP** - LAPIC + APs; default run is **3 vCPUs**
 - **Preemptive scheduler** - timer IRQ context-switches CPU hogs; cooperative yield still works
-- **Usermode processes** - C++17 apps packed as **`.mke`**, flat address space, syscalls
+- **Usermode processes** - C++17 apps packed as **`.hxe`**, flat address space, syscalls
 - **Threading + sync** - `Thread`, kernel **Event**, **ConditionVariable** (block for real, don't spin on `yield(0)`)
-- **MKDX** - window/surface compositor (layers, acrylic blur, wallpaper, drag) as a loadable module
+- **DX** - window/surface compositor (layers, acrylic blur, wallpaper, drag) as a loadable module
 - **Desktop stack** - `os-shell` dock/shell, `window-manager`, terminal, files, settings, activity-monitor, **minesweeper** (boot: `init` → `systemd` → units)
-- **ImGui rendering** - why not. Dear ImGui software-rasterized onto MKDX/ugx; display present is SW (BGA) or VirtIO-GPU scanout via PCI. Demo: `userspace/imgui-demo`
+- **ImGui rendering** - why not. Dear ImGui software-rasterized onto DX/ugx; display present is SW (BGA) or VirtIO-GPU scanout via PCI. Demo: `userspace/imgui-demo`
 - **Driver modules (`.kmod`)** - packed into initrd; PCI, VGA, PS/2, VFS/block stack, …
 - **Virtio** - `virtio-blk` disk + `virtio-net` + DHCP / sockets
 - **VFS zoo** - fat, ext, ntfs, exfat, iso9660, tmpfs, procfs, sysfs, and friends (as loadable FS drivers)
@@ -62,7 +62,7 @@ Stuff that actually exists in the tree - no LinkedIn buzzwords:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  usermode .mke apps                                     │
+│  usermode .hxe apps                                     │
 │  init → systemd → window-manager · os-shell · …         │
 │  C++ SDK: gfx / reed / kilim / thread / fs / net        │
 └──────────────────────────┬──────────────────────────────┘
@@ -74,11 +74,11 @@ Stuff that actually exists in the tree - no LinkedIn buzzwords:
                            │ .kmod / initrd
 ┌──────────────────────────▼──────────────────────────────┐
 │  drivers                                                │
-│  MKDX compositor · virtio · block/fs · input · display  │
+│  DX compositor · virtio · block/fs · input · display  │
 └─────────────────────────────────────────────────────────┘
 ```
 
-Graphics rule of thumb: **kernel owns windows & present; apps own pixels.** MKDX composes; SDK commits. Present is BGA/LFB (software) **or** VirtIO-GPU scanout - PCI/`display_ops` picks, apps don't. Chrome on the kernel. Client paint on MKDX/ugx. No "draw a button in ring 0" nonsense.
+Graphics rule of thumb: **kernel owns windows & present; apps own pixels.** DX composes; SDK commits. Present is BGA/LFB (software) **or** VirtIO-GPU scanout - PCI/`display_ops` picks, apps don't. Chrome on the kernel. Client paint on DX/ugx. No "draw a button in ring 0" nonsense.
 
 ---
 
@@ -86,7 +86,7 @@ Graphics rule of thumb: **kernel owns windows & present; apps own pixels.** MKDX
 
 ImGui rendering? Sexy and we know it.
 
-Why not. Dear ImGui runs as a normal usermode `.mke` app - custom `imgui_impl_ugx` software-rasterizes draw lists into the window's MKDX/ugx client surface (under OS chrome), then the compositor presents. Not Vulkan. Not OpenGL. Pixels through ugx like any other app. Cool. Don't care. This is the sport.
+Why not. Dear ImGui runs as a normal usermode `.hxe` app - custom `imgui_impl_ugx` software-rasterizes draw lists into the window's DX/ugx client surface (under OS chrome), then the compositor presents. Not Vulkan. Not OpenGL. Pixels through ugx like any other app. Cool. Don't care. This is the sport.
 
 **Display backend - SW *or* GPU scanout. Apps don't pick.** PCI decides. `display_active()` / presence wins:
 
@@ -96,7 +96,7 @@ Why not. Dear ImGui runs as a normal usermode `.mke` app - custom `imgui_impl_ug
 Compositor and apps stay on ugx either way. Backend swaps underfoot. Same paint path upstairs.
 
 ```
-userspace/imgui-demo/     # Dear ImGui + imgui_impl_ugx on MKDX/ugx
+userspace/imgui-demo/     # Dear ImGui + imgui_impl_ugx on DX/ugx
 ```
 
 Open it from the dock after `xmake run`. Theme follows system settings. Flex optional. Results mandatory.
@@ -131,8 +131,8 @@ xmake/          # toolchain, kernel, drivers, userspace, qemu
 __old_shits__/  # archived Makefile + mk/
 src/arch/x86/   # GDT/IDT/IRQ/CPU
 src/kernel/     # boot, mm, process, scheduler, SMP, sync, syscall, …
-src/drivers/    # .kmod sources (MKDX, virtio, VFS, …)
-tools/          # pack_initrd, pack_mke, mkfatimg, …
+src/drivers/    # .kmod sources (DX, virtio, VFS, …)
+tools/          # pack_initrd, pack_hxe, mkfatimg, …
 ```
 
 ---

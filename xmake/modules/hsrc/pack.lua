@@ -17,9 +17,9 @@ function pack_mke(target, load_addr, mke_name)
     local entry_sym, edata_sym, end_sym
     for line in nm_out:gmatch("[^\r\n]+") do
         local addr, name = line:match("^(%x+)%s+%w%s+(.+)$")
-        if name == "mke_main" then entry_sym = addr end
-        if name == "_mke_edata" then edata_sym = addr end
-        if name == "_mke_end" then end_sym = addr end
+        if name == "mke_main" or name == "hxe_main" then entry_sym = addr end
+        if name == "_mke_edata" or name == "_hxe_edata" then edata_sym = addr end
+        if name == "_mke_end" or name == "_hxe_end" then end_sym = addr end
     end
     assert(entry_sym and edata_sym and end_sym, "missing mke symbols in " .. elf)
 

@@ -219,7 +219,7 @@ void env_init(void)
     g_global_count = 0;
     memset(g_global, 0, sizeof(g_global));
     (void)env_table_set(g_global, &g_global_count, ENV_GLOBAL_MAX,
-                        "PATH", "/usr/bin:/applications");
+                        "PATH", "/system/bin:/applications");
 }
 
 void env_proc_clear(process_t *p)

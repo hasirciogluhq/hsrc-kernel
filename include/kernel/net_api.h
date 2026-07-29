@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_KERNEL_NET_API_H
-#define MYKERNEL_KERNEL_NET_API_H
+#ifndef HSRC_KERNEL_NET_API_H
+#define HSRC_KERNEL_NET_API_H
 
 /*
  * Networking surface for kernel modules and the rest of the kernel.

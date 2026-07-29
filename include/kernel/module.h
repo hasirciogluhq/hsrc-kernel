@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_KERNEL_MODULE_H
-#define MYKERNEL_KERNEL_MODULE_H
+#ifndef HSRC_KERNEL_MODULE_H
+#define HSRC_KERNEL_MODULE_H
 
 #include <kernel/types.h>
 #include <multiboot.h>

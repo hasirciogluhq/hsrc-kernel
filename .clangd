@@ -9,7 +9,7 @@ CompileFlags:
     - -fno-pic
     - -nostdlib
     - -Iinclude
-    - -Isrc/drivers/mkdx
+    - -Isrc/drivers/dx
     - -Isrc/drivers/display/bga
     - -Isrc/drivers/display/virtio_gpu
     - -Iuserspace/sdk/core

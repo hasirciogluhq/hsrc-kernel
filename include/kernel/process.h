@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_PROCESS_H
-#define MYKERNEL_PROCESS_H
+#ifndef HSRC_PROCESS_H
+#define HSRC_PROCESS_H
 
 #include <kernel/types.h>
 #include <kernel/vfs.h>
@@ -102,7 +102,7 @@ typedef struct process {
     int          input_wait_win;    /* -1 = any window; else filter */
     int          wait_event;   /* kevent id while waiting, or -1 */
     struct process *wait_next; /* kevent waiter list link */
-    uint32_t     image_bytes; /* .mke image+bss at load_addr (0 for kernel threads) */
+    uint32_t     image_bytes; /* .hxe image+bss at load_addr (0 for kernel threads) */
     int          fds[VFS_MAX_FD];
     vma_t        vmas[VMA_MAX];
     proc_env_t   env;

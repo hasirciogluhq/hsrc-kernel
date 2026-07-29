@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_BOOTMEM_H
-#define MYKERNEL_BOOTMEM_H
+#ifndef HSRC_BOOTMEM_H
+#define HSRC_BOOTMEM_H
 
 #include <kernel/types.h>
 #include <multiboot.h>
@@ -13,7 +13,7 @@ typedef struct bootmem_layout {
 
 /*
  * Parse Multiboot memory info and pick a heap region that does not collide
- * with the kernel, initrd modules, or the fixed .mke load window.
+ * with the kernel, initrd modules, or the fixed .hxe load window.
  */
 int bootmem_init(const multiboot_info_t *mbi, bootmem_layout_t *out);
 

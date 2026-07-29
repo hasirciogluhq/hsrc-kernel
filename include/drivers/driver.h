@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_DRIVERS_DRIVER_H
-#define MYKERNEL_DRIVERS_DRIVER_H
+#ifndef HSRC_DRIVERS_DRIVER_H
+#define HSRC_DRIVERS_DRIVER_H
 
 #include <kernel/types.h>
 

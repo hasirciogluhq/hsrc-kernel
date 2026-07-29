@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_GFX_ACCEL_H
-#define MYKERNEL_GFX_ACCEL_H
+#ifndef HSRC_GFX_ACCEL_H
+#define HSRC_GFX_ACCEL_H
 
 #include "surface.h"
 

@@ -256,11 +256,52 @@ static int vfs_do_mount(const char *source, const char *target,
     super_block_t *sb = NULL;
     vfsmount_t *mnt = NULL;
     dentry_t *mp = NULL;
+    dentry_t *src = NULL;
     int err = 0;
     int i;
     int rc;
 
-    (void)flags;
+    if (!target)
+        return -EINVAL;
+
+    for (i = 0; i < VFS_MAX_MOUNTS; i++) {
+        if (!g_mounts[i].used) {
+            mnt = &g_mounts[i];
+            break;
+        }
+    }
+    if (!mnt)
+        return -ENOSPC;
+
+    /* Bind mount: alias an existing path onto target. */
+    if (flags & MS_BIND) {
+        if (!source)
+            return -EINVAL;
+        src = path_walk(source, &err);
+        if (!src)
+            return err ? err : -ENOENT;
+        mp = path_walk(target, &err);
+        if (!mp) {
+            src->d_ref--;
+            return err ? err : -ENOENT;
+        }
+        memset(mnt, 0, sizeof(*mnt));
+        strncpy(mnt->mnt_devname, "bind", sizeof(mnt->mnt_devname) - 1);
+        strncpy(mnt->mnt_path, target, sizeof(mnt->mnt_path) - 1);
+        mnt->mnt_sb = src->d_inode ? src->d_inode->i_sb : NULL;
+        mnt->mnt_root = src;
+        mnt->mnt_mountpoint = mp;
+        mnt->mnt_parent = g_root_mnt;
+        mnt->mnt_flags = flags;
+        mnt->used = 1;
+        vga_print("vfs: bind ");
+        vga_print(source);
+        vga_print(" -> ");
+        vga_print(target);
+        vga_print("\n");
+        return 0;
+    }
+
     if (!fstype)
         return -EINVAL;
     fs = find_fs(fstype);
@@ -273,15 +314,6 @@ static int vfs_do_mount(const char *source, const char *target,
     if (!sb || !sb->s_root)
         return -EIO;
 
-    for (i = 0; i < VFS_MAX_MOUNTS; i++) {
-        if (!g_mounts[i].used) {
-            mnt = &g_mounts[i];
-            break;
-        }
-    }
-    if (!mnt)
-        return -ENOSPC;
-
     memset(mnt, 0, sizeof(*mnt));
     if (source)
         strncpy(mnt->mnt_devname, source, sizeof(mnt->mnt_devname) - 1);
@@ -292,7 +324,7 @@ static int vfs_do_mount(const char *source, const char *target,
     mnt->mnt_flags = flags;
     mnt->used = 1;
 
-    if (!g_root_mnt || !target || strcmp(target, "/") == 0) {
+    if (!g_root_mnt || strcmp(target, "/") == 0) {
         mnt->mnt_parent = NULL;
         mnt->mnt_mountpoint = NULL;
         g_root_mnt = mnt;

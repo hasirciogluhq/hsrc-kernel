@@ -1,0 +1,40 @@
+---
+description: Kernel standalone vs GUI package, disk FHS, console fallback
+alwaysApply: true
+---
+
+# Kernel / GUI package / disk layout
+
+## Kernel is standalone
+
+- The kernel must boot and remain usable **without** a GUI stack.
+- Do **not** halt if `display_active()` or `mkdx_api_get()` / DX is missing.
+- **GUI mode**: display driver + DX/mkdx loaded → splash → hand off to `/init`.
+- **Console mode**: no GUI stack (or no `/init`) → `kshell` (VGA/keyboard console).
+- Kernel never spawns session apps (WM, shell, terminal). Only `/init` (or kshell).
+
+## Packages (think separate products)
+
+| Package | Location on disk | Contents |
+|---------|------------------|----------|
+| Kernel + kmods | `kernel.bin` + initrd | core OS, drivers, optional PID1 blob `init` |
+| System / GUI | `/system/bin`, `/system/share`, `/system/etc` | window-manager, os-shell, terminal, files, settings, icons |
+| User apps | `/applications` | minesweeper, imgui-demo, third-party `.mke` |
+
+- No window-manager / no DX → **no GUI**; console works.
+- PATH default: `/system/bin:/applications`.
+- Executables use `.mke` (MKE1); bare names resolve via PATH.
+
+## Disk image (dev)
+
+- Single FAT `disk.img` (vda) mounted at `/.osdisk`, bind-mounted to `/system` and `/applications`.
+- After build, install artifacts with:
+  - `scripts/dev-disk-install.sh` (or `xmake build disk` / `disk-install`)
+  - then `xmake run`
+- `pack_fat` accepts `host:disk/path` including directories (`system/bin/foo.mke`).
+
+## Init
+
+- Conventional PID1 path is **`/init`** (not under `/applications`).
+- Default `/init` starts system session units from PATH (`window-manager`, `os-shell`).
+- User apps are never started by kernel or as hard-coded PID1 defaults.

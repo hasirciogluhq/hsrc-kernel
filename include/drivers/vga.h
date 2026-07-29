@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_VGA_H
-#define MYKERNEL_VGA_H
+#ifndef HSRC_VGA_H
+#define HSRC_VGA_H
 
 #include <kernel/types.h>
 

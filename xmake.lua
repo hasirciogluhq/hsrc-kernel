@@ -1,4 +1,4 @@
-set_project("mykernel")
+set_project("hsrc")
 set_version("0.1.0")
 set_xmakever("2.8.0")
 

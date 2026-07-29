@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_GFX_BLUR_H
-#define MYKERNEL_GFX_BLUR_H
+#ifndef HSRC_GFX_BLUR_H
+#define HSRC_GFX_BLUR_H
 
 #include "surface.h"
 

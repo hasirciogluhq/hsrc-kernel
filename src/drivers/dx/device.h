@@ -1,11 +1,11 @@
-#ifndef MYKERNEL_MKDX_DEVICE_H
-#define MYKERNEL_MKDX_DEVICE_H
+#ifndef HSRC_DX_DEVICE_H
+#define HSRC_DX_DEVICE_H
 
 #include "surface.h"
 #include <drivers/display.h>
 
 /*
- * MKDX scanout device - double-buffered:
+ * DX scanout device - double-buffered:
  *   backbuffer  = compose / draw target (CPU surface)
  *   framebuffer = display LFB / GPU scanout resource (mode.addr)
  * Present copies or page-flips backbuffer → framebuffer via display_ops

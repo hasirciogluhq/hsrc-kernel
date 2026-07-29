@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_KERNEL_VFS_API_H
-#define MYKERNEL_KERNEL_VFS_API_H
+#ifndef HSRC_KERNEL_VFS_API_H
+#define HSRC_KERNEL_VFS_API_H
 
 #include <kernel/types.h>
 

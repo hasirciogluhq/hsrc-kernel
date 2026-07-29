@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_HEAP_H
-#define MYKERNEL_HEAP_H
+#ifndef HSRC_HEAP_H
+#define HSRC_HEAP_H
 
 #include <kernel/types.h>
 

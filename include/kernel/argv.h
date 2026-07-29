@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_ARGV_H
-#define MYKERNEL_ARGV_H
+#ifndef HSRC_ARGV_H
+#define HSRC_ARGV_H
 
 #include <kernel/types.h>
 

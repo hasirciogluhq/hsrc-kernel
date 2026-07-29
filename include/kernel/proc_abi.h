@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_PROC_ABI_H
-#define MYKERNEL_PROC_ABI_H
+#ifndef HSRC_PROC_ABI_H
+#define HSRC_PROC_ABI_H
 
 #include <kernel/types.h>
 
@@ -21,7 +21,7 @@ typedef struct proc_page_entry {
     uint64_t uptime_ticks;
     uint32_t mem_bytes;    /* total: struct + stacks + image + vma */
     uint32_t stack_bytes;  /* kstack (+ ustack for ring-3) */
-    uint32_t image_bytes;  /* loaded .mke image+bss (flat map) */
+    uint32_t image_bytes;  /* loaded .hxe image+bss (flat map) */
     uint32_t vma_bytes;    /* mmap-backed pages */
     char     name[PROC_PAGE_NAME];
 } proc_page_entry_t;

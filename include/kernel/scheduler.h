@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_SCHEDULER_H
-#define MYKERNEL_SCHEDULER_H
+#ifndef HSRC_SCHEDULER_H
+#define HSRC_SCHEDULER_H
 
 #include <kernel/types.h>
 #include <kernel/process.h>

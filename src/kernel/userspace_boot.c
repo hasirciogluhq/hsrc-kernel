@@ -1,19 +1,17 @@
 #include <kernel/userspace_boot.h>
+#include <kernel/kshell.h>
 #include <kernel/mke.h>
 #include <kernel/vfs.h>
 #include <kernel/initrd.h>
 #include <kernel/initrd_store.h>
 #include <kernel/string.h>
+#include <kernel/mkdx_api.h>
 #include <drivers/serial.h>
 #include <drivers/vga.h>
+#include <drivers/display.h>
 
-/* Conventional first userspace process path (Linux-like). */
 #define USERSPACE_INIT_PATH "/init"
 
-/*
- * Install PID1 at /init on the rootfs from the initrd entry named "init".
- * Custom images may already provide /init; we do not overwrite it.
- */
 static int install_init_from_initrd(void)
 {
     const initrd_header_t *hdr;
@@ -72,6 +70,11 @@ static int install_init_from_initrd(void)
     return 0;
 }
 
+int gui_stack_ready(void)
+{
+    return (display_active() && mkdx_api_get()) ? 1 : 0;
+}
+
 void userspace_boot(void)
 {
     char resolved[VFS_PATH_MAX];
@@ -87,15 +90,17 @@ void userspace_boot(void)
 
     rc = exe_resolve(USERSPACE_INIT_PATH, resolved, sizeof(resolved));
     if (rc < 0) {
-        klog("[boot] /init not found\n");
-        vga_print("userspace boot failed (/init)\n");
+        klog("[boot] /init not found — falling back to kshell\n");
+        vga_print("no /init — console mode\n");
+        kshell_start();
         return;
     }
 
     pid = mke_spawn_path(resolved);
     if (pid < 0) {
-        klog("[boot] userspace_boot FAILED\n");
-        vga_print("userspace boot failed (/init)\n");
+        klog("[boot] userspace_boot FAILED — kshell\n");
+        vga_print("init spawn failed — console mode\n");
+        kshell_start();
         return;
     }
 

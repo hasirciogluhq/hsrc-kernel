@@ -1,8 +1,8 @@
-#include "mkdx.h"
+#include "dx.h"
 #include "console.h"
 #include <kernel/initrd.h>
 #include <kernel/initrd_store.h>
-#include <kernel/mkdx_api.h>
+#include <kernel/dx_api.h>
 #include <kernel/string.h>
 #include <kernel/sync.h>
 #include <user/gx.h>
@@ -12,7 +12,7 @@
 #include <drivers/keyboard.h>
 #include <drivers/serial.h>
 
-static mkdx_gpu g_gpu;
+static dx_gpu g_gpu;
 
 static uint16_t rd16le(const uint8_t *p)
 {
@@ -165,12 +165,12 @@ static gx_surface *load_default_wallpaper(gx_server *s)
     return NULL;
 }
 
-int mkdx_get_screen_size(uint32_t *w, uint32_t *h, uint32_t *bpp)
+int dx_get_screen_size(uint32_t *w, uint32_t *h, uint32_t *bpp)
 {
     return display_get_screen_size(w, h, bpp);
 }
 
-int mkdx_present(void)
+int dx_present(void)
 {
     if (!gx_server_get())
         return -1;
@@ -512,7 +512,7 @@ static int api_console_show(int pid, int visible)
     return proc_console_show(pid, visible);
 }
 
-static const mkdx_api_t g_api = {
+static const dx_api_t g_api = {
     .info = api_info,
     .present = api_present,
     .mark_dirty = api_mark_dirty,
@@ -543,28 +543,28 @@ static const mkdx_api_t g_api = {
     .console_show = api_console_show,
 };
 
-static int mkdx_drv_probe(driver_t *drv, void *ctx)
+static int dx_drv_probe(driver_t *drv, void *ctx)
 {
     (void)drv;
     (void)ctx;
     return display_active() ? 0 : -1;
 }
 
-static int mkdx_drv_init(driver_t *drv, void *ctx)
+static int dx_drv_init(driver_t *drv, void *ctx)
 {
     (void)drv;
     (void)ctx;
-    klog("[mkdx] init\n");
+    klog("[dx] init\n");
     if (gx_server_init() < 0) {
-        klog("[mkdx] gx_server_init FAILED\n");
+        klog("[dx] gx_server_init FAILED\n");
         return -1;
     }
-    if (mkdx_gpu_init(&g_gpu) < 0) {
-        klog("[mkdx] mkdx_gpu_init FAILED\n");
+    if (dx_gpu_init(&g_gpu) < 0) {
+        klog("[dx] dx_gpu_init FAILED\n");
         return -1;
     }
-    mkdx_api_register(&g_api);
-    klog("[mkdx] ready\n");
+    dx_api_register(&g_api);
+    klog("[dx] ready\n");
     return 0;
 }
 
@@ -572,18 +572,18 @@ int kmod_init(void)
 {
     driver_t d;
     memset(&d, 0, sizeof(d));
-    strncpy(d.name, "mkdx", DRIVER_NAME_MAX - 1);
+    strncpy(d.name, "dx", DRIVER_NAME_MAX - 1);
     strncpy(d.version, "1.0", DRIVER_VERSION_MAX - 1);
     d.kind = DRIVER_KIND_CUSTOM;
     d.class = DRIVER_CLASS_DISPLAY;
     d.flags = 0;
     d.priority = 50;
-    d.probe = mkdx_drv_probe;
-    d.init = mkdx_drv_init;
+    d.probe = dx_drv_probe;
+    d.init = dx_drv_init;
 
     if (driver_register(&d) < 0)
         return -1;
-    if (driver_load("mkdx", NULL) < 0)
+    if (driver_load("dx", NULL) < 0)
         return -1;
     return 0;
 }

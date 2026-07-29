@@ -24,6 +24,7 @@
 #include <arch/x86/irq.h>
 #include <kernel/mke.h>
 #include <kernel/userspace_boot.h>
+#include <kernel/kshell.h>
 #include <kernel/boot_splash.h>
 #include <kernel/smp.h>
 #include <arch/x86/gdt.h>
@@ -120,43 +121,41 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
 
     if (env_load_initrd() < 0)
         klog("[boot] env_load_initrd failed (using defaults)\n");
-    /* Disk apps are mounted at /applications by the fat kmod (vda). */
-    if (env_load_file("/applications/environment") < 0 &&
+    /* Disk: /.osdisk with bind mounts /system + /applications (fat kmod). */
+    if (env_load_file("/system/etc/environment") < 0 &&
+        env_load_file("/applications/environment") < 0 &&
         env_load_file("/etc/environment") < 0)
         klog("[boot] no environment file on disk\n");
 
     {
-        int fd = vfs_open("/applications", O_RDONLY);
+        int fd = vfs_open("/system", O_RDONLY);
         if (fd < 0)
-            klog("[boot] /applications missing - disk apps not mounted\n");
+            klog("[boot] /system missing - OS package not on disk\n");
+        else
+            (void)vfs_close(fd);
+        fd = vfs_open("/applications", O_RDONLY);
+        if (fd < 0)
+            klog("[boot] /applications missing - user apps not on disk\n");
         else
             (void)vfs_close(fd);
     }
 
-    if (!display_active()) {
-        klog("[boot] no active display\n");
-        vga_print("no active display\n");
-        for (;;)
-            __asm__ volatile("hlt");
+    /* Kernel is standalone: no display/mkdx → console (kshell), not halt. */
+    if (gui_stack_ready()) {
+        klog("[boot] GUI stack ready (display+mkdx)\n");
+        boot_splash_show();
+    } else {
+        klog("[boot] GUI stack unavailable — console mode\n");
+        vga_print("console mode (no GUI stack)\n");
     }
-    klog("[boot] display active\n");
-
-    if (!mkdx_api_get()) {
-        klog("[boot] mkdx NOT loaded - UI cannot start\n");
-        vga_print("mkdx not loaded\n");
-        for (;;)
-            __asm__ volatile("hlt");
-    }
-    klog("[boot] mkdx ready\n");
-    klog_heap("[boot]");
-
-    /* Calm spinner while userspace comes up - covers the raw LFB blue flash. */
-    boot_splash_show();
 
     service_register_builtin_defaults();
 
-    /* Kernel does not spawn session apps — only hand off to systemd on disk. */
-    userspace_boot();
+    if (gui_stack_ready()) {
+        userspace_boot(); /* /init → session; falls back to kshell if needed */
+    } else {
+        kshell_start();
+    }
     service_bind_existing_processes();
     klog_heap("[boot]");
 

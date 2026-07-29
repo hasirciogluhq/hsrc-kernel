@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_KERNEL_KSYM_H
-#define MYKERNEL_KERNEL_KSYM_H
+#ifndef HSRC_KERNEL_KSYM_H
+#define HSRC_KERNEL_KSYM_H
 
 #include <kernel/types.h>
 

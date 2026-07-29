@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_KERNEL_INITRD_H
-#define MYKERNEL_KERNEL_INITRD_H
+#ifndef HSRC_KERNEL_INITRD_H
+#define HSRC_KERNEL_INITRD_H
 
 #include <kernel/types.h>
 

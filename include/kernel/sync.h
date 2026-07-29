@@ -1,5 +1,5 @@
-#ifndef MYKERNEL_SYNC_H
-#define MYKERNEL_SYNC_H
+#ifndef HSRC_SYNC_H
+#define HSRC_SYNC_H
 
 #include <kernel/types.h>
 #include <kernel/process.h>

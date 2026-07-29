@@ -122,10 +122,10 @@ int exe_resolve(const char *in, char *out, size_t outsz)
         return exe_try_path(cand, out, outsz);
     }
 
-    /* Bare name: search $PATH (default /applications:/usr/bin) */
+    /* Bare name: search $PATH (default /system/bin:/applications) */
     pathbuf[0] = 0;
     if (env_get(p, "PATH", pathbuf, sizeof(pathbuf)) < 0 || !pathbuf[0])
-        strcpy(pathbuf, "/applications:/usr/bin");
+        strcpy(pathbuf, "/system/bin:/applications");
     pathenv = pathbuf;
     start = pathenv;
     while (*start) {

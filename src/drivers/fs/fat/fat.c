@@ -983,16 +983,26 @@ static int fat_init(driver_t *drv, void *ctx)
     (void)api->register_filesystem(&g_vfat);
     vga_print("fat: registered\n");
 
-    /* Applications live on the virtio disk (FAT), not initrd RAM. */
+    /* OS disk: FAT with /system (GUI package) and /applications (user apps).
+     * Volume is mounted at /.osdisk then bind-mounted to the public paths. */
     if (api->mount && api->mkdir) {
+        int mounted = 0;
+        (void)api->mkdir("/.osdisk", 0755);
+        (void)api->mkdir("/system", 0755);
+        (void)api->mkdir("/system/bin", 0755);
         (void)api->mkdir("/applications", 0755);
         (void)api->mkdir("/root", 0755);
-        if (api->mount("vda", "/applications", "fat", 0, NULL) == 0)
-            vga_print("fat: mounted vda -> /applications (on-disk apps)\n");
-        else if (api->mount("vda", "/applications", "vfat", 0, NULL) == 0)
-            vga_print("fat: mounted vda -> /applications (vfat)\n");
-        else
-            vga_print("fat: vda not mounted - /applications unavailable!\n");
+        if (api->mount("vda", "/.osdisk", "fat", 0, NULL) == 0)
+            mounted = 1;
+        else if (api->mount("vda", "/.osdisk", "vfat", 0, NULL) == 0)
+            mounted = 1;
+        if (mounted) {
+            (void)api->mount("/.osdisk/system", "/system", NULL, MS_BIND, NULL);
+            (void)api->mount("/.osdisk/applications", "/applications", NULL, MS_BIND, NULL);
+            vga_print("fat: vda -> /.osdisk (bind /system + /applications)\n");
+        } else {
+            vga_print("fat: vda not mounted - disk unavailable!\n");
+        }
     }
     return 0;
 }
