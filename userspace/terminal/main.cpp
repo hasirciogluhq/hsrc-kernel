@@ -104,7 +104,7 @@ void refresh_cwd()
 
 void make_prompt(char *out, size_t n)
 {
-    /* root@hsrc:/path# */
+    /* root@root:/path# */
     const char *user = (hsrc::sdk::geteuid() == 0) ? "root" : "user";
     char tmp[VFS_PATH_MAX + 32];
     int i = 0;
@@ -113,7 +113,7 @@ void make_prompt(char *out, size_t n)
     p = user;
     while (*p && i < (int)sizeof(tmp) - 1)
         tmp[i++] = *p++;
-    const char *mid = "@hsrc:";
+    const char *mid = "@root:";
     p = mid;
     while (*p && i < (int)sizeof(tmp) - 1)
         tmp[i++] = *p++;

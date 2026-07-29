@@ -292,7 +292,13 @@ static int name_eq(const char *a, const char *b)
     return *a == *b;
 }
 
-/* Decode one VFAT LFN entry into utf8-ish (ASCII subset) slots. */
+/* Decode one VFAT LFN entry into utf8-ish (ASCII subset) slots.
+ *
+ * Do not NUL-terminate after every character: LFN entries are stored high
+ * sequence first, so a full 13-char lower entry would clobber the first
+ * character of the already-written higher fragment (names >13 chars).
+ * The LFN buffer is memset to 0 when the 0x40 start entry is seen.
+ */
 static void lfn_entry_extract(const uint8_t *ent, char *out, size_t out_cap, int start)
 {
     static const int pos[] = {1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30};
@@ -300,12 +306,13 @@ static void lfn_entry_extract(const uint8_t *ent, char *out, size_t out_cap, int
     for (i = 0; i < 13; i++) {
         uint16_t ch = (uint16_t)(ent[pos[i]] | (ent[pos[i] + 1] << 8));
         size_t idx = (size_t)(start + i);
-        if (ch == 0 || ch == 0xFFFF)
+        if (idx >= out_cap)
             break;
-        if (idx + 1 >= out_cap)
+        if (ch == 0 || ch == 0xFFFF) {
+            out[idx] = 0;
             break;
+        }
         out[idx] = (ch < 128) ? (char)ch : '?';
-        out[idx + 1] = 0;
     }
 }
 
