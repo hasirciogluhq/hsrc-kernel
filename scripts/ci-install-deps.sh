@@ -42,11 +42,21 @@ link_tool as i686-linux-gnu-as
 link_tool ranlib i686-linux-gnu-ranlib
 link_tool strip i686-linux-gnu-strip
 
+export PATH="$HOME/.local/bin:$PATH"
 if ! command -v xmake >/dev/null 2>&1; then
+  # Official installer often exits 1 after printing "source ~/.xmake/profile"
+  # even when the install succeeded — ignore that and verify below.
+  set +e
   curl -fsSL https://xmake.io/shget.text | bash
+  install_rc=$?
+  set -e
   # shellcheck disable=SC1090
   source "$HOME/.xmake/profile" 2>/dev/null || true
   export PATH="$HOME/.local/bin:$PATH"
+  if ! command -v xmake >/dev/null 2>&1; then
+    echo "[ci] xmake install failed (installer rc=$install_rc)" >&2
+    exit 1
+  fi
 fi
 
 echo "[ci] toolchain:"
