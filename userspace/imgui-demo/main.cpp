@@ -104,7 +104,7 @@ void paint()
 
 } // namespace
 
-extern "C" void mke_main(void)
+extern "C" void exec_main(void)
 {
     ImGui::SetAllocatorFunctions(
         [](size_t sz, void *) -> void * { return malloc(sz); },

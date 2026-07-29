@@ -39,7 +39,7 @@ int main(int argc, char **argv) {
   uint32_t sizes[INITRD_MAX_FILES];
 
   if (argc < 3) {
-    fprintf(stderr, "usage: %s <out.img> <file.kmod|.mke>...\n", argv[0]);
+    fprintf(stderr, "usage: %s <out.img> <file.kmod|.exec>...\n", argv[0]);
     return 1;
   }
   if (argc - 2 > INITRD_MAX_FILES) {

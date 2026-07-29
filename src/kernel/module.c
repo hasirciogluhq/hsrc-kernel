@@ -402,11 +402,11 @@ int modules_load_initrd(const void *data, size_t size)
             return -1;
         blob = (const uint8_t *)data + f->offset;
 
-        /* .exe apps are spawned later by exe_spawn_from_* */
+        /* .exec apps are spawned later by exec_spawn_* */
         if (f->size >= 4) {
             magic = blob[0] | ((uint32_t)blob[1] << 8) |
                     ((uint32_t)blob[2] << 16) | ((uint32_t)blob[3] << 24);
-            if (magic == 0x31455845u) /* EXE1 */
+            if (magic == 0x43455845u) /* EXEC */
                 continue;
         }
 

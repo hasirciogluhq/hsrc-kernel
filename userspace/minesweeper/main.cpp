@@ -465,7 +465,7 @@ bool refresh_window_options()
 
 } // namespace
 
-extern "C" void mke_main(void)
+extern "C" void exec_main(void)
 {
     if (!hsrc::sdk::screen_info(g_screen) || g_screen.width == 0 || g_screen.height == 0) {
         for (;;)

@@ -1,6 +1,6 @@
 #include <kernel/userspace_boot.h>
 #include <kernel/kshell.h>
-#include <kernel/exe.h>
+#include <kernel/exec.h>
 #include <kernel/vfs.h>
 #include <kernel/initrd.h>
 #include <kernel/initrd_store.h>
@@ -88,7 +88,7 @@ void userspace_boot(void)
     if (install_init_from_initrd() < 0)
         klog("[boot] warning: could not install /init from initrd\n");
 
-    rc = exe_resolve(USERSPACE_INIT_PATH, resolved, sizeof(resolved));
+    rc = exec_resolve(USERSPACE_INIT_PATH, resolved, sizeof(resolved));
     if (rc < 0) {
         klog("[boot] /init not found — falling back to kshell\n");
         vga_print("no /init — console mode\n");
@@ -96,7 +96,7 @@ void userspace_boot(void)
         return;
     }
 
-    pid = exe_spawn_path(resolved);
+    pid = exec_spawn_path(resolved);
     if (pid < 0) {
         klog("[boot] userspace_boot FAILED — kshell\n");
         vga_print("init spawn failed — console mode\n");

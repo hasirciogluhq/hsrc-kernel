@@ -1,5 +1,5 @@
 /* Host tool: add files (with VFAT LFN) into an existing FAT16 image.
- * diskname may contain directories: system/bin/foo.mke creates parents. */
+ * diskname may contain directories: system/bin/foo.exec creates parents. */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

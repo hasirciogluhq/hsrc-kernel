@@ -1,4 +1,4 @@
--- Userspace SDK + apps (.exe)
+-- Userspace SDK + apps (.exec) + dynamic .dynlib libs
 local ROOT = os.projectdir()
 local INC = path.join(ROOT, "include")
 local BUILD = path.join(ROOT, "build")
@@ -16,7 +16,29 @@ target("sdk-core")
     add_cflags("-DUSERMODE", {force = true})
     set_targetdir(path.join(BUILD, "userspace/lib"))
 
-local function define_app(name, load_addr, files, incs, flags)
+-- Dynamic userspace FS library → build/userspace/lib/libfs.dynlib (ELF ET_REL)
+target("dynlib-libfs")
+    set_kind("object")
+    set_default(false)
+    kernel_cross_target()
+    add_files(path.join(ROOT, "userspace/sdk/libfs/libfs.c"))
+    add_includedirs(INC)
+    add_defines("USERMODE")
+    add_cflags(kernel_cflags(), {force = true})
+    add_cflags("-DUSERMODE", {force = true})
+    set_targetdir(path.join(BUILD, "userspace/lib/obj/libfs"))
+    after_build(function (target)
+        local out = path.join(BUILD, "userspace/lib/libfs.dynlib")
+        os.mkdir(path.directory(out))
+        local args = {"-m", "elf_i386", "-r", "-o", out}
+        for _, o in ipairs(target:objectfiles()) do
+            table.insert(args, o)
+        end
+        os.execv("i686-elf-ld", args)
+        print("packed " .. out)
+    end)
+
+local function define_app(name, load_addr, files, incs, flags, needed)
     local abs_files = {}
     for _, f in ipairs(files) do
         table.insert(abs_files, path.join(ROOT, f))
@@ -25,7 +47,10 @@ local function define_app(name, load_addr, files, incs, flags)
         set_kind("binary")
         set_default(false)
         kernel_cross_target()
-        add_deps("sdk-core", "pack_exe")
+        add_deps("sdk-core", "pack_exec")
+        if needed then
+            add_deps("dynlib-libfs")
+        end
         add_files(abs_files)
         add_includedirs(INC, path.join(ROOT, "userspace/sdk/core"))
         if incs then
@@ -55,7 +80,7 @@ local function define_app(name, load_addr, files, incs, flags)
         end)
         after_build(function (target)
             import("kernel.pack")
-            pack.pack_exe(target, load_addr, name)
+            pack.pack_exec(target, load_addr, name, needed)
         end)
 end
 
@@ -81,10 +106,20 @@ define_app("imgui-demo", 0x03200000, {
     "userspace/imgui-demo/third_party/imgui",
 }, kernel_imgui_cxxflags())
 
+define_app("libfs-demo", 0x03400000, {
+    "userspace/libfs-demo/main.cpp",
+    "userspace/sdk/libfs/import.cpp",
+}, nil, nil, {"libfs.dynlib"})
+define_app("libfs-demo2", 0x03600000, {
+    "userspace/libfs-demo2/main.cpp",
+    "userspace/sdk/libfs/import.cpp",
+}, nil, nil, {"libfs.dynlib"})
+
 target("userspace")
     set_kind("phony")
     set_default(true)
-    add_deps("sdk-core", "sdk-reed", "sdk-kilim",
+    add_deps("sdk-core", "sdk-reed", "sdk-kilim", "dynlib-libfs",
         "app-init", "app-window-manager", "app-os-shell",
         "app-os-settings", "app-terminal", "app-files", "app-activity-monitor",
-        "app-minesweeper", "app-imgui-demo")
+        "app-minesweeper", "app-imgui-demo",
+        "app-libfs-demo", "app-libfs-demo2")

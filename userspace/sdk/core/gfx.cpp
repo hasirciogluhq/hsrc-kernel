@@ -679,7 +679,7 @@ bool Window::handle_chrome_hit(ChromeHit hit)
     switch (hit) {
     case ChromeHit::Close:
         (void)close();
-        /* Never return from mke_main - usermode has no return address (eip→junk/#UD). */
+        /* Never return from exec_main - usermode has no return address (eip→junk/#UD). */
         exit(0);
     case ChromeHit::Minimize:
         return minimize();

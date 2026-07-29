@@ -195,7 +195,7 @@ const char *entry_type_label(const Entry &entry)
 {
     if (entry.synthetic_up || S_ISDIR(entry.type))
         return "dir";
-    if (ends_with(entry.name, ".mke"))
+    if (ends_with(entry.name, ".exec"))
         return "app";
     return "file";
 }
@@ -205,7 +205,7 @@ Color entry_name_color(const Entry &entry)
     const auto &t = theme();
     if (entry.synthetic_up || S_ISDIR(entry.type))
         return t.accent;
-    if (ends_with(entry.name, ".mke"))
+    if (ends_with(entry.name, ".exec"))
         return t.warn;
     return t.text;
 }
@@ -219,8 +219,8 @@ bool activate_entry(int index)
     if (entry.synthetic_up || S_ISDIR(entry.type))
         return navigate_to(entry.synthetic_up ? ".." : entry.name);
 
-    if (!ends_with(entry.name, ".mke")) {
-        set_status("only folders and .mke apps");
+    if (!ends_with(entry.name, ".exec")) {
+        set_status("only folders and .exec apps");
         g_dirty = true;
         return false;
     }
@@ -391,7 +391,7 @@ void handle_click(const Input &in)
 
 } // namespace
 
-extern "C" void mke_main(void)
+extern "C" void exec_main(void)
 {
     if (!hsrc::sdk::screen_info(g_screen) || g_screen.width == 0 || g_screen.height == 0) {
         for (;;)

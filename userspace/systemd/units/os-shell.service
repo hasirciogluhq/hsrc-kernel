@@ -3,5 +3,5 @@ Description=OS Shell
 Restart=always
 
 [Service]
-ExecStart=/applications/os-shell.mke
+ExecStart=/applications/os-shell.exec
 Critical=yes

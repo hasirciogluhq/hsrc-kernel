@@ -2,7 +2,8 @@
 #include <kernel/process.h>
 #include <kernel/env.h>
 #include <kernel/argv.h>
-#include <kernel/exe.h>
+#include <kernel/exec.h>
+#include <kernel/dx_api.h>
 #include <kernel/service.h>
 #include <kernel/scheduler.h>
 #include <kernel/sync.h>
@@ -306,7 +307,7 @@ static long do_write(long fd, long buf, long count)
             return ret;
         }
         if (n > 0 && ((int)fd == STDOUT_FILENO || (int)fd == STDERR_FILENO)) {
-            const mkdx_api_t *api = mkdx_api_get();
+            const dx_api_t *api = dx_api_get();
             process_t *lead = process_leader(p);
             if (api && api->console_write && lead)
                 (void)api->console_write((int)lead->pid, tmp, (size_t)n);
@@ -425,7 +426,7 @@ static long do_getppid(void)
 
 static long do_yield(long sleep_ticks)
 {
-    const mkdx_api_t *api = mkdx_api_get();
+    const dx_api_t *api = dx_api_get();
     process_t *p = process_current();
 
     /* Optional coop reschedule (sleep_ticks==0). sleep_ticks>0 → PROC_BLOCKED.
@@ -514,7 +515,7 @@ static long do_spawn(long path_ptr, long flags, long argv_ptr, long argc)
     if (copy_from_user(user_path, (const void *)path_ptr, (size_t)len + 1) < 0)
         return -EFAULT;
 
-    rc = exe_resolve(user_path, full_path, sizeof(full_path));
+    rc = exec_resolve(user_path, full_path, sizeof(full_path));
     if (rc < 0)
         return rc;
 
@@ -527,13 +528,13 @@ static long do_spawn(long path_ptr, long flags, long argv_ptr, long argc)
     spawn_flags = (uint32_t)flags;
     if (spawn_flags == 0)
         spawn_flags = SPAWN_CONSOLE_HIDDEN;
-    return (long)mke_spawn_path_flags(full_path, spawn_flags,
+    return (long)exec_spawn_path_flags(full_path, spawn_flags,
                                       copied_argc > 0 ? kargv : NULL, copied_argc);
 }
 
 static long do_console_show(long pid, long visible)
 {
-    const mkdx_api_t *api = mkdx_api_get();
+    const dx_api_t *api = dx_api_get();
     if (!api || !api->console_show)
         return -ENOSYS;
     return (long)api->console_show((int)pid, visible ? 1 : 0);
@@ -921,15 +922,15 @@ static long do_aio_wait(long slot)
     return rc;
 }
 
-static const mkdx_api_t *mkdx(void)
+static const dx_api_t *dx_api(void)
 {
-    return mkdx_api_get();
+    return dx_api_get();
 }
 
 static long do_gx_info(long outp)
 {
     ugx_info info;
-    const mkdx_api_t *api = mkdx();
+    const dx_api_t *api = dx_api();
     if (!outp || !api || !api->info)
         return -1;
     if (api->info(&info.width, &info.height, &info.bpp) < 0)
@@ -941,7 +942,7 @@ static long do_gx_info(long outp)
 
 static long do_gx_present(long argp)
 {
-    const mkdx_api_t *api = mkdx();
+    const dx_api_t *api = dx_api();
     ugx_present_args args;
     const void *pargs = NULL;
 
@@ -958,7 +959,7 @@ static long do_gx_present(long argp)
 static long do_wm_create(long argp)
 {
     ugx_window_opts args;
-    const mkdx_api_t *api = mkdx();
+    const dx_api_t *api = dx_api();
     process_t *p = process_leader(process_current());
     if (!api || !api->wm_create)
         return -1;
@@ -970,7 +971,7 @@ static long do_wm_create(long argp)
 static long do_wm_set(long id, long optsp)
 {
     ugx_window_opts args;
-    const mkdx_api_t *api = mkdx();
+    const dx_api_t *api = dx_api();
     if (!api || !api->wm_set)
         return -1;
     if (copy_from_user(&args, (const void *)optsp, sizeof(args)) < 0)
@@ -981,7 +982,7 @@ static long do_wm_set(long id, long optsp)
 static long do_wm_get(long id, long outp)
 {
     ugx_window_opts args;
-    const mkdx_api_t *api = mkdx();
+    const dx_api_t *api = dx_api();
     if (!api || !api->wm_get)
         return -1;
     if (api->wm_get((int)id, &args) < 0)
@@ -993,7 +994,7 @@ static long do_wm_get(long id, long outp)
 
 static long do_wm_close(long id)
 {
-    const mkdx_api_t *api = mkdx();
+    const dx_api_t *api = dx_api();
     if (!api)
         return -1;
     if (api->wm_close)
@@ -1005,7 +1006,7 @@ static long do_wm_close(long id)
 
 static long do_wm_destroy(long id)
 {
-    const mkdx_api_t *api = mkdx();
+    const dx_api_t *api = dx_api();
     if (!api || !api->wm_destroy)
         return -1;
     return api->wm_destroy((int)id);
@@ -1014,7 +1015,7 @@ static long do_wm_destroy(long id)
 static long do_wm_map(long id, long outp)
 {
     ugx_map m;
-    const mkdx_api_t *api = mkdx();
+    const dx_api_t *api = dx_api();
     if (!api || !api->wm_map)
         return -1;
     if (api->wm_map((int)id, &m) < 0)
@@ -1026,7 +1027,7 @@ static long do_wm_map(long id, long outp)
 
 static long do_wm_move(long id, long x, long y)
 {
-    const mkdx_api_t *api = mkdx();
+    const dx_api_t *api = dx_api();
     if (!api || !api->wm_move)
         return -1;
     return api->wm_move((int)id, (int32_t)x, (int32_t)y);
@@ -1034,7 +1035,7 @@ static long do_wm_move(long id, long x, long y)
 
 static long do_wm_resize(long id, long w, long h)
 {
-    const mkdx_api_t *api = mkdx();
+    const dx_api_t *api = dx_api();
     if (!api || !api->wm_resize)
         return -1;
     return api->wm_resize((int)id, (int32_t)w, (int32_t)h);
@@ -1042,7 +1043,7 @@ static long do_wm_resize(long id, long w, long h)
 
 static long do_wm_focus(long id)
 {
-    const mkdx_api_t *api = mkdx();
+    const dx_api_t *api = dx_api();
     if (!api || !api->wm_focus)
         return -1;
     return api->wm_focus((int)id);
@@ -1050,7 +1051,7 @@ static long do_wm_focus(long id)
 
 static long do_wm_show(long id, long vis)
 {
-    const mkdx_api_t *api = mkdx();
+    const dx_api_t *api = dx_api();
     if (!api || !api->wm_show)
         return -1;
     return api->wm_show((int)id, (int)vis);
@@ -1059,7 +1060,7 @@ static long do_wm_show(long id, long vis)
 static long do_gx_fill(long argp, int rounded)
 {
     ugx_fill_args args;
-    const mkdx_api_t *api = mkdx();
+    const dx_api_t *api = dx_api();
     if (!api || !api->fill)
         return -1;
     if (copy_from_user(&args, (const void *)argp, sizeof(args)) < 0)
@@ -1073,7 +1074,7 @@ static long do_gx_set_wallpaper(long argp)
     ugx_wallpaper kargs;
     uint32_t pixels[64];
     size_t npix;
-    const mkdx_api_t *api = mkdx();
+    const dx_api_t *api = dx_api();
 
     if (!api || !api->set_wallpaper)
         return -1;
@@ -1104,7 +1105,7 @@ static long do_gx_set_wallpaper(long argp)
 static long do_input_state(long outp)
 {
     ugx_input_state st;
-    const mkdx_api_t *api = mkdx();
+    const dx_api_t *api = dx_api();
     if (!api || !api->input_state)
         return -1;
     memset(&st, 0, sizeof(st));
@@ -1118,7 +1119,7 @@ static long do_input_state(long outp)
 
 static long do_wm_pop_key(long id)
 {
-    const mkdx_api_t *api = mkdx();
+    const dx_api_t *api = dx_api();
     if (!api || !api->wm_pop_key)
         return -1;
     return api->wm_pop_key((int)id);
@@ -1126,7 +1127,7 @@ static long do_wm_pop_key(long id)
 
 static long do_gx_damage(long win_id)
 {
-    const mkdx_api_t *api = mkdx();
+    const dx_api_t *api = dx_api();
     if (!api || !api->mark_dirty)
         return -1;
     api->mark_dirty((int)win_id);
@@ -1136,7 +1137,7 @@ static long do_gx_damage(long win_id)
 static long do_gx_damage_rect(long win_id, long rectp)
 {
     ugx_damage_args r;
-    const mkdx_api_t *api = mkdx();
+    const dx_api_t *api = dx_api();
     if (!api)
         return -1;
     if (!rectp)
@@ -1159,7 +1160,7 @@ static long do_gx_damage_rect(long win_id, long rectp)
 static long do_wm_get_frame(long id, long outp)
 {
     ugx_frame fr;
-    const mkdx_api_t *api = mkdx();
+    const dx_api_t *api = dx_api();
     if (!api || !api->wm_get_frame)
         return -1;
     if (api->wm_get_frame((int)id, &fr) < 0)
@@ -1173,7 +1174,7 @@ static long do_wm_find(long titlep)
 {
     char title[64];
     int len;
-    const mkdx_api_t *api = mkdx();
+    const dx_api_t *api = dx_api();
 
     if (!api || !api->wm_find)
         return -1;
@@ -1189,7 +1190,7 @@ static long do_wm_find_class(long classp)
 {
     char class_name[32];
     int len;
-    const mkdx_api_t *api = mkdx();
+    const dx_api_t *api = dx_api();
 
     if (!api || !api->wm_find_class)
         return -1;

@@ -53,7 +53,7 @@ void on_child_exit(pid_t pid)
 
 } /* namespace */
 
-extern "C" void mke_main(void)
+extern "C" void exec_main(void)
 {
     start_all();
 

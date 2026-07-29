@@ -4,7 +4,7 @@ local BUILD = path.join(ROOT, "build")
 
 for _, t in ipairs({
     {"pack_initrd", "tools/pack_initrd.c"},
-    {"pack_exe", "tools/pack_exe.c"},
+    {"pack_exec", "tools/pack_exec.c"},
     {"pack_fat", "tools/pack_fat.c"},
     {"mkfatimg", "tools/mkfatimg.c"},
 }) do
@@ -33,8 +33,8 @@ target("initrd")
         for _, n in ipairs(layout.kmod_order()) do
             table.insert(args, path.join(BUILD, "drivers", n .. ".kmod"))
         end
-        for _, n in ipairs(layout.initrd_exe_names()) do
-            local src = path.join(BUILD, "userspace", n, n .. ".exe")
+        for _, n in ipairs(layout.initrd_exec_names()) do
+            local src = path.join(BUILD, "userspace", n, n .. ".exec")
             local staged = path.join(stagedir, n)
             os.cp(src, staged)
             table.insert(args, staged)
@@ -44,9 +44,10 @@ target("initrd")
 
 --[[
   Dev disk image layout (FAT on vda):
-    /.osdisk/system/bin/*.exe     → bind /system
-    /.osdisk/applications/*.exe   → bind /applications
-    /.osdisk/system/share/...     assets
+    /.osdisk/system/bin/*.exec       → bind /system
+    /.osdisk/system/lib/*.dynlib     → dynamic userspace libraries
+    /.osdisk/applications/*.exec     → bind /applications
+    /.osdisk/system/share/...        assets
     /.osdisk/system/etc/environment
 ]]
 target("disk")
@@ -60,13 +61,17 @@ target("disk")
         local packer = path.join(BUILD, "tools", "pack_fat")
         os.execv(mkfat, {img, "64"})
         local args = {img}
-        for _, n in ipairs(layout.system_exe_names()) do
-            local src = path.join(BUILD, "userspace", n, n .. ".exe")
-            table.insert(args, src .. ":system/bin/" .. n .. ".exe")
+        for _, n in ipairs(layout.system_exec_names()) do
+            local src = path.join(BUILD, "userspace", n, n .. ".exec")
+            table.insert(args, src .. ":system/bin/" .. n .. ".exec")
         end
-        for _, n in ipairs(layout.user_exe_names()) do
-            local src = path.join(BUILD, "userspace", n, n .. ".exe")
-            table.insert(args, src .. ":applications/" .. n .. ".exe")
+        for _, n in ipairs(layout.user_exec_names()) do
+            local src = path.join(BUILD, "userspace", n, n .. ".exec")
+            table.insert(args, src .. ":applications/" .. n .. ".exec")
+        end
+        for _, n in ipairs(layout.system_dynlib_names()) do
+            local src = path.join(BUILD, "userspace/lib", n .. ".dynlib")
+            table.insert(args, src .. ":system/lib/" .. n .. ".dynlib")
         end
         table.insert(args, path.join(ROOT, "assets/os/wallpaper-default.bmp") .. ":system/share/wallpaper-default.bmp")
         for _, ic in ipairs({

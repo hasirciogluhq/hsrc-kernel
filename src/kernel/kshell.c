@@ -1,6 +1,6 @@
 #include <kernel/kshell.h>
 #include <kernel/vfs.h>
-#include <kernel/exe.h>
+#include <kernel/exec.h>
 #include <kernel/process.h>
 #include <kernel/string.h>
 #include <kernel/dx_api.h>
@@ -121,12 +121,12 @@ static void cmd_run(const char *name)
         kshell_print("usage: run <path|name>\n");
         return;
     }
-    rc = exe_resolve(name, resolved, sizeof(resolved));
+    rc = exec_resolve(name, resolved, sizeof(resolved));
     if (rc < 0) {
         kshell_print("run: not found\n");
         return;
     }
-    pid = exe_spawn_path(resolved);
+    pid = exec_spawn_path(resolved);
     if (pid < 0) {
         kshell_print("run: spawn failed\n");
         return;

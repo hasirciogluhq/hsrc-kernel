@@ -90,17 +90,17 @@ struct AppDef {
 
 constexpr AppDef kApps[APP_COUNT] = {
     { "monitor",  "Mon",  "Activity Monitor", "os.activity-monitor",
-      "/system/bin/activity-monitor.mke", "dock.pin.monitor",  rgb(75, 180, 120),  true },
+      "/system/bin/activity-monitor.exec", "dock.pin.monitor",  rgb(75, 180, 120),  true },
     { "terminal", "Term", "Terminal",         "os.terminal",
-      "/system/bin/terminal.mke",         "dock.pin.terminal", rgb(36, 36, 40),    true },
+      "/system/bin/terminal.exec",         "dock.pin.terminal", rgb(36, 36, 40),    true },
     { "files",    "Files","Files",            "os.files",
-      "/system/bin/files.mke",            "dock.pin.files",    rgb(255, 190, 60),  true },
+      "/system/bin/files.exec",            "dock.pin.files",    rgb(255, 190, 60),  true },
     { "settings", "Prefs","System Settings",  "os.settings",
-      "/system/bin/os-settings.mke",      "dock.pin.settings", rgb(150, 150, 160), true },
+      "/system/bin/os-settings.exec",      "dock.pin.settings", rgb(150, 150, 160), true },
     { "imgui",    "ImGui","ImGui Demo",       "imgui.demo",
-      "/applications/imgui-demo.mke",     "dock.pin.imgui",    rgb(90, 140, 220),  true },
+      "/applications/imgui-demo.exec",     "dock.pin.imgui",    rgb(90, 140, 220),  true },
     { "mines",    "Mine", "Minesweeper",      "os.minesweeper",
-      "/applications/minesweeper.mke",    "dock.pin.mines",    rgb(220, 90, 90),   true },
+      "/applications/minesweeper.exec",    "dock.pin.mines",    rgb(220, 90, 90),   true },
 };
 
 struct DockSlot {
@@ -1063,7 +1063,7 @@ bool build_ui()
 
 } // namespace
 
-extern "C" void mke_main(void)
+extern "C" void exec_main(void)
 {
     ScreenInfo info{};
     if (!hsrc::sdk::screen_info(info) || info.width == 0 || info.height == 0) {

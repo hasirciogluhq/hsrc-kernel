@@ -1,3 +1,5 @@
+#include <kernel/exec.h>
+#include <kernel/dynlib.h>
 #include <kernel/argv.h>
 #include <kernel/errno.h>
 #include <kernel/env.h>
@@ -6,23 +8,24 @@
 #include <kernel/initrd.h>
 #include <kernel/initrd_store.h>
 #include <kernel/vfs.h>
+#include <kernel/dx_api.h>
 #include <kernel/syscall.h>
 #include <drivers/vga.h>
 #include <drivers/serial.h>
 #include <multiboot.h>
 
-static int name_ends_with_mke(const char *name)
+static int name_ends_with_exec(const char *name)
 {
     size_t n;
     if (!name)
         return 0;
     n = strlen(name);
-    if (n < MKE_EXT_LEN)
+    if (n < EXEC_EXT_LEN)
         return 0;
-    return strcmp(name + n - MKE_EXT_LEN, MKE_EXT) == 0;
+    return strcmp(name + n - EXEC_EXT_LEN, EXEC_EXT) == 0;
 }
 
-static int exe_file_readable(const char *path)
+static int exec_file_readable(const char *path)
 {
     int fd;
 
@@ -35,7 +38,7 @@ static int exe_file_readable(const char *path)
     return 1;
 }
 
-static int exe_try_path(const char *path, char *out, size_t outsz)
+static int exec_try_path(const char *path, char *out, size_t outsz)
 {
     char with_ext[VFS_PATH_MAX];
 
@@ -43,20 +46,20 @@ static int exe_try_path(const char *path, char *out, size_t outsz)
         return -EINVAL;
     if (strlen(path) >= outsz)
         return -ENAMETOOLONG;
-    if (exe_file_readable(path)) {
+    if (exec_file_readable(path)) {
         strcpy(out, path);
         return 0;
     }
-    if (name_ends_with_mke(path))
+    if (name_ends_with_exec(path))
         return -ENOENT;
     {
         size_t plen = strlen(path);
-        if (plen + MKE_EXT_LEN >= sizeof(with_ext))
+        if (plen + EXEC_EXT_LEN >= sizeof(with_ext))
             return -ENAMETOOLONG;
         strcpy(with_ext, path);
-        strcpy(with_ext + plen, MKE_EXT);
+        strcpy(with_ext + plen, EXEC_EXT);
     }
-    if (!exe_file_readable(with_ext))
+    if (!exec_file_readable(with_ext))
         return -ENOENT;
     if (strlen(with_ext) >= outsz)
         return -ENAMETOOLONG;
@@ -64,7 +67,7 @@ static int exe_try_path(const char *path, char *out, size_t outsz)
     return 0;
 }
 
-static int exe_path_has_slash(const char *s)
+static int exec_path_has_slash(const char *s)
 {
     if (!s)
         return 0;
@@ -76,7 +79,7 @@ static int exe_path_has_slash(const char *s)
     return 0;
 }
 
-int exe_resolve(const char *in, char *out, size_t outsz)
+int exec_resolve(const char *in, char *out, size_t outsz)
 {
     process_t *p = process_current();
     char pathbuf[ENV_VAL_MAX];
@@ -90,8 +93,8 @@ int exe_resolve(const char *in, char *out, size_t outsz)
     if (!in || !in[0] || !out || outsz < 2)
         return -EINVAL;
 
-    /* Absolute or relative path: try as-is, then with .mke */
-    if (in[0] == '/' || exe_path_has_slash(in)) {
+    /* Absolute or relative path: try as-is, then with .exec */
+    if (in[0] == '/' || exec_path_has_slash(in)) {
         if (in[0] == '/') {
             if (strlen(in) >= sizeof(cand))
                 return -ENAMETOOLONG;
@@ -117,7 +120,7 @@ int exe_resolve(const char *in, char *out, size_t outsz)
                 memcpy(cand + cl + 1, in, il + 1);
             }
         }
-        return exe_try_path(cand, out, outsz);
+        return exec_try_path(cand, out, outsz);
     }
 
     /* Bare name: search $PATH (default /system/bin:/applications) */
@@ -133,7 +136,7 @@ int exe_resolve(const char *in, char *out, size_t outsz)
         dirlen = (size_t)(colon - start);
         if (dirlen == 0) {
             /* empty PATH component = cwd */
-            rc = exe_try_path(in, out, outsz);
+            rc = exec_try_path(in, out, outsz);
             if (rc == 0)
                 return 0;
         } else {
@@ -142,7 +145,7 @@ int exe_resolve(const char *in, char *out, size_t outsz)
             memcpy(cand, start, dirlen);
             cand[dirlen] = '/';
             strcpy(cand + dirlen + 1, in);
-            rc = exe_try_path(cand, out, outsz);
+            rc = exec_try_path(cand, out, outsz);
             if (rc == 0)
                 return 0;
         }
@@ -153,9 +156,9 @@ int exe_resolve(const char *in, char *out, size_t outsz)
     return -ENOENT;
 }
 
-static void mke_attach_console(pid_t pid, const char *name, uint32_t spawn_flags)
+static void exec_attach_console(pid_t pid, const char *name, uint32_t spawn_flags)
 {
-    const mkdx_api_t *api = mkdx_api_get();
+    const dx_api_t *api = dx_api_get();
     int visible;
 
     if (!api || !api->console_alloc || pid <= 0)
@@ -165,7 +168,7 @@ static void mke_attach_console(pid_t pid, const char *name, uint32_t spawn_flags
     (void)api->console_alloc((int)pid, name, visible);
 }
 
-static const char *mke_path_basename(const char *path)
+static const char *exec_path_basename(const char *path)
 {
     const char *base = path;
 
@@ -179,9 +182,9 @@ static const char *mke_path_basename(const char *path)
     return base;
 }
 
-static const uint8_t *mke_initrd_lookup(const char *path, size_t *size_out)
+static const uint8_t *exec_initrd_lookup(const char *path, size_t *size_out)
 {
-    const char *name = mke_path_basename(path);
+    const char *name = exec_path_basename(path);
     size_t size = 0;
     const initrd_header_t *hdr;
     size_t table_bytes;
@@ -216,50 +219,54 @@ static const uint8_t *mke_initrd_lookup(const char *path, size_t *size_out)
     return NULL;
 }
 
-static int mke_validate_header(const mke_header_t *hdr, size_t total_size)
+static int exec_validate_header(const exec_header_t *hdr, size_t total_size)
 {
-    if (!hdr || total_size < sizeof(mke_header_t)) {
-        klog("[mke] spawn: bad blob\n");
+    if (!hdr || total_size < sizeof(exec_header_t)) {
+        klog("[exec] spawn: bad blob\n");
         return -1;
     }
-    if (hdr->magic != MKE_MAGIC || hdr->version != MKE_VERSION) {
-        klog("[mke] spawn: bad magic/version\n");
+    if (hdr->magic != EXEC_MAGIC || hdr->version != EXEC_VERSION) {
+        klog("[exec] spawn: bad magic/version\n");
         return -1;
     }
-    if (hdr->header_size != sizeof(mke_header_t)) {
-        klog("[mke] spawn: bad header_size\n");
+    if (hdr->header_size != sizeof(exec_header_t)) {
+        klog("[exec] spawn: bad header_size\n");
         return -1;
     }
-    if (hdr->load_addr < MKE_LOAD_MIN || hdr->load_addr > MKE_LOAD_MAX) {
-        klog("[mke] spawn: load_addr out of range ");
+    if (hdr->load_addr < EXEC_LOAD_MIN || hdr->load_addr > EXEC_LOAD_MAX) {
+        klog("[exec] spawn: load_addr out of range ");
         serial_print_hex(hdr->load_addr);
         klog("\n");
         return -1;
     }
     if (hdr->image_size == 0) {
-        klog("[mke] spawn: empty image\n");
+        klog("[exec] spawn: empty image\n");
         return -1;
     }
     if ((size_t)hdr->header_size + (size_t)hdr->image_size > total_size) {
-        klog("[mke] spawn: image exceeds blob\n");
+        klog("[exec] spawn: image exceeds blob\n");
         return -1;
     }
     if (hdr->entry_off >= hdr->image_size + hdr->bss_size) {
-        klog("[mke] spawn: bad entry_off\n");
+        klog("[exec] spawn: bad entry_off\n");
         return -1;
     }
     if (hdr->load_addr + hdr->image_size + hdr->bss_size < hdr->load_addr) {
-        klog("[mke] spawn: load region wrap\n");
+        klog("[exec] spawn: load region wrap\n");
         return -1;
     }
-    if (hdr->load_addr + hdr->image_size + hdr->bss_size > MKE_LOAD_MAX + 0x00800000u) {
-        klog("[mke] spawn: load region too large\n");
+    if (hdr->load_addr + hdr->image_size + hdr->bss_size > EXEC_LOAD_MAX + 0x00800000u) {
+        klog("[exec] spawn: load region too large\n");
+        return -1;
+    }
+    if (hdr->imports_off != 0 && hdr->imports_off >= hdr->image_size + hdr->bss_size) {
+        klog("[exec] spawn: bad imports_off\n");
         return -1;
     }
     return 0;
 }
 
-static void mke_zero_bss(const mke_header_t *hdr)
+static void exec_zero_bss(const exec_header_t *hdr)
 {
     if (!hdr || hdr->bss_size == 0)
         return;
@@ -267,11 +274,11 @@ static void mke_zero_bss(const mke_header_t *hdr)
 }
 
 /*
- * Single address space: reloading an .mke at a fixed load_addr overwrites any
+ * Single address space: reloading an .exec at a fixed load_addr overwrites any
  * still-running instance. Kill those first so we do not corrupt live EIP/data
- * or leave orphan windows / PROC slots (dock spam → process_create_user FAILED).
+ * or leave orphan windows / PROC slots.
  */
-static void mke_kill_load_overlap(const mke_header_t *hdr)
+static void exec_kill_load_overlap(const exec_header_t *hdr)
 {
     process_t **table;
     uint32_t lo, hi;
@@ -303,17 +310,28 @@ static void mke_kill_load_overlap(const mke_header_t *hdr)
     }
 }
 
-static int mke_spawn_header(const mke_header_t *hdr, uint32_t spawn_flags,
+static int exec_bind_libs(const exec_header_t *hdr)
+{
+    return dynlib_bind_exec(hdr->needed, EXEC_NEEDED_MAX, hdr->load_addr,
+                        hdr->imports_off);
+}
+
+static int exec_spawn_header(const exec_header_t *hdr, uint32_t spawn_flags,
                             const char *const *argv, int argc)
 {
     void (*entry)(void);
     pid_t pid;
 
+    if (exec_bind_libs(hdr) < 0) {
+        klog("[exec] dynamic lib bind failed\n");
+        return -ENOENT;
+    }
+
     entry = (void (*)(void))(uintptr_t)(hdr->load_addr + hdr->entry_off);
-    pid = process_create_user(hdr->name[0] ? hdr->name : "mke", entry);
+    pid = process_create_user(hdr->name[0] ? hdr->name : "exec", entry);
     if (pid < 0) {
-        klog("[mke] process_create_user FAILED\n");
-        vga_print("mke: process_create_user failed\n");
+        klog("[exec] process_create_user FAILED\n");
+        vga_print("exec: process_create_user failed\n");
         return -1;
     }
 
@@ -331,7 +349,7 @@ static int mke_spawn_header(const mke_header_t *hdr, uint32_t spawn_flags,
             child->image_bytes = hdr->image_size + hdr->bss_size;
     }
 
-    klog("[mke] spawned ");
+    klog("[exec] spawned ");
     klog(hdr->name);
     klog(" pid=");
     serial_print_uint((uint32_t)pid);
@@ -339,23 +357,23 @@ static int mke_spawn_header(const mke_header_t *hdr, uint32_t spawn_flags,
     serial_print_hex((uint32_t)(uintptr_t)entry);
     klog("\n");
 
-    mke_attach_console(pid, hdr->name[0] ? hdr->name : "mke", spawn_flags);
+    exec_attach_console(pid, hdr->name[0] ? hdr->name : "exec", spawn_flags);
     return pid;
 }
 
-int mke_spawn_flags(const void *blob, size_t size, uint32_t spawn_flags,
+int exec_spawn_flags(const void *blob, size_t size, uint32_t spawn_flags,
                     const char *const *argv, int argc)
 {
-    const mke_header_t *hdr;
+    const exec_header_t *hdr;
     const uint8_t *img;
     uint8_t *dst;
 
-    if (mke_validate_header((const mke_header_t *)blob, size) < 0)
+    if (exec_validate_header((const exec_header_t *)blob, size) < 0)
         return -1;
 
-    hdr = (const mke_header_t *)blob;
+    hdr = (const exec_header_t *)blob;
 
-    klog("[mke] loading ");
+    klog("[exec] loading ");
     klog(hdr->name[0] ? hdr->name : "?");
     klog(" @ ");
     serial_print_hex(hdr->load_addr);
@@ -365,27 +383,27 @@ int mke_spawn_flags(const void *blob, size_t size, uint32_t spawn_flags,
     serial_print_uint(hdr->bss_size);
     klog("\n");
 
-    mke_kill_load_overlap(hdr);
+    exec_kill_load_overlap(hdr);
 
     img = (const uint8_t *)blob + hdr->header_size;
     dst = (uint8_t *)(uintptr_t)hdr->load_addr;
     memcpy(dst, img, hdr->image_size);
-    mke_zero_bss(hdr);
+    exec_zero_bss(hdr);
 
-    return mke_spawn_header(hdr, spawn_flags, argv, argc);
+    return exec_spawn_header(hdr, spawn_flags, argv, argc);
 }
 
-int mke_spawn(const void *blob, size_t size)
+int exec_spawn(const void *blob, size_t size)
 {
-    return mke_spawn_flags(blob, size, SPAWN_CONSOLE_HIDDEN, NULL, 0);
+    return exec_spawn_flags(blob, size, SPAWN_CONSOLE_HIDDEN, NULL, 0);
 }
 
-int mke_spawn_path_flags(const char *path, uint32_t spawn_flags,
+int exec_spawn_path_flags(const char *path, uint32_t spawn_flags,
                          const char *const *argv, int argc)
 {
     const uint8_t *initrd_blob;
     size_t initrd_size = 0;
-    mke_header_t hdr;
+    exec_header_t hdr;
     int fd;
     off_t end;
     ssize_t n;
@@ -395,9 +413,9 @@ int mke_spawn_path_flags(const char *path, uint32_t spawn_flags,
     if (!path || !path[0])
         return -EINVAL;
 
-    initrd_blob = mke_initrd_lookup(path, &initrd_size);
+    initrd_blob = exec_initrd_lookup(path, &initrd_size);
     if (initrd_blob)
-        return mke_spawn_flags(initrd_blob, initrd_size, spawn_flags, argv, argc);
+        return exec_spawn_flags(initrd_blob, initrd_size, spawn_flags, argv, argc);
 
     fd = vfs_open(path, O_RDONLY);
     if (fd < 0)
@@ -422,12 +440,12 @@ int mke_spawn_path_flags(const char *path, uint32_t spawn_flags,
         (void)vfs_close(fd);
         return -ENOEXEC;
     }
-    if (mke_validate_header(&hdr, (size_t)end) < 0) {
+    if (exec_validate_header(&hdr, (size_t)end) < 0) {
         (void)vfs_close(fd);
         return -ENOEXEC;
     }
 
-    klog("[mke] loading ");
+    klog("[exec] loading ");
     klog(hdr.name[0] ? hdr.name : "?");
     klog(" @ ");
     serial_print_hex(hdr.load_addr);
@@ -437,7 +455,7 @@ int mke_spawn_path_flags(const char *path, uint32_t spawn_flags,
     serial_print_uint(hdr.bss_size);
     klog("\n");
 
-    mke_kill_load_overlap(&hdr);
+    exec_kill_load_overlap(&hdr);
 
     dst = (uint8_t *)(uintptr_t)hdr.load_addr;
     if (vfs_lseek(fd, (off_t)hdr.header_size, SEEK_SET) < 0) {
@@ -461,25 +479,11 @@ int mke_spawn_path_flags(const char *path, uint32_t spawn_flags,
     }
 
     (void)vfs_close(fd);
-    mke_zero_bss(&hdr);
-    return mke_spawn_header(&hdr, spawn_flags, argv, argc);
+    exec_zero_bss(&hdr);
+    return exec_spawn_header(&hdr, spawn_flags, argv, argc);
 }
 
-int mke_spawn_path(const char *path)
+int exec_spawn_path(const char *path)
 {
-    return mke_spawn_path_flags(path, SPAWN_CONSOLE_HIDDEN, NULL, 0);
-}
-
-int mke_spawn_from_initrd(const void *data, size_t size)
-{
-    /* Usermode apps are on-disk .mke only — initrd is kmods, not a process zoo. */
-    (void)data;
-    (void)size;
-    return -1;
-}
-
-int mke_spawn_from_mbi(multiboot_info_t *mbi)
-{
-    (void)mbi;
-    return -1;
+    return exec_spawn_path_flags(path, SPAWN_CONSOLE_HIDDEN, NULL, 0);
 }

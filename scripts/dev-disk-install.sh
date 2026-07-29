@@ -11,8 +11,8 @@ echo "[dev-disk-install] building userspace + disk image..."
 xmake -j"$JOBS" userspace disk
 
 echo "[dev-disk-install] disk.img layout:"
-echo "  /system/bin/*.mke     — OS/GUI package (window-manager, shell, terminal, ...)"
-echo "  /applications/*.mke   — user apps"
+echo "  /system/bin/*.exec     — OS/GUI package (window-manager, shell, terminal, ...)"
+echo "  /applications/*.exec   — user apps"
 echo "  /system/share/*       — icons / wallpaper"
 echo "  /system/etc/environment"
 echo

@@ -633,7 +633,7 @@ void handle_click(const Input &in)
 
 } // namespace
 
-extern "C" void mke_main(void)
+extern "C" void exec_main(void)
 {
     g_dirty = true;
 

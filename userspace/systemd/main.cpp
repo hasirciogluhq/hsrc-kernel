@@ -3,10 +3,10 @@
 #include <kernel/syscall.h>
 
 /*
- * Optional /applications/systemd.mke — same role as /init.
- * Prefer installing userspace/init as /applications/init.mke (kernel execs /init).
+ * Optional /applications/systemd.exec — same role as /init.
+ * Prefer installing userspace/init as /applications/init.exec (kernel execs /init).
  */
-void mke_main(void)
+void exec_main(void)
 {
     using hsrc::sdk::process::spawn;
     using hsrc::sdk::process::waitpid;

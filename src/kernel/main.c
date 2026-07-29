@@ -56,7 +56,7 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
 
     /*
      * Heap lives in a Multiboot-discovered available region above the fixed
-     * .exe load window (see bootmem). Avoid a huge .bss heap - loaders may
+     * .exec load window (see bootmem). Avoid a huge .bss heap - loaders may
      * place the initrd inside the kernel BSS span and then zero it.
      */
     if (bootmem_init(mbi, &mem) < 0 || mem.heap_size == 0) {

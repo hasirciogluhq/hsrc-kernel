@@ -219,9 +219,9 @@ void cmd_help()
     line_push("env:    env   |  env PATH   (lists known keys or prints one)", col_dim());
     line_push("export: export NAME=value   |  export -g NAME=value", col_dim());
     line_push("write:  echo hi > f.txt   |  echo hi >> f.txt   |  write f.txt hi", col_dim());
-    line_push("run:    run terminal   |  run /applications/terminal.mke [args...]", col_dim());
+    line_push("run:    run terminal   |  run /applications/terminal.exec [args...]", col_dim());
     line_push("        run -c <app>   (spawn with visible console)", col_dim());
-    line_push("launch: ./app.mke [args...]   |  /applications/app.mke [args...]", col_dim());
+    line_push("launch: ./app.exec [args...]   |  /applications/app.exec [args...]", col_dim());
     line_push("ps:     ps", col_dim());
     line_push("kill:   kill <pid>", col_dim());
     line_push("ping:   ping 10.0.2.2", col_dim());
@@ -420,7 +420,7 @@ bool resolve_run_target(const char *name, char *out, size_t out_n)
         return true;
     }
 
-    build_candidate(candidate, sizeof(candidate), "/applications/", name, ".mke");
+    build_candidate(candidate, sizeof(candidate), "/applications/", name, ".exec");
     if (path_exists(candidate)) {
         copy_cstr(out, out_n, candidate);
         return true;
@@ -447,7 +447,7 @@ bool should_spawn_direct_path(const char *cmd)
         return false;
     if (!((*cmd == '.' && cmd[1] == '/') || *cmd == '/'))
         return false;
-    if (str_ends_with(cmd, ".mke"))
+    if (str_ends_with(cmd, ".exec"))
         return true;
     return path_exists(cmd);
 }
@@ -1444,7 +1444,7 @@ void handle_click(const Input &in)
 
 } // namespace
 
-extern "C" void mke_main(void)
+extern "C" void exec_main(void)
 {
     ScreenInfo info{};
     if (!hsrc::sdk::screen_info(info) || info.width == 0) {

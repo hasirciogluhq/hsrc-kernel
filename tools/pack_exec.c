@@ -1,14 +1,16 @@
-/* Host tool: wrap a flat i386 image into a generic .exe container. */
+/* Host tool: wrap a flat i386 image into a .exec (userspace executable) container. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 
-#define EXE_MAGIC    0x31455845u
-#define EXE_VERSION  1
-#define EXE_NAME_MAX 32
+#define EXEC_MAGIC      0x43455845u /* 'EXEC' */
+#define EXEC_VERSION    2
+#define EXEC_NAME_MAX   32
+#define EXEC_NEEDED_MAX 4
+#define DYNLIB_NAME_MAX   32
 
-typedef struct exe_header {
+typedef struct exec_header {
     uint32_t magic;
     uint32_t version;
     uint32_t header_size;
@@ -17,8 +19,10 @@ typedef struct exe_header {
     uint32_t image_size;
     uint32_t bss_size;
     uint32_t stack_size;
-    char     name[EXE_NAME_MAX];
-} __attribute__((packed)) exe_header_t;
+    char     name[EXEC_NAME_MAX];
+    uint32_t imports_off;
+    char     needed[EXEC_NEEDED_MAX][DYNLIB_NAME_MAX];
+} __attribute__((packed)) exec_header_t;
 
 static int parse_u32(const char *s, uint32_t *out)
 {
@@ -36,16 +40,18 @@ static int parse_u32(const char *s, uint32_t *out)
 
 int main(int argc, char **argv)
 {
-    exe_header_t hdr;
+    exec_header_t hdr;
     FILE *in, *out;
     uint8_t *img;
     long file_sz;
-    uint32_t load_addr, entry_off, image_size, bss_size, stack_size;
+    uint32_t load_addr, entry_off, image_size, bss_size, stack_size, imports_off;
+    int i, needed_i;
 
     if (argc < 8) {
         fprintf(stderr,
-                "usage: %s <out.exe> <image.bin> <load_addr> <entry_off> "
-                "<image_size> <bss_size> <name> [stack_size]\n",
+                "usage: %s <out.exec> <image.bin> <load_addr> <entry_off> "
+                "<image_size> <bss_size> <name> [stack_size] [imports_off] "
+                "[needed.dynlib...]\n",
                 argv[0]);
         return 1;
     }
@@ -59,8 +65,14 @@ int main(int argc, char **argv)
     }
 
     stack_size = 8192;
+    imports_off = 0;
+    needed_i = 0;
     if (argc >= 9 && parse_u32(argv[8], &stack_size) < 0) {
         fprintf(stderr, "bad stack_size\n");
+        return 1;
+    }
+    if (argc >= 10 && parse_u32(argv[9], &imports_off) < 0) {
+        fprintf(stderr, "bad imports_off\n");
         return 1;
     }
 
@@ -101,18 +113,30 @@ int main(int argc, char **argv)
     fclose(in);
 
     memset(&hdr, 0, sizeof(hdr));
-    hdr.magic = EXE_MAGIC;
-    hdr.version = EXE_VERSION;
+    hdr.magic = EXEC_MAGIC;
+    hdr.version = EXEC_VERSION;
     hdr.header_size = (uint32_t)sizeof(hdr);
     hdr.load_addr = load_addr;
     hdr.entry_off = entry_off;
     hdr.image_size = image_size;
     hdr.bss_size = bss_size;
     hdr.stack_size = stack_size;
-    strncpy(hdr.name, argv[7], EXE_NAME_MAX - 1);
+    hdr.imports_off = imports_off;
+    strncpy(hdr.name, argv[7], EXEC_NAME_MAX - 1);
+
+    for (i = 10; i < argc && needed_i < EXEC_NEEDED_MAX; i++) {
+        strncpy(hdr.needed[needed_i], argv[i], DYNLIB_NAME_MAX - 1);
+        needed_i++;
+    }
 
     if (hdr.entry_off >= hdr.image_size + hdr.bss_size) {
         fprintf(stderr, "entry_off out of range\n");
+        free(img);
+        return 1;
+    }
+    if (hdr.imports_off != 0 &&
+        hdr.imports_off >= hdr.image_size + hdr.bss_size) {
+        fprintf(stderr, "imports_off out of range\n");
         free(img);
         return 1;
     }

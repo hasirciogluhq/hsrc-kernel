@@ -1,14 +1,14 @@
-/* Usermode .exe link script. LOAD_ADDR is set via --defsym=LOAD_ADDR=0x... */
-ENTRY(exe_main)
+/* Usermode .exec link script. LOAD_ADDR is set via --defsym=LOAD_ADDR=0x... */
+ENTRY(exec_main)
 
 SECTIONS
 {
     . = LOAD_ADDR;
 
-    _exe_start = .;
+    _exec_start = .;
 
     .text : {
-        *(.text.exe_main)
+        *(.text.exec_main)
         *(.text*)
     }
 
@@ -20,12 +20,12 @@ SECTIONS
         *(.data*)
     }
 
-    _exe_edata = .;
+    _exec_edata = .;
 
     .bss : {
         *(.bss*)
         *(COMMON)
     }
 
-    _exe_end = .;
+    _exec_end = .;
 }
