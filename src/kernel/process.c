@@ -304,7 +304,7 @@ static void process_kill_thread_slot(process_t *t, int code)
         process_clear_slot(t);
 }
 
-/* Parents (os-ui) never waitpid - reap zombies so PROC_MAX does not fill. */
+/* Parents (os-shell / systemd) may never waitpid - reap zombies so PROC_MAX does not fill. */
 static void process_reap_zombies(void)
 {
     for (int i = 0; i < PROC_MAX; i++) {

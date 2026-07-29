@@ -1,4 +1,5 @@
 CompileFlags:
+  CompilationDatabase: .
   Add:
     - --target=i386-none-elf
     - -std=c11
@@ -7,13 +8,35 @@ CompileFlags:
     - -fno-stack-protector
     - -fno-pic
     - -nostdlib
-    - -I/Users/hasircioglu/projects/mykernel/include
-    - -I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx
-    - -I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga
-    - -I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu
+    - -Iinclude
+    - -Isrc/drivers/mkdx
+    - -Isrc/drivers/display/bga
+    - -Isrc/drivers/display/virtio_gpu
+    - -Iuserspace/sdk/core
   Remove:
     - -m32
     - -m64
 
 Index:
   Background: Build
+
+---
+
+If:
+  PathMatch: userspace/.*\.(cpp|hpp|h)
+
+CompileFlags:
+  CompilationDatabase: .
+  Add:
+    - --target=i386-none-elf
+    - -std=c++17
+    - -ffreestanding
+    - -fno-exceptions
+    - -fno-rtti
+    - -fno-builtin
+    - -DUSERMODE
+    - -Iinclude
+    - -Iuserspace/sdk/core
+  Remove:
+    - -m32
+    - -m64

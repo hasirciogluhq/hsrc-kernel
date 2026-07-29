@@ -1,0 +1,11 @@
+local ROOT = os.projectdir()
+
+target("sdk-reed")
+    set_kind("static")
+    set_default(false)
+    mykernel_cross_target()
+    add_files(path.join(ROOT, "userspace/sdk/reed/reed.cpp"))
+    add_includedirs(path.join(ROOT, "include"), {public = true})
+    add_defines("USERMODE")
+    add_cxxflags(mykernel_cxxflags(), {force = true})
+    set_targetdir(path.join(ROOT, "build/userspace/lib"))

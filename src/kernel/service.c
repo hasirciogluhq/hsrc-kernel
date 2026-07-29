@@ -181,7 +181,7 @@ int service_register(const char *name, const char *path, int respawn, int critic
 
 void service_register_builtin_defaults(void)
 {
-    (void)service_register("os-ui", "/applications/os-ui.mke", 1, 1);
+    /* Session UI is started by userspace systemd (init → systemd → units). */
 }
 
 void service_bind_existing_processes(void)

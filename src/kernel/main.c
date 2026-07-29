@@ -153,12 +153,12 @@ void kernel_main(uint32_t magic, multiboot_info_t *mbi)
 
     service_register_builtin_defaults();
 
-    klog("[boot] spawning .mke apps...\n");
+    klog("[boot] spawning init...\n");
     if (mke_spawn_from_mbi(mbi) < 0)
-        klog("[boot] no .mke modules in multiboot (service may spawn os-ui)\n");
-    klog("[boot] mke spawn done\n");
+        klog("[boot] no init.mke in multiboot/initrd\n");
+    klog("[boot] init spawn done\n");
     service_bind_existing_processes();
-    service_start_critical();
+    /* Critical session UI is started by userspace systemd (init → units). */
     klog_heap("[boot]");
 
     {

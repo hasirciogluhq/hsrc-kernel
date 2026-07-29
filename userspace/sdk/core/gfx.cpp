@@ -5,7 +5,7 @@
 namespace hsrc::sdk {
 namespace {
 
-#include "../ugx_font.inc"
+#include "ugx_font.inc"
 
 static_assert(UGX_FONT_H == kUIFontH, "kUIFontH must match UGX_FONT_H");
 static_assert(UGX_FONT_W == kUIFontW, "kUIFontW must match UGX_FONT_W");

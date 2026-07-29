@@ -40,7 +40,7 @@ static int mke_name_is(const char *name, const char *stem)
     return 0;
 }
 
-/* Boot: only os-ui; skip imgui-demo and on-demand apps (terminal, settings, …). */
+/* Boot: only init; systemd starts the rest of userspace. */
 static const char *mke_path_basename(const char *path)
 {
     const char *base = path;
@@ -61,9 +61,7 @@ static int mke_boot_should_spawn(const char *name)
 
     if (!base || !base[0])
         return 0;
-    if (mke_name_is(base, "imgui-demo"))
-        return 0;
-    return mke_name_is(base, "os-ui");
+    return mke_name_is(base, "init");
 }
 
 static void mke_attach_console(pid_t pid, const char *name, uint32_t spawn_flags)

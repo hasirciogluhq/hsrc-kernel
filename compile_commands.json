@@ -1,782 +1,586 @@
 [
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/mouse.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/mouse.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/ps2.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/ps2.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/keyboard.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/keyboard.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/internal.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/internal.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/console.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/console.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/driver.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/driver.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/vga.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/vga.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/pci/pci.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/pci/pci.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/mkdx/font.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/mkdx/font.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/mkdx/draw.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/mkdx/draw.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/mkdx/server.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/mkdx/server.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/mkdx/surface.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/mkdx/surface.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/mkdx/blur.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/mkdx/blur.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/mkdx/device.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/mkdx/device.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/mkdx/context.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/mkdx/context.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/mkdx/render3d.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/mkdx/render3d.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/mkdx/mkdx_mod.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/mkdx/mkdx_mod.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/mkdx/accel.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/mkdx/accel.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/mkdx/compositor.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/mkdx/compositor.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/mkdx/window.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/mkdx/window.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/display/display.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/display/display.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/display/bga/bga.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/display/bga/bga.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/drivers/display/virtio_gpu/virtio_gpu.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/drivers/display/virtio_gpu/virtio_gpu.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/user/os-ui.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/user/os-ui.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/user/terminal.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/user/terminal.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/user/notepad.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/user/notepad.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/user/libgx.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/user/libgx.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/arch/x86/gdt.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/arch/x86/gdt.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/arch/x86/idt.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/arch/x86/idt.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/lib/string.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/lib/string.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/kernel/process.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/kernel/process.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/kernel/ksym.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/kernel/ksym.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/kernel/heap.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/kernel/heap.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/kernel/module.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/kernel/module.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/kernel/syscall.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/kernel/syscall.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/kernel/main.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/kernel/main.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/kernel/mkdx_api.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/kernel/mkdx_api.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/kernel/scheduler.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/kernel/scheduler.c"
-    ]
-  },
-  {
-    "directory": "/Users/hasircioglu/projects/mykernel",
-    "file": "src/kernel/vfs.c",
-    "arguments": [
-      "clang",
-      "--target=i386-none-elf",
-      "-std=c11",
-      "-ffreestanding",
-      "-fno-builtin",
-      "-fno-stack-protector",
-      "-fno-pic",
-      "-nostdlib",
-      "-I/Users/hasircioglu/projects/mykernel/include",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga",
-      "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu",
-      "-c",
-      "src/kernel/vfs.c"
-    ]
-  }
-]
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-ext/cross/i386/release/src/drivers/fs/ext/ext.c.o", "src/drivers/fs/ext/ext.c"],
+  "file": "src/drivers/fs/ext/ext.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["cc", "-c", "-target", "arm64-apple-macos", "-isysroot", "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk", "-o", "build/.objs/mkfatimg/macosx/arm64/release/tools/mkfatimg.c.o", "tools/mkfatimg.c"],
+  "file": "tools/mkfatimg.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-ahci/cross/i386/release/src/drivers/block/ahci/ahci.c.o", "src/drivers/block/ahci/ahci.c"],
+  "file": "src/drivers/block/ahci/ahci.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-display_virtio/cross/i386/release/src/drivers/display/virtio_gpu/virtio_pci.c.o", "src/drivers/display/virtio_gpu/virtio_pci.c"],
+  "file": "src/drivers/display/virtio_gpu/virtio_pci.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-display_virtio/cross/i386/release/src/drivers/display/virtio_gpu/virtio_gpu.c.o", "src/drivers/display/virtio_gpu/virtio_gpu.c"],
+  "file": "src/drivers/display/virtio_gpu/virtio_gpu.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-ntfs/cross/i386/release/src/drivers/fs/ntfs/ntfs.c.o", "src/drivers/fs/ntfs/ntfs.c"],
+  "file": "src/drivers/fs/ntfs/ntfs.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-DUSERMODE", "-std=c++17", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-o", "build/.objs/sdk-reed/cross/i386/release/userspace/sdk/reed/reed.cpp.o", "userspace/sdk/reed/reed.cpp"],
+  "file": "userspace/sdk/reed/reed.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-loop/cross/i386/release/src/drivers/block/loop/loop.c.o", "src/drivers/block/loop/loop.c"],
+  "file": "src/drivers/block/loop/loop.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-initrdfs/cross/i386/release/src/drivers/fs/initrdfs/initrdfs.c.o", "src/drivers/fs/initrdfs/initrdfs.c"],
+  "file": "src/drivers/fs/initrdfs/initrdfs.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-iso9660/cross/i386/release/src/drivers/fs/iso9660/iso9660.c.o", "src/drivers/fs/iso9660/iso9660.c"],
+  "file": "src/drivers/fs/iso9660/iso9660.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-exfat/cross/i386/release/src/drivers/fs/exfat/exfat.c.o", "src/drivers/fs/exfat/exfat.c"],
+  "file": "src/drivers/fs/exfat/exfat.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-fat/cross/i386/release/src/drivers/fs/fat/fat.c.o", "src/drivers/fs/fat/fat.c"],
+  "file": "src/drivers/fs/fat/fat.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/userspace/imgui-demo", "-I/Users/hasircioglu/projects/mykernel/userspace/imgui-demo/freestanding", "-I/Users/hasircioglu/projects/mykernel/userspace/imgui-demo/third_party/imgui", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++23", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Wno-unused-parameter", "-Wno-unused-function", "-Wno-missing-field-initializers", "-Wno-invalid-offsetof", "-Wno-class-memaccess", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-fcoroutines", "-o", "build/.objs/app-imgui-demo/cross/i386/release/userspace/imgui-demo/main.cpp.o", "userspace/imgui-demo/main.cpp"],
+  "file": "userspace/imgui-demo/main.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/userspace/imgui-demo", "-I/Users/hasircioglu/projects/mykernel/userspace/imgui-demo/freestanding", "-I/Users/hasircioglu/projects/mykernel/userspace/imgui-demo/third_party/imgui", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++23", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Wno-unused-parameter", "-Wno-unused-function", "-Wno-missing-field-initializers", "-Wno-invalid-offsetof", "-Wno-class-memaccess", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-fcoroutines", "-o", "build/.objs/app-imgui-demo/cross/i386/release/userspace/imgui-demo/imgui_impl_ugx.cpp.o", "userspace/imgui-demo/imgui_impl_ugx.cpp"],
+  "file": "userspace/imgui-demo/imgui_impl_ugx.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/userspace/imgui-demo", "-I/Users/hasircioglu/projects/mykernel/userspace/imgui-demo/freestanding", "-I/Users/hasircioglu/projects/mykernel/userspace/imgui-demo/third_party/imgui", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++23", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Wno-unused-parameter", "-Wno-unused-function", "-Wno-missing-field-initializers", "-Wno-invalid-offsetof", "-Wno-class-memaccess", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-fcoroutines", "-o", "build/.objs/app-imgui-demo/cross/i386/release/userspace/imgui-demo/support.cpp.o", "userspace/imgui-demo/support.cpp"],
+  "file": "userspace/imgui-demo/support.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/userspace/imgui-demo", "-I/Users/hasircioglu/projects/mykernel/userspace/imgui-demo/freestanding", "-I/Users/hasircioglu/projects/mykernel/userspace/imgui-demo/third_party/imgui", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++23", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Wno-unused-parameter", "-Wno-unused-function", "-Wno-missing-field-initializers", "-Wno-invalid-offsetof", "-Wno-class-memaccess", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-fcoroutines", "-o", "build/.objs/app-imgui-demo/cross/i386/release/userspace/imgui-demo/third_party/imgui/imgui.cpp.o", "userspace/imgui-demo/third_party/imgui/imgui.cpp"],
+  "file": "userspace/imgui-demo/third_party/imgui/imgui.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/userspace/imgui-demo", "-I/Users/hasircioglu/projects/mykernel/userspace/imgui-demo/freestanding", "-I/Users/hasircioglu/projects/mykernel/userspace/imgui-demo/third_party/imgui", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++23", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Wno-unused-parameter", "-Wno-unused-function", "-Wno-missing-field-initializers", "-Wno-invalid-offsetof", "-Wno-class-memaccess", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-fcoroutines", "-o", "build/.objs/app-imgui-demo/cross/i386/release/userspace/imgui-demo/third_party/imgui/imgui_draw.cpp.o", "userspace/imgui-demo/third_party/imgui/imgui_draw.cpp"],
+  "file": "userspace/imgui-demo/third_party/imgui/imgui_draw.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/userspace/imgui-demo", "-I/Users/hasircioglu/projects/mykernel/userspace/imgui-demo/freestanding", "-I/Users/hasircioglu/projects/mykernel/userspace/imgui-demo/third_party/imgui", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++23", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Wno-unused-parameter", "-Wno-unused-function", "-Wno-missing-field-initializers", "-Wno-invalid-offsetof", "-Wno-class-memaccess", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-fcoroutines", "-o", "build/.objs/app-imgui-demo/cross/i386/release/userspace/imgui-demo/third_party/imgui/imgui_tables.cpp.o", "userspace/imgui-demo/third_party/imgui/imgui_tables.cpp"],
+  "file": "userspace/imgui-demo/third_party/imgui/imgui_tables.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/userspace/imgui-demo", "-I/Users/hasircioglu/projects/mykernel/userspace/imgui-demo/freestanding", "-I/Users/hasircioglu/projects/mykernel/userspace/imgui-demo/third_party/imgui", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++23", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Wno-unused-parameter", "-Wno-unused-function", "-Wno-missing-field-initializers", "-Wno-invalid-offsetof", "-Wno-class-memaccess", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-fcoroutines", "-o", "build/.objs/app-imgui-demo/cross/i386/release/userspace/imgui-demo/third_party/imgui/imgui_widgets.cpp.o", "userspace/imgui-demo/third_party/imgui/imgui_widgets.cpp"],
+  "file": "userspace/imgui-demo/third_party/imgui/imgui_widgets.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-block/cross/i386/release/src/drivers/block/block.c.o", "src/drivers/block/block.c"],
+  "file": "src/drivers/block/block.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++17", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-o", "build/.objs/app-os-settings/cross/i386/release/userspace/os-settings/main.cpp.o", "userspace/os-settings/main.cpp"],
+  "file": "userspace/os-settings/main.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-mkdx/cross/i386/release/src/drivers/mkdx/font.c.o", "src/drivers/mkdx/font.c"],
+  "file": "src/drivers/mkdx/font.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-mkdx/cross/i386/release/src/drivers/mkdx/draw.c.o", "src/drivers/mkdx/draw.c"],
+  "file": "src/drivers/mkdx/draw.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-mkdx/cross/i386/release/src/drivers/mkdx/server.c.o", "src/drivers/mkdx/server.c"],
+  "file": "src/drivers/mkdx/server.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-mkdx/cross/i386/release/src/drivers/mkdx/console.c.o", "src/drivers/mkdx/console.c"],
+  "file": "src/drivers/mkdx/console.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-mkdx/cross/i386/release/src/drivers/mkdx/surface.c.o", "src/drivers/mkdx/surface.c"],
+  "file": "src/drivers/mkdx/surface.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-mkdx/cross/i386/release/src/drivers/mkdx/blur.c.o", "src/drivers/mkdx/blur.c"],
+  "file": "src/drivers/mkdx/blur.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-mkdx/cross/i386/release/src/drivers/mkdx/device.c.o", "src/drivers/mkdx/device.c"],
+  "file": "src/drivers/mkdx/device.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-mkdx/cross/i386/release/src/drivers/mkdx/context.c.o", "src/drivers/mkdx/context.c"],
+  "file": "src/drivers/mkdx/context.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-mkdx/cross/i386/release/src/drivers/mkdx/render3d.c.o", "src/drivers/mkdx/render3d.c"],
+  "file": "src/drivers/mkdx/render3d.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-mkdx/cross/i386/release/src/drivers/mkdx/mkdx_mod.c.o", "src/drivers/mkdx/mkdx_mod.c"],
+  "file": "src/drivers/mkdx/mkdx_mod.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-mkdx/cross/i386/release/src/drivers/mkdx/accel.c.o", "src/drivers/mkdx/accel.c"],
+  "file": "src/drivers/mkdx/accel.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-mkdx/cross/i386/release/src/drivers/mkdx/compositor.c.o", "src/drivers/mkdx/compositor.c"],
+  "file": "src/drivers/mkdx/compositor.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-mkdx/cross/i386/release/src/drivers/mkdx/window.c.o", "src/drivers/mkdx/window.c"],
+  "file": "src/drivers/mkdx/window.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-part_mbr/cross/i386/release/src/drivers/part/mbr/part_mbr.c.o", "src/drivers/part/mbr/part_mbr.c"],
+  "file": "src/drivers/part/mbr/part_mbr.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-ramdisk/cross/i386/release/src/drivers/block/ramdisk/ramdisk.c.o", "src/drivers/block/ramdisk/ramdisk.c"],
+  "file": "src/drivers/block/ramdisk/ramdisk.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/arch/x86/cpu.c.o", "src/arch/x86/cpu.c"],
+  "file": "src/arch/x86/cpu.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/arch/x86/irq_impl.c.o", "src/arch/x86/irq_impl.c"],
+  "file": "src/arch/x86/irq_impl.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/arch/x86/gdt.c.o", "src/arch/x86/gdt.c"],
+  "file": "src/arch/x86/gdt.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/arch/x86/exception.c.o", "src/arch/x86/exception.c"],
+  "file": "src/arch/x86/exception.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/arch/x86/idt.c.o", "src/arch/x86/idt.c"],
+  "file": "src/arch/x86/idt.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/arch/x86/lapic.c.o", "src/arch/x86/lapic.c"],
+  "file": "src/arch/x86/lapic.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/netstack.c.o", "src/kernel/netstack.c"],
+  "file": "src/kernel/netstack.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/dhcp.c.o", "src/kernel/dhcp.c"],
+  "file": "src/kernel/dhcp.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/process.c.o", "src/kernel/process.c"],
+  "file": "src/kernel/process.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/ksym.c.o", "src/kernel/ksym.c"],
+  "file": "src/kernel/ksym.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/heap.c.o", "src/kernel/heap.c"],
+  "file": "src/kernel/heap.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/block_api.c.o", "src/kernel/block_api.c"],
+  "file": "src/kernel/block_api.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/module.c.o", "src/kernel/module.c"],
+  "file": "src/kernel/module.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/boot_splash.c.o", "src/kernel/boot_splash.c"],
+  "file": "src/kernel/boot_splash.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/socket.c.o", "src/kernel/socket.c"],
+  "file": "src/kernel/socket.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/syscall.c.o", "src/kernel/syscall.c"],
+  "file": "src/kernel/syscall.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/netif.c.o", "src/kernel/netif.c"],
+  "file": "src/kernel/netif.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/initrd_store.c.o", "src/kernel/initrd_store.c"],
+  "file": "src/kernel/initrd_store.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/mke.c.o", "src/kernel/mke.c"],
+  "file": "src/kernel/mke.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/env.c.o", "src/kernel/env.c"],
+  "file": "src/kernel/env.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/main.c.o", "src/kernel/main.c"],
+  "file": "src/kernel/main.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/time.c.o", "src/kernel/time.c"],
+  "file": "src/kernel/time.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/mm.c.o", "src/kernel/mm.c"],
+  "file": "src/kernel/mm.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/service.c.o", "src/kernel/service.c"],
+  "file": "src/kernel/service.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/sync.c.o", "src/kernel/sync.c"],
+  "file": "src/kernel/sync.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/bootmem.c.o", "src/kernel/bootmem.c"],
+  "file": "src/kernel/bootmem.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/mkdx_api.c.o", "src/kernel/mkdx_api.c"],
+  "file": "src/kernel/mkdx_api.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/argv.c.o", "src/kernel/argv.c"],
+  "file": "src/kernel/argv.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/scheduler.c.o", "src/kernel/scheduler.c"],
+  "file": "src/kernel/scheduler.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/vfs_api.c.o", "src/kernel/vfs_api.c"],
+  "file": "src/kernel/vfs_api.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/vfs.c.o", "src/kernel/vfs.c"],
+  "file": "src/kernel/vfs.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/smp.c.o", "src/kernel/smp.c"],
+  "file": "src/kernel/smp.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/kernel/uaccess.c.o", "src/kernel/uaccess.c"],
+  "file": "src/kernel/uaccess.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/lib/libgcc.c.o", "src/lib/libgcc.c"],
+  "file": "src/lib/libgcc.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/lib/string.c.o", "src/lib/string.c"],
+  "file": "src/lib/string.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/drivers/serial.c.o", "src/drivers/serial.c"],
+  "file": "src/drivers/serial.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/drivers/mouse.c.o", "src/drivers/mouse.c"],
+  "file": "src/drivers/mouse.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/drivers/ps2.c.o", "src/drivers/ps2.c"],
+  "file": "src/drivers/ps2.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/drivers/keyboard.c.o", "src/drivers/keyboard.c"],
+  "file": "src/drivers/keyboard.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/drivers/internal.c.o", "src/drivers/internal.c"],
+  "file": "src/drivers/internal.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/drivers/console.c.o", "src/drivers/console.c"],
+  "file": "src/drivers/console.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/drivers/driver.c.o", "src/drivers/driver.c"],
+  "file": "src/drivers/driver.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/drivers/vga.c.o", "src/drivers/vga.c"],
+  "file": "src/drivers/vga.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/drivers/pci/pci.c.o", "src/drivers/pci/pci.c"],
+  "file": "src/drivers/pci/pci.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kernel/cross/i386/release/src/drivers/display/display.c.o", "src/drivers/display/display.c"],
+  "file": "src/drivers/display/display.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-udf/cross/i386/release/src/drivers/fs/udf/udf.c.o", "src/drivers/fs/udf/udf.c"],
+  "file": "src/drivers/fs/udf/udf.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-tmpfs/cross/i386/release/src/drivers/fs/tmpfs/tmpfs.c.o", "src/drivers/fs/tmpfs/tmpfs.c"],
+  "file": "src/drivers/fs/tmpfs/tmpfs.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-DUSERMODE", "-std=c++17", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-o", "build/.objs/sdk-kilim/cross/i386/release/userspace/sdk/kilim/kilim.cpp.o", "userspace/sdk/kilim/kilim.cpp"],
+  "file": "userspace/sdk/kilim/kilim.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++17", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-o", "build/.objs/app-systemd/cross/i386/release/userspace/systemd/main.cpp.o", "userspace/systemd/main.cpp"],
+  "file": "userspace/systemd/main.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++17", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-o", "build/.objs/app-os-shell/cross/i386/release/userspace/os-shell/main.cpp.o", "userspace/os-shell/main.cpp"],
+  "file": "userspace/os-shell/main.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-procfs/cross/i386/release/src/drivers/fs/procfs/procfs.c.o", "src/drivers/fs/procfs/procfs.c"],
+  "file": "src/drivers/fs/procfs/procfs.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++17", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-o", "build/.objs/app-minesweeper/cross/i386/release/userspace/minesweeper/main.cpp.o", "userspace/minesweeper/main.cpp"],
+  "file": "userspace/minesweeper/main.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++17", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-o", "build/.objs/app-files/cross/i386/release/userspace/files/main.cpp.o", "userspace/files/main.cpp"],
+  "file": "userspace/files/main.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-sysfs/cross/i386/release/src/drivers/fs/sysfs/sysfs.c.o", "src/drivers/fs/sysfs/sysfs.c"],
+  "file": "src/drivers/fs/sysfs/sysfs.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-vfs/cross/i386/release/src/drivers/vfs/vfs_flock.c.o", "src/drivers/vfs/vfs_flock.c"],
+  "file": "src/drivers/vfs/vfs_flock.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-vfs/cross/i386/release/src/drivers/vfs/vfs_xattr.c.o", "src/drivers/vfs/vfs_xattr.c"],
+  "file": "src/drivers/vfs/vfs_xattr.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-vfs/cross/i386/release/src/drivers/vfs/vfs_dcache.c.o", "src/drivers/vfs/vfs_dcache.c"],
+  "file": "src/drivers/vfs/vfs_dcache.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-vfs/cross/i386/release/src/drivers/vfs/vfs_pcache.c.o", "src/drivers/vfs/vfs_pcache.c"],
+  "file": "src/drivers/vfs/vfs_pcache.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-vfs/cross/i386/release/src/drivers/vfs/vfs_fsnotify.c.o", "src/drivers/vfs/vfs_fsnotify.c"],
+  "file": "src/drivers/vfs/vfs_fsnotify.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-vfs/cross/i386/release/src/drivers/vfs/vfs_core.c.o", "src/drivers/vfs/vfs_core.c"],
+  "file": "src/drivers/vfs/vfs_core.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++17", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-o", "build/.objs/app-activity-monitor/cross/i386/release/userspace/activity-monitor/main.cpp.o", "userspace/activity-monitor/main.cpp"],
+  "file": "userspace/activity-monitor/main.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-display_bga/cross/i386/release/src/drivers/display/bga/bga.c.o", "src/drivers/display/bga/bga.c"],
+  "file": "src/drivers/display/bga/bga.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++17", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-o", "build/.objs/sdk-core/cross/i386/release/userspace/sdk/core/thread.cpp.o", "userspace/sdk/core/thread.cpp"],
+  "file": "userspace/sdk/core/thread.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++17", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-o", "build/.objs/sdk-core/cross/i386/release/userspace/sdk/core/process.cpp.o", "userspace/sdk/core/process.cpp"],
+  "file": "userspace/sdk/core/process.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++17", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-o", "build/.objs/sdk-core/cross/i386/release/userspace/sdk/core/svg.cpp.o", "userspace/sdk/core/svg.cpp"],
+  "file": "userspace/sdk/core/svg.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++17", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-o", "build/.objs/sdk-core/cross/i386/release/userspace/sdk/core/syscall.cpp.o", "userspace/sdk/core/syscall.cpp"],
+  "file": "userspace/sdk/core/syscall.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++17", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-o", "build/.objs/sdk-core/cross/i386/release/userspace/sdk/core/gfx.cpp.o", "userspace/sdk/core/gfx.cpp"],
+  "file": "userspace/sdk/core/gfx.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++17", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-o", "build/.objs/sdk-core/cross/i386/release/userspace/sdk/core/settings.cpp.o", "userspace/sdk/core/settings.cpp"],
+  "file": "userspace/sdk/core/settings.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++17", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-o", "build/.objs/sdk-core/cross/i386/release/userspace/sdk/core/time.cpp.o", "userspace/sdk/core/time.cpp"],
+  "file": "userspace/sdk/core/time.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-DUSERMODE", "-o", "build/.objs/sdk-core/cross/i386/release/userspace/sdk/core/string.c.o", "userspace/sdk/core/string.c"],
+  "file": "userspace/sdk/core/string.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++17", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-o", "build/.objs/app-window-manager/cross/i386/release/userspace/window-manager/main.cpp.o", "userspace/window-manager/main.cpp"],
+  "file": "userspace/window-manager/main.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-part_gpt/cross/i386/release/src/drivers/part/gpt/part_gpt.c.o", "src/drivers/part/gpt/part_gpt.c"],
+  "file": "src/drivers/part/gpt/part_gpt.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++17", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-o", "build/.objs/app-terminal/cross/i386/release/userspace/terminal/main.cpp.o", "userspace/terminal/main.cpp"],
+  "file": "userspace/terminal/main.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-nvme/cross/i386/release/src/drivers/block/nvme/nvme.c.o", "src/drivers/block/nvme/nvme.c"],
+  "file": "src/drivers/block/nvme/nvme.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-ramfs/cross/i386/release/src/drivers/fs/ramfs/ramfs.c.o", "src/drivers/fs/ramfs/ramfs.c"],
+  "file": "src/drivers/fs/ramfs/ramfs.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-virtio_blk/cross/i386/release/src/drivers/block/virtio_blk/virtio_blk.c.o", "src/drivers/block/virtio_blk/virtio_blk.c"],
+  "file": "src/drivers/block/virtio_blk/virtio_blk.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-devtmpfs/cross/i386/release/src/drivers/fs/devtmpfs/devtmpfs.c.o", "src/drivers/fs/devtmpfs/devtmpfs.c"],
+  "file": "src/drivers/fs/devtmpfs/devtmpfs.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-g++", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/userspace/sdk/core", "-DUSERMODE", "-std=c++17", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-exceptions", "-fno-rtti", "-fno-use-cxa-atexit", "-fno-threadsafe-statics", "-o", "build/.objs/app-init/cross/i386/release/userspace/init/main.cpp.o", "userspace/init/main.cpp"],
+  "file": "userspace/init/main.cpp"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["i686-elf-gcc", "-c", "-I/Users/hasircioglu/projects/mykernel/include", "-I/Users/hasircioglu/projects/mykernel/src/drivers/mkdx", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/bga", "-I/Users/hasircioglu/projects/mykernel/src/drivers/display/virtio_gpu", "-std=c11", "-ffreestanding", "-m32", "-Wall", "-Wextra", "-Werror", "-O2", "-fno-stack-protector", "-fno-pic", "-fno-builtin", "-nostdlib", "-fno-common", "-o", "build/.objs/kmod-virtio_net/cross/i386/release/src/drivers/net/virtio_net/virtio_net.c.o", "src/drivers/net/virtio_net/virtio_net.c"],
+  "file": "src/drivers/net/virtio_net/virtio_net.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["cc", "-c", "-target", "arm64-apple-macos", "-isysroot", "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk", "-o", "build/.objs/pack_mke/macosx/arm64/release/tools/pack_mke.c.o", "tools/pack_mke.c"],
+  "file": "tools/pack_mke.c"
+},
+{
+  "directory": "/Users/hasircioglu/projects/mykernel",
+  "arguments": ["cc", "-c", "-target", "arm64-apple-macos", "-isysroot", "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk", "-o", "build/.objs/pack_initrd/macosx/arm64/release/tools/pack_initrd.c.o", "tools/pack_initrd.c"],
+  "file": "tools/pack_initrd.c"
+}]

@@ -18,7 +18,7 @@
 int main(int argc, char **argv)
 {
     const char *ttf_path = argc > 1 ? argv[1] : "assets/fonts/Inter-Regular.ttf";
-    const char *out_path = argc > 2 ? argv[2] : "src/user/ugx_font.inc";
+    const char *out_path = argc > 2 ? argv[2] : "userspace/sdk/core/ugx_font.inc";
     float pixel_height = argc > 3 ? (float)atof(argv[3]) : 16.0f;
 
     FILE *f = fopen(ttf_path, "rb");

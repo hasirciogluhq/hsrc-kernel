@@ -1,25 +1,25 @@
 ---
 name: Xmake Userspace Boot
-overview: "Makefile/mk → __old_shits__; xmake + ld/; userspace/ taşıma; init→systemd; sonra include/import map + clangd/compile_commands zorunlu güncelleme."
+overview: Makefile/mk → __old_shits__; xmake + ld/; userspace/ taşıma; init→systemd; sonra include/import map + clangd/compile_commands zorunlu güncelleme.
 todos:
   - id: archive-make
-    content: "Makefile + mk/ → __old_shits__; kök linker.ld/user.ld → ld/; xmake.lua + xmake/"
-    status: pending
+    content: Makefile + mk/ → __old_shits__; kök linker.ld/user.ld → ld/; xmake.lua + xmake/
+    status: completed
   - id: userspace-layout
-    content: "userspace/<app|sdk|…>/ taşı; çoklu sdk (sdk/reed, sdk/kilim); tekil+nested app"
-    status: pending
+    content: userspace/<app|sdk|…>/ taşı; çoklu sdk (sdk/reed, sdk/kilim); tekil+nested app
+    status: completed
   - id: fix-imports-clangd
     content: "Taşıma sonrası #include/path, xmake includes, .clangd, compile_commands.json yenile"
-    status: pending
+    status: completed
   - id: init-systemd
-    content: "Kernel yalnız init; systemd + units/; mke_spawn_all ve service_start_critical kalkar"
-    status: pending
+    content: Kernel yalnız init; systemd + units/; mke_spawn_all ve service_start_critical kalkar
+    status: completed
   - id: drivers-xmake
-    content: "Embedded → kernel link; custom .kmod targets → initrd"
-    status: pending
+    content: Embedded → kernel link; custom .kmod targets → initrd
+    status: completed
   - id: tools-initrd-qemu
-    content: "tools/pack_* xmake; initrd; xmake run"
-    status: pending
+    content: tools/pack_* xmake; initrd; xmake run
+    status: completed
 isProject: false
 ---
 

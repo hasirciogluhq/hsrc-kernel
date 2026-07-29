@@ -49,8 +49,8 @@ Stuff that actually exists in the tree - no LinkedIn buzzwords:
 - **Usermode processes** - C++17 apps packed as **`.mke`**, flat address space, syscalls
 - **Threading + sync** - `Thread`, kernel **Event**, **ConditionVariable** (block for real, don't spin on `yield(0)`)
 - **MKDX** - window/surface compositor (layers, acrylic blur, wallpaper, drag) as a loadable module
-- **Desktop stack** - `os-ui` dock/shell, terminal, files, settings, activity-monitor, **minesweeper**
-- **ImGui rendering** - why not. Dear ImGui software-rasterized onto MKDX/ugx; display present is SW (BGA) or VirtIO-GPU scanout via PCI. Demo: `apps/imgui-demo`
+- **Desktop stack** - `os-shell` dock/shell, `window-manager`, terminal, files, settings, activity-monitor, **minesweeper** (boot: `init` → `systemd` → units)
+- **ImGui rendering** - why not. Dear ImGui software-rasterized onto MKDX/ugx; display present is SW (BGA) or VirtIO-GPU scanout via PCI. Demo: `userspace/imgui-demo`
 - **Driver modules (`.kmod`)** - packed into initrd; PCI, VGA, PS/2, VFS/block stack, …
 - **Virtio** - `virtio-blk` disk + `virtio-net` + DHCP / sockets
 - **VFS zoo** - fat, ext, ntfs, exfat, iso9660, tmpfs, procfs, sysfs, and friends (as loadable FS drivers)
@@ -63,8 +63,8 @@ Stuff that actually exists in the tree - no LinkedIn buzzwords:
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  usermode .mke apps                                     │
-│  os-ui · terminal · files · settings · activity · imgui │
-│  C++ SDK: gfx / thread / Event / CV / fs / net          │
+│  init → systemd → window-manager · os-shell · …         │
+│  C++ SDK: gfx / reed / kilim / thread / fs / net        │
 └──────────────────────────┬──────────────────────────────┘
                            │ syscalls
 ┌──────────────────────────▼──────────────────────────────┐
@@ -96,41 +96,41 @@ Why not. Dear ImGui runs as a normal usermode `.mke` app - custom `imgui_impl_ug
 Compositor and apps stay on ugx either way. Backend swaps underfoot. Same paint path upstairs.
 
 ```
-apps/imgui-demo/     # Dear ImGui + imgui_impl_ugx on MKDX/ugx
+userspace/imgui-demo/     # Dear ImGui + imgui_impl_ugx on MKDX/ugx
 ```
 
-Open it from the dock after `make run`. Theme follows system settings. Flex optional. Results mandatory.
+Open it from the dock after `xmake run`. Theme follows system settings. Flex optional. Results mandatory.
 
 ---
 
 ## Build & Run
 
-**Toolchain:** `nasm`, `i686-elf-gcc` / `g++`, `qemu-system-i386`
+**Toolchain:** `xmake`, `nasm`, `i686-elf-gcc` / `g++`, `qemu-system-i386`
 
 ```bash
-make            # kernel.bin + initrd + disk.img (parallel by default)
-make run        # QEMU: 1G RAM, -smp 3, virtio disk+net, serial on stdio
-make clean
-make disk       # (re)build disk image helpers as needed
+xmake f -p cross -a i386 --cross=i686-elf-   # once; SDK auto-detected from PATH
+xmake                                        # kernel.bin + kmods + userspace + initrd
+xmake run                                    # QEMU: 1G RAM, -smp 3, virtio disk+net, serial on stdio
+xmake clean
+xmake project -k compile_commands            # clangd
 ```
 
 Serial goes to your terminal. GUI is the VGA window. Smash apps from the dock.
-
-Override parallelism if you want: `make JOBS=1`.
 
 ---
 
 ## Project layout
 
 ```
-apps/           # imgui-demo - Dear ImGui on MKDX/ugx (software render)
+userspace/      # init, systemd, apps, sdk/{core,reed,kilim}
 assets/         # fonts, wallpaper, icons, showcase shots
 include/        # kernel + user SDK headers
-mk/             # Makefile fragments (kernel, drivers, userapps, qemu)
+ld/             # linker.ld, user.ld
+xmake/          # toolchain, kernel, drivers, userspace, qemu
+__old_shits__/  # archived Makefile + mk/
 src/arch/x86/   # GDT/IDT/IRQ/CPU
 src/kernel/     # boot, mm, process, scheduler, SMP, sync, syscall, …
 src/drivers/    # .kmod sources (MKDX, virtio, VFS, …)
-src/user/       # SDK + usermode apps (.mke)
 tools/          # pack_initrd, pack_mke, mkfatimg, …
 ```
 

@@ -1,0 +1,7 @@
+[Unit]
+Description=Window Manager
+Restart=always
+
+[Service]
+ExecStart=/applications/window-manager.mke
+Critical=yes

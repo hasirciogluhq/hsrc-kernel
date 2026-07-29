@@ -1,0 +1,7 @@
+[Unit]
+Description=OS Shell
+Restart=always
+
+[Service]
+ExecStart=/applications/os-shell.mke
+Critical=yes
